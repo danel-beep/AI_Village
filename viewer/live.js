@@ -50,9 +50,21 @@
       loaded = true;
       const drop = document.getElementById('drop');  // the "open a log file" dialog is not needed live
       if (drop) drop.style.display = 'none';
-      if (typeof i !== 'undefined' && !window.viewerAppend) { i = Math.max(0, atEnd); frac = 1; }
+      // Start at the newest ticks: replaying the backlog would make pause look broken (the server stops,
+      // the screen keeps playing old hours). The scrubber still reaches the past.
+      if (typeof i !== 'undefined') { i = Math.max(0, atEnd); frac = 1; }
     }
   }, 300);
+
+  // One pause for everything: the viewer's ⏸ (and the god panel's) also stops the simulation on the
+  // server, so no ticks (and no model calls) pile up while paused. Status goes out as 'village-paused'.
+  window.addEventListener('viewer-play', e => {
+    fetch('/api/control', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: e.detail ? 'resume' : 'pause' }) }).then(r => r.json()).then(s => {
+      if (!s.finished) setBadge(s.paused ? '⏸ пауза' : '● LIVE', s.paused ? '#f2c14e' : '#76b041');
+      window.dispatchEvent(new CustomEvent('village-paused', { detail: s.paused }));
+    });
+  });
 
   connect();
 })();
