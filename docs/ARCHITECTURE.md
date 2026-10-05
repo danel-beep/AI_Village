@@ -30,7 +30,11 @@ god events ─┐
 | `aivillage/registry.py` | `ACTIONS` / `GOD` registries: args model → prompt line, JSON schema, validation |
 | `aivillage/actions.py` | agent actions |
 | `aivillage/god.py` | experimenter interventions |
+| `aivillage/governance.py` | mayor elections, law proposals and votes, treasury, exile (via `ACTIONS.guards`), theft reports; engine hooks `end_of_hour` / `new_day` |
 | `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
+| `aivillage/reputation.py` | reputation (each agent's own tally of deeds it saw: thefts, defaults, repaid debts, fire help, trades, gifts) and rumors (`gossip` action; stored with the teller, never scored). Hooks in via `ops.EVENT_HOOKS`; adds `reputation` / `rumors` to `observe()`; config block `reputation` |
+| `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
+| `aivillage/family.py` | feelings (directed scores moved by events via `family.on_event`), hang_out/propose/answer_proposal/divorce, marriage (shared house + chests), inheritance; feelings via `ops.EVENT_HOOKS`; engine calls `after_hour` (estates) / `after_night`; `observe()["relations"]`. Unlike reputation (what I saw), feelings are the relationship that drives marriage and inheritance |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |
@@ -44,15 +48,51 @@ god events ─┐
 | `viewer/report.js` | injected by the server: recap panel (`/api/summary`) and problem report form (`/api/report`) |
 | `viewer/live.js`, `viewer/god.js` | injected by the server into `index.html`: live feed (uses only `load()` / `ticks` / optional `window.viewerAppend`) and the god panel built from GOD schemas |
 | `viewer/index.html` | Replay UI (controls, villager cards, diary, events). Feed it via `Viewer.start(header)` / `Viewer.push(row)`; `scripts/build_demo.py` bundles a log + scripts into one page |
-| `viewer/pixelmap.js` | Pixel-art map renderer: map layout (viewer-only coordinates), art drawn in code, walking, fire, lighting |
+| `viewer/pixelmap.js` | Pixel-art map renderer: map layout (viewer-only coordinates), art drawn in code, walking, lighting |
+| `viewer/actors.js` | Villagers: activity per tick from their own events (`work` resource/slots, `plant`, `pour_water`, `craft`, `eat`, `say`...), poses with tools and particles (axe, pick, hoe, rod, bucket, hammer), idle strolls, smoothing of every position jump, speech/thought/whisper bubbles. Wall-clock loops keep villagers busy between ticks. To animate a new event kind add it to `KIND` (+ a pose in `POSES`) |
+| `viewer/camera.js` | Zoom (wheel, +/- buttons, keys `+ - 0`), drag to pan, follows the selected villager. `PixelMap.pick(x, y)` takes canvas pixels and converts through the camera |
+| `viewer/maplayer.js` | Map objects layer, drawn from `view.map` / `view.fire_info` / events: trees and stumps, beds by growth stage, bushes, fish, rocks, fire size, water splashes. Hooked into pixelmap via `MapLayer.init/claimTrees/draw/drawTop` |
+
+## Map objects and fire in the log
+
+A location resource with `"slots": n` in `config.py` is n objects of `max // n` units (`tiles.py`). `loc.resources[r]`
+(what agents see) always equals `sum(loc.slots[r])`; invariants check it. Gathering empties the least-full object
+first (a tree is chopped down before the next one is started); night regrowth adds one unit at a time to the emptiest
+object, so beds grow through visible stages. `"plant": {"seed", "days"}` makes a resource sowable: `plant` takes a free
+(empty, unsown) bed, it is skipped by regrowth and becomes full on `ripe_day`. Winter frost and god drought go through
+`tiles.clear` / `tiles.scale`.
+
+Every tick's `view` carries:
+
+- `map`: `{loc: {"slots": {resource: [units per object]}, "cap": {resource: units when full}, "planted": {slot: {"resource", "by", "ripe_day"}}}}`.
+  Object i keeps its index forever, so the viewer can give it a fixed place. 0 units = stump / bare soil / empty bush.
+- `fire_info`: `{house: {"water_needed", "hours_left", "hours"}}` (`fires` stays a plain list of houses).
+
+Events for animation (all have `actor`, `location` and `data`):
+
+| kind | data | visibility |
+| --- | --- | --- |
+| `work` | `resource`, `amount`, `slots` (objects touched) | actor only |
+| `slot_empty` | `resource`, `slot` (a tree fell, a bed was harvested) | log only |
+| `plant` | `resource`, `slot`, `ripe_day` | location |
+| `crop_ripe` | `resource`, `slot`, `by` | the planter |
+| `fire` | `victim`, `house` | public |
+| `fire_grows` | `house`, `water_needed`, `hours_left` | location |
+| `pour_water` / `fire_out` | `helper`, `house`, `buckets`, `water_needed` | location / public |
+| `house_burned` | `home` | public |
+
+Fire: lasts `fire_ticks` hours, needs one more bucket every `fire_grow_hours` (up to `fire_water_max`), a night counts
+as `fire_night_hours`. `extinguish` pours all the water the agent carries (up to what the fire needs).
 
 ## How to add a mechanic
 
 1. Numbers → `config.py`.
 2. State, if needed → a field in `state.py` (and `from_dict`).
 3. Action → `@ACTIONS.action("name", "one-line description for the model", ArgsModel, available=...)` in `actions.py`. Validate everything first, raise `ActionError` with a message the agent can act on, then mutate. Use `ops` for items/coins and `ctx.emit` for what others see (`visibility`: public / location / private).
-4. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
-5. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
-6. `python -m pytest -q` must stay green.
+   To forbid an action under some rule without editing it, append a guard to `ACTIONS.guards` (see `governance._exile_guard`).
+4. Reacting to events (social modules) → append `hook(ctx, event, recipients)` to `ops.EVENT_HOOKS`; it runs after every `emit`, recipients are who actually saw it. Extra observation fields → `obs.update(module.observe(world, name))` in `engine.observe`. Per-agent state → a defaulted field on `Agent` (old logs still load).
+5. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
+6. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
+7. `python -m pytest -q` must stay green.
 
 A god event is the same, with `@GOD.action` in `god.py`.

@@ -29,6 +29,10 @@ DRAMA = {
     "starving": 5, "drought": 5, "god_treasure": 5, "project_done": 5, "lend": 4, "give": 4, "sick": 4,
     "take_shared": 4, "trade": 3, "decline": 3, "repay": 3, "gift": 3, "tax": 3, "unshare": 3, "discharged": 3,
     "whisper": 2, "letter": 2, "share": 2, "lock": 2, "tool_broke": 2, "offer": 1,
+    # families, elections, rumors (PRs #17, #19, #21)
+    "wedding": 9, "divorce": 9, "elected": 8, "theft_report": 7, "inheritance": 6, "law_passed": 6,
+    "proposal": 6, "proposal_refused": 6, "exile_over": 5, "gossip": 4, "gossip_heard": 4, "law_failed": 4,
+    "election": 4, "law_proposed": 3, "candidate": 3, "fire_grows": 3, "hang_out": 1,
 }
 TITLES = {
     "death": "Смерть в деревне", "house_burned": "Сгорел дом", "steal": "Кража", "robbed": "Кража",
@@ -40,6 +44,11 @@ TITLES = {
     "decline": "Отказ", "repay": "Долг вернули", "gift": "Дар богов", "tax": "Налог",
     "unshare": "Забрал своё", "discharged": "Выписка", "whisper": "Шёпот", "letter": "Письмо",
     "share": "Вклад в общее", "lock": "Замок", "tool_broke": "Сломался инструмент", "offer": "Предложение",
+    "wedding": "Свадьба", "divorce": "Развод", "elected": "Новый староста", "theft_report": "Донос о краже",
+    "inheritance": "Наследство", "law_passed": "Принят закон", "proposal": "Предложение руки и сердца",
+    "proposal_refused": "Отказ жениться", "exile_over": "Изгнание окончено", "gossip": "Слух",
+    "gossip_heard": "Слух", "law_failed": "Закон провалился", "election": "Выборы", "law_proposed": "Новый закон",
+    "candidate": "Кандидат в старосты", "fire_grows": "Пожар разгорается", "hang_out": "Провели время вместе",
 }
 
 PROMPT = """You pick the highlights of one day in a village life simulation where every villager is an AI.

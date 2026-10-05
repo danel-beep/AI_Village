@@ -70,18 +70,42 @@
       <h4>Кошелёк и вещи</h4><div>💰 ${v.coins} монет</div><div class="muted">${inv}</div>`;
   }
 
+  // Feelings (family.py, view.kin) are what n feels toward each person and back; reputation and rumors
+  // (reputation.py, view.social) are n's own tally of deeds seen and gossip heard. Old logs lack both.
+  const FEEL = { friend: 'друг', liked: 'симпатия', neutral: 'нейтрально', disliked: 'неприязнь', enemy: 'враг' };
+  function feelLabel(v) {
+    const at = (header.config.family || {}).friend_at || 30;
+    return v >= at ? 'friend' : v <= -at ? 'enemy' : v > 0 ? 'liked' : v < 0 ? 'disliked' : 'neutral';
+  }
+  const feelBar = v => `<div class="bar" style="position:relative"><i style="position:absolute;left:${v < 0 ? 50 + v / 2 : 50}%;
+    width:${Math.abs(v) / 2}%;background:${v < 0 ? '#e4572e' : '#76b041'}"></i></div>`;
+  const seenText = s => { const m = /^day (\d+): (.*)$/s.exec(s); return m ? `д${m[1]} ${tr(m[2])}` : tr(s); };
+
   function people(n, c) {
+    const t = ticks[i], kin = t.view.kin || {}, social = (t.view.social || {})[n] || {};
+    const mine = (kin.feelings || {})[n] || {}, rep = social.reputation || {};
+    const back = p => ((kin.feelings || {})[p] || {})[n] || 0;
+    const couple = (kin.couples || []).find(cp => cp.includes(n)), spouse = couple && couple.find(p => p !== n);
     const notes = {};
     for (const d of diaries) if (d.at <= i && d.entries[n]) Object.assign(notes, d.entries[n].people || {});
-    const all = [...new Set([...Object.keys(notes), ...Object.keys(c.contacts)])].filter(p => p !== n);
-    if (!all.length) return '<div class="muted">Пока ни с кем не общался.</div>';
-    return all.map(p => {
-      const ev = c.contacts[p] || [], last = ev[ev.length - 1];
-      return `<div class="row"><b style="color:${color[p] || 'inherit'};cursor:pointer" data-p="${esc(p)}">${esc(p)}</b>
-        <span class="muted">· ${ev.length} взаимодействий</span>
+    const all = [...new Set([...Object.keys(mine), ...Object.keys(rep), ...Object.keys(notes), ...Object.keys(c.contacts)])]
+      .filter(p => p !== n).sort((a, b) => (mine[b] || 0) - (mine[a] || 0));
+    const pname = p => `<b style="color:${color[p] || 'inherit'};cursor:pointer" data-p="${esc(p)}">${esc(p)}</b>`;
+    let out = spouse ? `<div class="row">💍 В браке с ${pname(spouse)}</div>` : '';
+    out += all.length ? all.map(p => {
+      const ev = c.contacts[p] || [], last = ev[ev.length - 1], v = mine[p] || 0, r = rep[p];
+      return `<div class="row">${pname(p)} <span class="muted">· ${FEEL[feelLabel(v)]} (${v > 0 ? '+' : ''}${v})
+          · в ответ: ${FEEL[feelLabel(back(p))]} · ${ev.length} взаимодействий</span>
+        ${'kin' in t.view ? feelBar(v) : ''}
+        ${r ? `<div>Оценка поступков: <b>${r.score > 0 ? '+' : ''}${r.score}</b></div>
+          ${(r.seen || []).slice().reverse().map(x => `<div class="muted">• ${esc(seenText(x))}</div>`).join('')}` : ''}
         ${notes[p] ? `<div class="thought">${esc(tr(notes[p]))}</div>` : ''}
         ${last ? `<div class="muted">последнее: ${esc(tr(last.text))}</div>` : ''}</div>`;
-    }).join('');
+    }).join('') : '<div class="muted">Пока ни с кем не общался.</div>';
+    const rumors = (social.rumors || []).slice().reverse();
+    if (rumors.length) out += '<h4>Услышанные слухи</h4>' + rumors.map(r => `<div class="row"><span class="muted">д${r.day},
+      ${r.from ? pname(r.from) : 'кто-то'} про ${pname(r.about)}:</span> <span class="thought">«${esc(tr(r.text))}»</span></div>`).join('');
+    return out;
   }
 
   function history(c) {

@@ -17,7 +17,9 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from . import governance
 from .bots import WorkerBot
+from . import reputation
 from .registry import ACTIONS
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
@@ -80,6 +82,15 @@ def world_facts(cfg: dict) -> str:
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
     lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days.")
+    if rep := reputation.fact(cfg):
+        lines.append(rep)
+    fam = cfg.get("family")
+    if fam:
+        lines.append(f"- Relations: your feelings about people grow from gifts, loans, trades, help and hang_out, "
+                     f"fall after theft or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
+                     f"share a house and chests; a spouse (else your best friend) inherits if you die.")
+    if governance.enabled(cfg):
+        lines.append(governance.facts(cfg))
     return "\n".join(lines)
 
 
@@ -217,6 +228,9 @@ def compact_obs(obs: dict) -> dict:
     for k, v in list(o["board"].items()):
         if not v:
             del o["board"][k]
+    for k, v in list(o.get("government", {}).items()):
+        if k != "mayor" and (v is None or v is False or v == [] or v == {}):
+            del o["government"][k]
     return o
 
 

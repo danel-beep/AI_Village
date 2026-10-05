@@ -29,6 +29,10 @@ class Event:
     data: dict = field(default_factory=dict)
 
 
+# Called as hook(ctx, event, recipients) after every emit. Social modules register here.
+EVENT_HOOKS: list = []
+
+
 class Ctx:
     """Everything an action or god event needs during one tick."""
 
@@ -43,7 +47,9 @@ class Ctx:
         w = self.world
         ev = Event(w.tick, w.day, w.hour, kind, text, actor, location, visibility, list(to or []), data)
         self.events.append(ev)
-        deliver(w, ev)
+        names = deliver(w, ev)
+        for hook in EVENT_HOOKS:
+            hook(self, ev, names)
         return ev
 
 
@@ -59,16 +65,18 @@ def recipients(world: World, ev: Event) -> list[str]:
     return names
 
 
-def deliver(world: World, ev: Event) -> None:
+def deliver(world: World, ev: Event) -> list[str]:
     limit = world.config["inbox_size"]
     stamp = f"[day {ev.day} {ev.hour:02d}:00] "
-    for name in recipients(world, ev):
+    names = recipients(world, ev)
+    for name in names:
         a = world.agents.get(name)
         if a is None:
             continue
         a.inbox.append(stamp + ev.text)
         if len(a.inbox) > limit:
             del a.inbox[: len(a.inbox) - limit]
+    return names
 
 
 # ---- items ----

@@ -254,6 +254,10 @@ def create_app(sim: LiveSim) -> FastAPI:
     def pixelmap_js() -> FileResponse:
         return FileResponse(VIEWER / "pixelmap.js", media_type="text/javascript")
 
+    @app.get("/maplayer.js")
+    def maplayer_js() -> FileResponse:
+        return FileResponse(VIEWER / "maplayer.js", media_type="text/javascript")
+
     @app.get("/live.js")
     def live_js() -> FileResponse:
         return FileResponse(VIEWER / "live.js", media_type="text/javascript")
