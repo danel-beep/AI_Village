@@ -134,3 +134,45 @@ def test_settings_api_never_returns_keys(tmp_path):
     assert client.post("/api/settings", json={"provider": "bad"}).status_code == 400
     assert client.post("/api/settings/check").json()["ok"] is False  # no key left
     assert "settings.js" in client.get("/").text
+
+
+def test_openai_durations_and_retry_after():
+    assert llm._seconds("41.126s") == pytest.approx(41.126)
+    assert llm._seconds("120ms") == pytest.approx(0.12)
+    assert llm._seconds("1m2.5s") == pytest.approx(62.5)
+    assert llm._seconds("20") == 20 and llm._seconds(None) is None and llm._seconds("soon") is None
+    assert llm.retry_after({"retry-after-ms": "350"}) == pytest.approx(0.35)
+    assert llm.retry_after({}, "Rate limit reached for tokens per min. Please try again in 1.53s.") == pytest.approx(1.53)
+    assert llm.retry_after(None, "Please try again in 820ms.") == pytest.approx(0.82)
+    assert llm.retry_after({}, "busy") is None
+
+
+def test_openai_paces_before_the_token_budget_runs_out(monkeypatch):
+    class Reply(io.BytesIO):
+        headers = {"x-ratelimit-limit-tokens": "200000", "x-ratelimit-remaining-tokens": "10000",
+                   "x-ratelimit-reset-tokens": "57s"}
+
+    fake_openai(monkeypatch, lambda req, body: Reply(ok().getvalue()))
+    llm._GATES.clear()
+    llm.OpenAIClient("openai/gpt-6-luna", api_key=OA).complete([{"role": "user", "content": "hi"}])
+    gate = llm._GATES["direct:gpt-6-luna"]
+    # 10k of 200k left, the floor is 30k: wait for 20k of the 190k that refill in 57 s = 6 s
+    assert gate.paced == 1 and gate.rate_limited == 0 and 5.5 < gate._cooldown() <= 6.0
+    llm._GATES.clear()
+
+
+def test_openai_429s_do_not_use_up_retries(monkeypatch):
+    calls = []
+
+    def handler(req, body):
+        calls.append(1)
+        if len(calls) <= 9:  # more 429s than retries
+            raise http_error(req, 429, {"message": "Rate limit reached. Please try again in 1ms."})
+        return ok()
+
+    fake_openai(monkeypatch, handler)
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    llm._GATES.clear()
+    text, _ = llm.OpenAIClient("openai/gpt-6-luna", api_key=OA, retries=2).complete([{"role": "user", "content": "x"}])
+    assert len(calls) == 10 and "wait" in text
+    llm._GATES.clear()

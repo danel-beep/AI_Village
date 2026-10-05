@@ -146,7 +146,7 @@ class RateGate:
         self.sem = threading.BoundedSemaphore(self.limit)
         self.lock = threading.Lock()
         self.until = 0.0
-        self.calls = self.rate_limited = 0
+        self.calls = self.rate_limited = self.paced = 0
         self.waited = 0.0  # seconds callers spent queued or cooling down
 
     def _cooldown(self) -> float:
@@ -169,6 +169,12 @@ class RateGate:
     def cool(self, seconds: float) -> None:
         with self.lock:
             self.rate_limited += 1
+            self.until = max(self.until, time.monotonic() + seconds)
+
+    def pause(self, seconds: float) -> None:
+        """Hold new calls before the provider's budget runs out (no 429 happened)."""
+        with self.lock:
+            self.paced += 1
             self.until = max(self.until, time.monotonic() + seconds)
 
 
@@ -256,6 +262,11 @@ OPENAI_PRICES = {"gpt-6-luna": (0.10, 0.01, 0.50), "gpt-6-luna-pro": (0.10, 0.01
                  "gpt-5.6-luna": (0.20, 0.02, 1.20)}
 # OpenAI's per-minute limits are far above OpenRouter's ~4 parallel calls for Luna.
 OPENAI_PARALLEL = 16
+# OpenAI limits tokens per minute (a new key: 200k, ~40 village turns). When a reply says less than this
+# share is left, new calls wait for the budget to refill instead of collecting 429s.
+OPENAI_PACE_SHARE = 0.15
+# 429s (busy, not broken) never use up the retry budget; a call gives up only after this long on them.
+RATE_LIMIT_PATIENCE = 300.0
 # Parameters a model rejected with HTTP 400, remembered per model so only one call pays for it.
 _UNSUPPORTED: dict[str, set] = {}
 
@@ -263,6 +274,34 @@ _UNSUPPORTED: dict[str, set] = {}
 def openai_id(model: str) -> str:
     """'openai/gpt-6-luna' -> 'gpt-6-luna' (OpenAI's own name)."""
     return model.split("/", 1)[1] if model.startswith("openai/") else model
+
+
+def _seconds(text) -> float | None:
+    """OpenAI's durations: '41.126s', '120ms', '1m2.5s', '6m0s', or plain seconds '20' -> seconds."""
+    if text is None:
+        return None
+    text = str(text).strip()
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    parts = re.findall(r"(\d+(?:\.\d+)?)(ms|h|m|s)", text)
+    if not parts:
+        return None
+    unit = {"ms": 0.001, "s": 1, "m": 60, "h": 3600}
+    return sum(float(n) * unit[u] for n, u in parts)
+
+
+def retry_after(headers, message: str = "") -> float | None:
+    """How long a 429 asks us to wait: Retry-After(-ms) header, else 'try again in 1.2s' in the message."""
+    if headers:
+        ms = headers.get("retry-after-ms")
+        if ms and _seconds(ms) is not None:
+            return _seconds(ms) / 1000
+        if _seconds(headers.get("Retry-After")) is not None:
+            return _seconds(headers.get("Retry-After"))
+    m = re.search(r"try again in ([\d.]+\s*(?:ms|s|m)\w*)", message or "")
+    return _seconds(m.group(1).replace(" ", "")) if m else None
 
 
 def openai_cost(model: str, usage: dict) -> float:
@@ -303,13 +342,31 @@ class OpenAIClient(Client):
             body.pop(p, None)
         req = urllib.request.Request(self.URL, json.dumps(body).encode(),
                                      {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json"})
-        with gate_for(f"direct:{self.name}", self.parallel):
+        gate = gate_for(f"direct:{self.name}", self.parallel)
+        with gate:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 data = json.load(r)
+                self._pace(gate, getattr(r, "headers", None))
         usage = dict(data.get("usage") or {})
         usage["cost"] = openai_cost(self.name, usage)
         usage["model"] = self.model
         return data["choices"][0]["message"]["content"] or "", usage
+
+    @staticmethod
+    def _pace(gate: RateGate, headers) -> None:
+        """Read the token budget OpenAI reports on every reply; when it runs low, hold new calls until
+        it refills to OPENAI_PACE_SHARE (calls already sent carry on)."""
+        if not headers:
+            return
+        try:
+            limit = int(headers.get("x-ratelimit-limit-tokens") or 0)
+            left = int(headers.get("x-ratelimit-remaining-tokens") or 0)
+        except ValueError:
+            return
+        full = _seconds(headers.get("x-ratelimit-reset-tokens"))  # time until the whole budget is back
+        floor = limit * OPENAI_PACE_SHARE
+        if limit and full and left < floor:
+            gate.pause(full * (floor - left) / (limit - left))
 
     @staticmethod
     def _error(e: urllib.error.HTTPError) -> str:
@@ -321,7 +378,8 @@ class OpenAIClient(Client):
 
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
         last: Exception | None = None
-        for attempt in range(self.retries + 1):
+        attempt, busy, hits = 0, 0.0, 0  # retries used on errors; seconds and count of 429s waited out
+        while attempt <= self.retries:
             try:
                 return self._post(messages)
             except urllib.error.HTTPError as e:
@@ -336,18 +394,24 @@ class OpenAIClient(Client):
                     bad = [p for p in ("temperature", "reasoning_effort", "response_format") if p in msg]
                     if bad and not set(bad) <= _UNSUPPORTED.get(self.name, set()):
                         _UNSUPPORTED.setdefault(self.name, set()).update(bad)
+                        attempt += 1
                         continue
                     raise RuntimeError(f"{self.model}: HTTP 400 {msg}") from e
-                wait = 2 ** attempt
-                if e.code == 429:
-                    after = e.headers.get("Retry-After") if e.headers else None
-                    wait = float(after) if after and after.replace(".", "", 1).isdigit() else min(2 * 2 ** attempt, 30)
+                if e.code == 429 and busy < RATE_LIMIT_PATIENCE:
+                    wait = retry_after(e.headers, msg)
+                    wait = min(wait + 0.25, 60) if wait is not None else min(2 * 2 ** hits, 30)
+                    hits += 1
                     gate_for(f"direct:{self.name}", self.parallel).cool(wait)
-                    wait *= 0.5 + random.random()
-                time.sleep(wait)
+                    wait *= 1 + random.random() * 0.5  # spread the herd that wakes after the cooldown
+                    busy += wait
+                    time.sleep(wait)
+                    continue
+                time.sleep(2 ** attempt)
+                attempt += 1
             except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
                 last = e
                 time.sleep(2 ** attempt)
+                attempt += 1
         raise RuntimeError(f"{self.model}: {last}")
 
 
