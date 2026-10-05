@@ -198,7 +198,7 @@
       if (k.type === 'range') r.control.value = v;
       else if (k.type === 'number') r.control.value = v === null || v === undefined ? '' : v;
       else if (k.type === 'toggle') r.control.checked = !!v;
-      else for (const b of r.control.children) b.classList.toggle('on', b.dataset.v === v);
+      else for (const b of r.control.children) b.classList.toggle('on', b.dataset.v === String(v));
       if (r.val.isConnected) {
         r.val.textContent = fmt(k, v);
         r.val.classList.toggle('changed', !!k.path && v !== modeVals(values.mode)[k.key]);

@@ -122,9 +122,12 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Выключено: каждый раз новая деревня (река, дома, участки)."},
     {"key": "seed", "group": "Карта и скорость", "type": "number", "label": "Номер деревни", "default": None,
      "hint": "Пусто: каждый раз новая. Тот же номер даёт ту же карту."},
-    {"key": "pace", "group": "Карта и скорость", "type": "range", "label": "Пауза между часами",
-     "min": 0, "max": 5, "step": 0.25, "default": 1.0, "unit": " с",
-     "hint": "Меньше: быстрее. С ИИ-жителями час всё равно идёт столько, сколько они думают."},
+    {"key": "pace", "group": "Карта и скорость", "type": "range", "label": "Секунд на игровой час",
+     "min": 0, "max": 10, "step": 0.5, "default": 1.0, "unit": " с",
+     "hint": "Меньше: быстрее. С ИИ-жителями час всё равно идёт не быстрее, чем они думают."},
+    {"key": "tick_minutes", "group": "Карта и скорость", "type": "choice", "label": "Шаг жителей",
+     "default": 15, "options": [[15, "15 минут"], [20, "20 минут"], [30, "30 минут"], [60, "Час"]],
+     "hint": "Как часто жители могут действовать. Короче: живее, чуть дороже (занятой работой житель не думает)."},
 ]
 
 
@@ -274,4 +277,4 @@ def to_run(opts: dict) -> dict:
     override.setdefault("map", {})["procedural"] = not val["fixed_map"]
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
-            "seed": val["seed"], "summaries": val["summaries"], "values": val}
+            "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"], "values": val}

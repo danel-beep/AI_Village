@@ -131,3 +131,14 @@ def test_villagers_one_by_one():
         with pytest.raises(ValueError):
             knobs.to_run({"roster": bad})
     assert len(knobs.roster(8, 5)) == 8
+
+
+def test_tick_minutes_from_start_screen(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    host = Host(None, str(tmp_path / "runs"), setup=True)
+    host.start({"brains": "bots", "villagers": 2, "days": 1, "pace": 0, "tick_minutes": 30})
+    assert host.sim.world.config["tick_minutes"] == 30
+    host.stop()
+    host.start({"brains": "bots", "villagers": 2, "days": 1, "pace": 0})
+    assert host.sim.world.config["tick_minutes"] == 15
+    host.stop()
