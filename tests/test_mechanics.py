@@ -286,3 +286,45 @@ def test_treasure_hint_and_pick_up(w):
     put(w, "Anna", "mine")
     act(w, "Anna", "pick_up", item="ore", qty=4)
     assert w.agents["Anna"].inventory["ore"] == 4
+
+
+def _busy(w, *names):
+    for n in names:
+        put(w, n, "river")
+    engine.step(w, {n: {"action": {"name": "work", "args": {"hours": 4}}} for n in names})
+    assert all(w.agents[n].task is not None for n in names)
+
+
+def test_chatter_does_not_wake_busy_bystanders_but_mention_does(w):
+    put(w, "Anna", "river")
+    _busy(w, "Boris", "Clara")
+    engine.step(w, {"Anna": {"action": {"name": "wait"}, "say": "Nice weather"}})
+    assert w.agents["Boris"].task is not None and w.agents["Clara"].task is not None
+    engine.step(w, {"Anna": {"action": {"name": "wait"}, "say": "boris, come help me"}})
+    assert w.agents["Boris"].task is None
+    assert w.agents["Clara"].task is not None
+
+
+def test_give_wakes_receiver_not_bystander(w):
+    put(w, "Anna", "river")
+    gift(w, "Anna", fish=1)
+    _busy(w, "Boris", "Clara")
+    engine.step(w, {"Anna": {"action": {"name": "give", "args": {"to": "Boris", "items": {"fish": 1}}}}})
+    assert w.agents["Boris"].task is None
+    assert w.agents["Clara"].task is not None
+
+
+def test_fire_wakes_everyone(w):
+    _busy(w, "Boris", "Clara")
+    engine.step(w, {}, [{"name": "fire", "args": {"person": "Anna"}}])
+    assert w.agents["Boris"].task is None and w.agents["Clara"].task is None
+
+
+def test_hunger_wakes_once(w):
+    _busy(w, "Boris")
+    w.agents["Boris"].satiety = 1
+    engine.step(w, {})
+    assert w.agents["Boris"].task is None and w.agents["Boris"].satiety == 0
+    engine.step(w, {"Boris": {"action": {"name": "work", "args": {"hours": 4}}}})
+    engine.step(w, {})
+    assert w.agents["Boris"].task is not None

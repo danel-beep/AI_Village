@@ -7,6 +7,7 @@ only act through `step()` decisions.
 from __future__ import annotations
 
 import random
+import re
 from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
@@ -201,22 +202,56 @@ def interrupt(world: World, name: str) -> None:
         a.task = None
 
 
+# Which events make a busy agent (one with a running task) stop and think.
+# Every interrupt costs one model call, so only events addressed to the agent wake it:
+#   "direct"  - names in `ev.to` (the addressee), never bystanders who merely see it
+#   "heard"   - everyone who received the event (village-wide emergencies)
+#   "mention" - receivers whose name appears in what was said
+# Events not listed here still reach the inbox and are read at the next decision.
+WAKE_RULES: dict[str, str] = {
+    "whisper": "direct", "letter": "direct", "offer": "direct", "trade": "direct", "decline": "direct",
+    "give": "direct", "lend": "direct", "gift": "direct",
+    "steal_attempt": "direct", "witness": "direct", "robbed": "direct", "take_shared": "direct",
+    "fire": "heard",
+    "say": "mention",
+}
+
+
+def wake_targets(world: World, ev: Event, rules: dict[str, str] | None = None) -> list[str]:
+    mode = (WAKE_RULES if rules is None else rules).get(ev.kind)
+    if mode == "direct":
+        names = list(ev.to)
+    elif mode == "heard":
+        names = ops.recipients(world, ev)
+    elif mode == "mention":
+        said = str(ev.data.get("text_raw", ev.text))
+        names = [n for n in ops.recipients(world, ev)
+                 if re.search(rf"\b{re.escape(n)}\b", said, re.IGNORECASE)]
+    else:
+        return []
+    return [n for n in names if n != ev.actor]
+
+
+def wake_busy_agents(ctx: Ctx) -> None:
+    for ev in ctx.events:
+        for n in wake_targets(ctx.world, ev):
+            interrupt(ctx.world, n)
+
+
 def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
-    # Things that should make a busy agent stop and think.
-    for ev in ctx.events:
-        if ev.kind in ("whisper", "offer", "steal_attempt", "fire", "say", "give", "lend"):
-            for n in ops.recipients(w, ev):
-                if n != ev.actor:
-                    interrupt(w, n)
+    wake_busy_agents(ctx)
     for a in w.agents.values():
         if a.status != "active":
             continue
+        was = a.satiety
         loss = cfg["satiety_loss_asleep_per_hour"] if a.asleep else cfg["satiety_loss_per_hour"]
         a.satiety = max(0, a.satiety - loss)
         if a.satiety == 0:
             a.health = max(0, a.health - cfg["starving_health_loss_per_hour"])
             ctx.emit("starving", "You are starving and losing health! Eat something.", to=[a.name])
+            if was > 0:  # wake once when hunger starts, not every hour after
+                interrupt(w, a.name)
     for f in list(w.fires.values()):
         f.ticks_left -= 1
         if f.ticks_left <= 0:
