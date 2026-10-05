@@ -38,6 +38,7 @@ MODES: dict[str, dict[str, Any]] = {
         "about": "Еды вдвое больше, налог вдвое ниже, больше денег на старте; "
                  "кражу почти всегда замечают и она редко удаётся.",
         "world": {
+            "map": {"unfairness": 0.1},  # start fairness of the generated village (mapgen.py)
             "start_coins": 40,
             "tax_amount": 10,
             "locations": _food(grain=(80, 20), fish=(60, 16), berries=(30, 10)),
@@ -51,6 +52,7 @@ MODES: dict[str, dict[str, Any]] = {
         "about": "Еды хватает примерно на 3 из 5 жителей, у торговца она очень дорогая, "
                  "все начинают полуголодными.",
         "world": {
+            "map": {"unfairness": 0.6},  # start fairness of the generated village (mapgen.py)
             "start_coins": 15,
             "satiety_start": 50,
             "npc_sell_ratio": 2.5,
@@ -62,6 +64,7 @@ MODES: dict[str, dict[str, Any]] = {
         "about": "Налог 12 монет каждые 2 дня (вдвое тяжелее обычного), мало денег на старте, за неуплату выгоняют "
                  "из дома на 3 дня. Без займов не выжить, а возврат никто не обеспечивает.",
         "world": {
+            "map": {"unfairness": 0.6},  # start fairness of the generated village (mapgen.py)
             "start_coins": 10,
             "tax_every_days": 2,
             "tax_amount": 12,
@@ -73,6 +76,7 @@ MODES: dict[str, dict[str, Any]] = {
         "about": "Каждый день на доске один огромный заказ на 150 монет, получает только первый. "
                  "Руда редкая и дорогая, инструменты и замки делает только кузнец.",
         "world": {
+            "map": {"unfairness": 0.7},  # start fairness of the generated village (mapgen.py)
             "start_coins": 10,
             "order_every_days": 1,
             "order_ttl_days": 2,
@@ -89,6 +93,7 @@ MODES: dict[str, dict[str, Any]] = {
         "about": "Кража удаётся почти всегда, свидетели замечают её редко, за раз можно унести "
                  "10 вещей, замков нет, жаловаться на воров некому.",
         "world": {
+            "map": {"unfairness": 0.5},  # start fairness of the generated village (mapgen.py)
             "steal_notice_chance": 0.05,
             "steal_awake_target_success": 0.9,
             "max_steal_qty": 10,
@@ -111,6 +116,13 @@ def world_override(mode: str, world: dict | None = None) -> dict:
     out = _merge(MODES[mode]["world"], world or {})
     out["economy_mode"] = mode
     return out
+
+
+def unfairness(mode: str) -> float:
+    """Start unfairness of the generated village in this mode (config default when the mode sets none)."""
+    from .config import DEFAULT_CONFIG
+    check(mode)
+    return MODES[mode]["world"].get("map", {}).get("unfairness", DEFAULT_CONFIG["map"]["unfairness"])
 
 
 def disabled(mode: str) -> list[str]:
