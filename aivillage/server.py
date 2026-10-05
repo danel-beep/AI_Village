@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 from . import engine
 from .registry import GOD, ActionError
-from .run import bots_decider, llm_agents, run
+from .run import bots_decider, llm_agents, night_reflection, run
 from .state import World
 
 VIEWER = Path(__file__).resolve().parent.parent / "viewer"
@@ -60,8 +60,10 @@ class GodQueue:
 class LiveSim:
     """One running simulation plus its subscribers. Thread-safe toward the asyncio side."""
 
-    def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0):
+    def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0,
+                 on_night=None):
         self.world, self.decide, self.days, self.log_path = world, decide, days, log_path
+        self.on_night = on_night
         self.pace = pace
         self.god = GodQueue()
         self.header: dict | None = None
@@ -82,7 +84,8 @@ class LiveSim:
 
     def _run(self) -> None:
         try:
-            run(self.world, self.decide, self.days, self.god, self.log_path, on_record=self._on_record)
+            run(self.world, self.decide, self.days, self.god, self.log_path,
+                on_night=self.on_night, on_record=self._on_record)
         except _Stop:
             pass
         except Exception as e:  # surface crashes in the viewer instead of dying silently
@@ -94,7 +97,7 @@ class LiveSim:
     def _on_record(self, rec: dict) -> None:
         if rec["type"] == "header":
             self.header = rec
-        else:
+        elif rec["type"] == "tick":
             self.ticks.append(rec)
         self._publish(rec)
         if rec["type"] == "tick":
@@ -241,12 +244,14 @@ def main(argv: list[str] | None = None) -> int:
         from .config import DEFAULT_CONFIG
         override["agents"] = DEFAULT_CONFIG["agents"][: a.agents]
     world = engine.new_world(override)
+    on_night = None
     if a.models:
         agents = llm_agents(world, a.models.split(","))
         decide = lambda name, obs: agents[name].decide(obs)
+        on_night = lambda w, day: night_reflection(w, agents, day)
     else:
         decide = bots_decider(world, a.bots.split(","), a.seed)
-    sim = LiveSim(world, decide, a.days, a.log, a.pace)
+    sim = LiveSim(world, decide, a.days, a.log, a.pace, on_night)
     sim.start()
     print(f"AI Village live: http://{a.host}:{a.port}")
     uvicorn.run(create_app(sim), host=a.host, port=a.port, log_level="warning")
