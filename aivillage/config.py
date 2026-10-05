@@ -212,16 +212,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     # Private plots (aivillage/plots.py): each house has a yard of `cells` where its family builds.
     # An agent spec may set its own start: "plot_cells", "house_level", "buildings" (a list of kinds, free);
-    # "plot_cells" wins over the generated map's yard.
+    # mapgen.py (generated map) fills them from the fenced yard and the unfairness knob unless set.
     # Building costs: "coins" (to the treasury) + "items" (from the inventory). Animals eat "feed" of
     # "feed_item" from the owner's chest each night, else make nothing; stock stops at "cap".
     "plots": {
         "enabled": True,
         "start_cells": 6,
-        # On a generated map (config "map", mapgen.py) the start comes from the fenced yard instead:
-        # (yard tiles - house_tiles) * cells_per_yard_tile; the default 1-tile yard gives 6 cells.
-        "cells_per_yard_tile": 0.5,
-        "house_tiles": 9,
         "max_cells": 24,          # expand_plot stops here (house upgrades still add cells)
         "expand_cells": 2,
         "expand_price": 25,       # first purchase; each next one costs expand_price_step more

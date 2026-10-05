@@ -25,7 +25,6 @@ const PlotLayer = (() => {
         for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
           const cx = x + c * 8 + 4, cy = y + r * 16 + 8;
           if (cx > h.x && cx < h.x + 3 * T && cy > h.y && cy < h.y + 3 * T) continue;   // the house itself
-          if (c === 0 || c === cols - 1 || r === 0) { if (cols > 2 && rows > 1 && dist(c, r) > 24) continue; }  // fence posts
           order.push([c, r]);
         }
         order.sort((p, q) => dist(...p) - dist(...q) || q[1] - p[1] || p[0] - q[0]);
