@@ -47,6 +47,8 @@ god events ─┐
 | `viewer/live.js`, `viewer/god.js` | injected by the server into `index.html`: live feed (uses only `load()` / `ticks` / optional `window.viewerAppend`) and the god panel built from GOD schemas |
 | `viewer/index.html` | Replay UI (controls, villager cards, diary, events). Feed it via `Viewer.start(header)` / `Viewer.push(row)`; `scripts/build_demo.py` bundles a log + scripts into one page |
 | `viewer/pixelmap.js` | Pixel-art map renderer: map layout (viewer-only coordinates), art drawn in code, walking, lighting |
+| `viewer/actors.js` | Villagers: activity per tick from their own events (`work` resource/slots, `plant`, `pour_water`, `craft`, `eat`, `say`...), poses with tools and particles (axe, pick, hoe, rod, bucket, hammer), idle strolls, smoothing of every position jump, speech/thought/whisper bubbles. Wall-clock loops keep villagers busy between ticks. To animate a new event kind add it to `KIND` (+ a pose in `POSES`) |
+| `viewer/camera.js` | Zoom (wheel, +/- buttons, keys `+ - 0`), drag to pan, follows the selected villager. `PixelMap.pick(x, y)` takes canvas pixels and converts through the camera |
 | `viewer/maplayer.js` | Map objects layer, drawn from `view.map` / `view.fire_info` / events: trees and stumps, beds by growth stage, bushes, fish, rocks, fire size, water splashes. Hooked into pixelmap via `MapLayer.init/claimTrees/draw/drawTop` |
 
 ## Map objects and fire in the log

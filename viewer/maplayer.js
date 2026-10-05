@@ -113,7 +113,7 @@ const MapLayer = (() => {
     for (const ev of (t.events || []).filter(ev => ev.kind === 'pour_water' || ev.kind === 'fire_out')) {
       const bx = layout.box[ev.data?.house || ev.location]; if (!bx) continue;
       const [x0, y0, w, h] = bx, [ax, ay] = layout.anchors[ev.data?.house || ev.location];
-      for (let i = 0; i < 10; i++) {
+      if (!window.Actors) for (let i = 0; i < 10; i++) {   // with viewer/actors.js the villager throws the water
         const p = Math.min(1, e * 1.6 - i * .04); if (p <= 0) continue;
         const dx = ax + (x0 + w / 2 - ax) * p + (i % 3 - 1) * 3, dy = ay - 10 - Math.sin(p * Math.PI) * 18 + (y0 + h / 2 - ay + 10) * p;
         g.globalAlpha = p < 1 ? 1 : Math.max(0, 1.6 - e * 1.6); blob(g, dx, dy, 1.5, 2, ['#cfe9ff', '#7fb8e8', '#3f7fbf'], null); g.globalAlpha = 1;
@@ -123,6 +123,9 @@ const MapLayer = (() => {
     }
   }
 
-  return { init, claimTrees, draw, drawTop };
+  // Map pixels of one resource slot (tree [x, y, pine], bed [x, y, w, h], bush/rock [x, y]) for viewer/actors.js.
+  const spotOf = (loc, res, slot) => ((spots[loc] || {})[res] || [])[slot];
+
+  return { init, claimTrees, draw, drawTop, spotOf };
 })();
 if (typeof window !== 'undefined') window.MapLayer = MapLayer;
