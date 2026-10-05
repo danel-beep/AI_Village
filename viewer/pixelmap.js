@@ -35,7 +35,7 @@ const PixelMap = (() => {
             ['...k7777k...', '...k8888k...', '....kkkk....']],
   };
 
-  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null;
+  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null;
 
   function rnd(x, y, s = 0) {
     let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
@@ -62,6 +62,10 @@ const PixelMap = (() => {
   // ---------- layout: where every location sits, and the walkable paths between them (pixels) ----------
   const px = (tx, ty) => [tx * T + 8, ty * T + 8];
   function buildLayout() {
+    if (genLay && window.GenMap) {  // generated village (aivillage/mapgen.py, viewer/mapgen.js)
+      layout = GenMap.layout(genLay, names, T, ROOFS); W = layout.W; H = layout.H; cols = layout.cols; return;
+    }
+    cols = COLS;
     const rows = Math.max(1, Math.ceil(names.length / PER_ROW));
     W = COLS * T; H = (16 + 4 * rows) * T;
     const kind = {}, set = (x, y, k) => { kind[x + ',' + y] = k; };
@@ -106,13 +110,14 @@ const PixelMap = (() => {
 
   // ---------- static background ----------
   function paintGround(g) {
-    for (let ty = 0; ty < H / T; ty++) for (let tx = 0; tx < COLS; tx++) {
+    for (let ty = 0; ty < H / T; ty++) for (let tx = 0; tx < cols; tx++) {
       const k = kindAt(tx, ty), x0 = tx * T, y0 = ty * T;
       for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
         const X = x0 + x, Y = y0 + y, r = rnd(X, Y);
         let c;
         if (k === 'water' || k === 'dock') {
-          const bank = 3 * T - X; c = bank < 2 + rnd(0, Y >> 2) * 3 ? C.waterL : X < T * 1.5 ? C.waterD : C.water;
+          const bank = layout.bank ? layout.bank(X, Y) : 3 * T - X, deep = layout.bank ? bank >= T - 1 : X < T * 1.5;
+          c = bank < 2 + rnd(0, Y >> 2) * 3 ? C.waterL : deep ? C.waterD : C.water;
           if (r < .02) c = C.waterL;
         } else if (k === 'path') c = r < .12 ? C.dirtD : r < .2 ? C.dirtL : C.dirt;
         else if (k === 'cobble') {
@@ -282,11 +287,12 @@ const PixelMap = (() => {
   }
 
   function forest(g) {
-    const [cx, cy] = layout.anchors.forest, list = [];
+    const o = (layout.off || {}).forest || [0, 0], list = [];  // drawn at the hand-made spot, shifted by o
+    const cx = layout.anchors.forest[0] - o[0], cy = layout.anchors.forest[1] - o[1];
     for (let ty = -1; ty < 6; ty += 2) for (let tx = 21; tx < 30; tx += 2) {
       const x = tx * T + (rnd(tx, ty, 11) * 10 | 0) - 6, y = ty * T + (rnd(tx, ty, 12) * 8 | 0) - 4;
       if (Math.hypot(x + 16 - cx, y + 28 - cy) < 30) continue;
-      if (Math.abs(x + 16 - layout.anchors.forest[0]) < 14 && y + 24 > cy) continue;
+      if (Math.abs(x + 16 - cx) < 14 && y + 24 > cy) continue;
       list.push([x, y, rnd(tx, ty, 13) < .5]);
     }
     const live = window.MapLayer ? MapLayer.claimTrees(list, cx, cy) : new Set();
@@ -297,7 +303,7 @@ const PixelMap = (() => {
 
   function decor(g) {
     const items = [];
-    for (let ty = 0; ty < H / T; ty++) for (let tx = 3; tx < COLS; tx++) {
+    for (let ty = 0; ty < H / T; ty++) for (let tx = 3; tx < cols; tx++) {
       let free = true;
       for (let dy = -1; dy <= 2 && free; dy++) for (let dx = -1; dx <= 2; dx++) if (kindAt(tx + dx, ty + dy) !== 'grass') { free = false; break; }
       if (!free) continue;
@@ -311,8 +317,22 @@ const PixelMap = (() => {
   function paintBackground() {
     bg = document.createElement('canvas'); bg.width = W; bg.height = H;
     const g = bg.getContext('2d');
+    if (layout.gen) return paintGenerated(g);
     paintGround(g); river(g); field(g); square(g); market(g); smithy(g); mine(g); decor(g);
     layout.houses.forEach(h => house(g, h)); forest(g);
+  }
+
+  // Generated village: the same landmark art, each shifted to where the generator put it.
+  function paintGenerated(g) {
+    const at = (id, fn) => { const [dx, dy] = layout.off[id] || [0, 0]; g.save(); g.translate(dx, dy); fn(g); g.restore(); return [dx, dy]; };
+    const move = ([x, y], [dx, dy]) => [x + dx, y + dy];
+    paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock });
+    at('field', field);
+    const sq = at('square', square); layout.lamps = layout.lamps.map(p => move(p, sq));
+    at('market', market);
+    const sm = at('smithy', smithy); layout.forge = move(layout.forge, sm); layout.smithyChimney = move(layout.smithyChimney, sm);
+    at('mine', mine); decor(g);
+    layout.houses.forEach(h => house(g, h)); at('forest', forest);
   }
 
   // ---------- characters ----------
@@ -335,7 +355,7 @@ const PixelMap = (() => {
   }
 
   function init(header, colors) {
-    names = header.config.agents.map(a => a.name); color = colors; buildLayout();
+    names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
     if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
     paintBackground();
     buf = document.createElement('canvas'); buf.width = W; buf.height = H; b = buf.getContext('2d');
@@ -475,7 +495,7 @@ const PixelMap = (() => {
   function labels(ctx, t, shown, selected, sec) {
     const at = Camera.toScreen, z = Camera.view().z;
     const top = { market: -34, field: -44, river: -40, square: -38, forest: -26, mine: -58, smithy: -82 };
-    for (const [id, dy] of Object.entries(top)) {
+    for (const [id, dy] of [...Object.entries(top), ...(layout.labels || [])]) {
       const [x, y] = layout.anchors[id]; plaque(ctx, ...at(x, y + dy), t.view.locations[id] || id);
     }
     for (const h of layout.houses) {
