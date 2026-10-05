@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MODEL = os.environ.get("AIVILLAGE_MODEL", "google/gemini-2.5-flash-lite")
+MODEL = os.environ.get("AIVILLAGE_MODEL", "openai/gpt-6-luna")  # same as llm.DEFAULT_MODEL
 LLM_AGENTS = 5
 LLM_DAYS = 10
 BOT_DAYS = 30

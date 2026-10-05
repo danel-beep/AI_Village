@@ -18,7 +18,7 @@ from typing import Iterable
 
 from .llm import Client, OpenRouterClient, Usage
 
-DEFAULT_MODEL = "google/gemini-2.5-flash-lite"
+DEFAULT_MODEL = "openai/gpt-6-luna"
 LANG_NAMES = {"ru": "Russian"}
 BATCH_TEXTS = 40
 BATCH_CHARS = 6000

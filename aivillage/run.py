@@ -158,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fire-day", type=int, default=0, help="god: set a random house on fire on this day")
     p.add_argument("--models", default=None,
                    help="LLM agents instead of bots: comma-separated OpenRouter model ids cycled over agents, "
-                        "or 'stub' to test the LLM pipeline without a key")
+                        "'default' for llm.DEFAULT_MODEL, or 'stub' to test the LLM pipeline without a key")
     p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
     a = p.parse_args(argv)
 
@@ -217,17 +217,20 @@ def night_reflection(world: World, agents: dict, day: int) -> dict:
 
 
 def llm_agents(world: World, models: list[str] | dict[str, str]) -> dict:
-    """models: ids cycled over agents, or agent name -> id. An id is an OpenRouter model or 'stub'."""
+    """models: ids cycled over agents, or agent name -> id. An id is an OpenRouter model,
+    'default' (llm.DEFAULT_MODEL) or 'stub'."""
     if isinstance(models, list):
         models = {n: models[i % len(models)] for i, n in enumerate(sorted(world.agents))}
     if not models:
         return {}
-    from .llm import LLMAgent, OpenRouterClient, StubClient
+    from .llm import DEFAULT_MODEL, LLMAgent, OpenRouterClient, StubClient, world_facts
     off = frozenset(world.config.get("disabled_actions") or ())
+    facts = world_facts(world.config)
     out = {}
     for name, m in models.items():
+        m = DEFAULT_MODEL if m == "default" else m
         client = StubClient(name) if m == "stub" else OpenRouterClient(m)
-        out[name] = LLMAgent(name, world.agents[name].profession, client, disabled_actions=off)
+        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off)
     return out
 
 

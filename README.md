@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/danel-beep/ai_village/main/scripts/
 
 Дальше откроется меню: 1 — деревня с ИИ-жителями (первый раз попросит ключ OpenRouter и запомнит его), 2 — бесплатная деревня с ботами, 3 — посмотреть прошлый прогон, 4 — сменить ключ. Деревня открывается в браузере, кнопка «⚡ Режим бога» внизу справа. Пока смотрите, не закрывайте чёрное окно. Ключ и записи прогонов лежат в папке `AIVillage` в домашней папке и при обновлениях не трогаются.
 
-Модель для ИИ-жителей по умолчанию `google/gemini-2.5-flash-lite` (переменная `AIVILLAGE_MODEL`), 5 жителей, 10 дней. Код меню: `aivillage/launcher.py`, скрипты: `scripts/install.*`, `scripts/start.*`.
+Модель для ИИ-жителей по умолчанию `openai/gpt-6-luna` (переменная `AIVILLAGE_MODEL`), 5 жителей, 10 дней. Код меню: `aivillage/launcher.py`, скрипты: `scripts/install.*`, `scripts/start.*`.
 
 ## Запуск (для разработки)
 
@@ -35,7 +35,7 @@ python -m pytest -q
 
 ```bash
 export OPENROUTER_API_KEY=...   # ключ openrouter.ai
-python -m aivillage.run --days 2 --agents 3 --models google/gemini-2.5-flash-lite --log runs/llm.jsonl
+python -m aivillage.run --days 2 --agents 3 --models default --log runs/llm.jsonl
 python -m aivillage.run --days 2 --models stub --log runs/stub.jsonl   # без ключа: «модель» отвечает как бот
 python -m http.server 8000      # затем открыть http://localhost:8000/viewer/?log=/runs/llm.jsonl
 ```
@@ -57,7 +57,7 @@ python -m aivillage.run --config configs/example.yaml
 ```bash
 pip install -e .[live]
 python -m aivillage.server --days 30                                   # боты
-python -m aivillage.server --agents 3 --models google/gemini-2.5-flash-lite   # LLM
+python -m aivillage.server --agents 3 --models default   # LLM
 # открыть http://localhost:8000
 ```
 
