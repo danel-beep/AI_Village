@@ -1,0 +1,197 @@
+"""Start-screen settings: every knob the app shows before "Play", in one list.
+
+The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a new knob is one dict in
+`KNOBS`, nothing else:
+
+    {"key": "fire_chance", "path": "crises.fire_chance", "group": "Беды", "type": "range",
+     "label": "Случайные пожары", "min": 0, "max": 100, "step": 5, "scale": 0.01, "unit": "%"}
+
+- `path`: dotted key in the world config (config.DEFAULT_CONFIG). The default comes from the chosen
+  economy mode (so switching the mode moves the slider), and the value lands in the run's world override.
+  A knob whose path is not in DEFAULT_CONFIG yet is hidden, so knobs can be listed before their feature lands.
+- no `path`: a run option handled in `to_run()` (villagers, days, mode, pace, ...).
+- `scale`: config value = slider value * scale (percent sliders: 0.01).
+- `only`: "llm" or "bots" shows the knob for that kind of village only.
+- `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
+"""
+
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+from . import modes
+from .config import DEFAULT_CONFIG, make_config
+
+BOT_MIXES = {
+    "mixed": ["worker", "worker", "thief", "worker", "random"],
+    "workers": ["worker"],
+    "traders": ["trader", "worker"],
+    "thieves": ["thief", "worker"],
+    "homestead": ["homestead", "worker"],
+}
+
+KNOBS: list[dict[str, Any]] = [
+    # --- village ---
+    {"key": "brains", "group": "Деревня", "type": "choice", "label": "Кто живёт в деревне", "default": "llm",
+     "options": [["llm", "🧠 ИИ-жители"], ["bots", "🤖 Боты (бесплатно)"]],
+     "hint": "ИИ-жители думают через ключ OpenAI или OpenRouter (кнопка «⚙️ Настройки»), стоят центы. "
+             "Боты: простые программы, бесплатно, для проверки мира."},
+    {"key": "villagers", "group": "Деревня", "type": "range", "label": "Сколько жителей",
+     "min": 2, "max": 60, "step": 1, "default": 5,
+     "hint": "Больше пяти: новые жители получают имена и профессии сами, ресурсов в мире больше."},
+    {"key": "days", "group": "Деревня", "type": "range", "label": "Сколько игровых дней",
+     "min": 1, "max": 60, "step": 1, "default": 3, "unit": " дн."},
+    {"key": "bot_mix", "group": "Деревня", "type": "choice", "label": "Какие боты", "only": "bots",
+     "default": "mixed", "options": [["mixed", "Смешанные"], ["workers", "Трудяги"], ["traders", "Торговцы"],
+                                     ["thieves", "Много воров"], ["homestead", "Хозяйственные"]]},
+    {"key": "summaries", "group": "Деревня", "type": "toggle", "label": "Сводки «Что произошло?» и хайлайты от ИИ",
+     "only": "llm", "default": True, "hint": "Пересказ каждого дня, около $0.0003 за день."},
+
+    # --- rules ---
+    {"key": "mode", "group": "Правила", "type": "choice", "label": "Режим экономики", "default": modes.DEFAULT_MODE,
+     "options": [[m, v["title"]] for m, v in modes.MODES.items()],
+     "about": {m: v["about"] for m, v in modes.MODES.items()},
+     "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах."},
+    {"key": "unfairness", "path": "map.unfairness", "group": "Правила", "type": "range", "scale": 0.1,
+     "label": "Нечестный старт", "min": 0, "max": 10, "step": 1,
+     "hint": "0: у всех одинаковые участки, деньги и дорога до работы. 10: у кого-то большой участок и "
+             "запасы, у кого-то клочок земли и пустой карман."},
+    {"key": "start_coins", "path": "start_coins", "group": "Правила", "type": "range", "label": "Монет на старте",
+     "min": 0, "max": 200, "step": 5},
+    {"key": "tax_amount", "path": "tax_amount", "group": "Правила", "type": "range", "label": "Налог",
+     "min": 0, "max": 100, "step": 5, "unit": " мон."},
+    {"key": "tax_every_days", "path": "tax_every_days", "group": "Правила", "type": "range",
+     "label": "Налог раз в", "min": 1, "max": 14, "step": 1, "unit": " дн."},
+    {"key": "eviction_days", "path": "eviction_days", "group": "Правила", "type": "range",
+     "label": "Выселение за долг по налогу на", "min": 1, "max": 7, "step": 1, "unit": " дн."},
+    {"key": "satiety_loss_per_hour", "path": "satiety_loss_per_hour", "group": "Правила", "type": "range",
+     "label": "Как быстро хочется есть", "min": 0, "max": 6, "step": 1, "unit": " в час"},
+    {"key": "death_mode", "path": "death_mode", "group": "Правила", "type": "choice", "label": "Если здоровье упало до нуля",
+     "options": [["hospital", "🏥 Больница"], ["death", "💀 Смерть"]]},
+    {"key": "hospital_days", "path": "hospital_days", "group": "Правила", "type": "range",
+     "label": "Дней в больнице", "min": 1, "max": 7, "step": 1, "unit": " дн."},
+    {"key": "seasons", "path": "seasons.enabled", "group": "Правила", "type": "toggle", "label": "Времена года",
+     "hint": "Зимой поле не растёт, ягод нет, рыбы меньше."},
+
+    # --- theft ---
+    {"key": "steal_notice_chance", "path": "steal_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Шанс, что кражу заметят", "min": 0, "max": 100, "step": 5, "unit": "%"},
+    {"key": "steal_awake_target_success", "path": "steal_awake_target_success", "group": "Кражи", "type": "range",
+     "scale": 0.01, "label": "Успех кражи у того, кто не спит", "min": 0, "max": 100, "step": 5, "unit": "%"},
+    {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
+     "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
+
+    # --- disasters ---
+    {"key": "fire_ticks", "path": "fire_ticks", "group": "Беды и пожары", "type": "range",
+     "label": "Сколько часов горит дом до потери", "min": 2, "max": 24, "step": 1, "unit": " ч"},
+    {"key": "fire_water_needed", "path": "fire_water_needed", "group": "Беды и пожары", "type": "range",
+     "label": "Вёдер, чтобы потушить", "min": 1, "max": 8, "step": 1},
+    {"key": "order_every_days", "path": "order_every_days", "group": "Беды и пожары", "type": "range",
+     "label": "Заказы на доске раз в", "min": 1, "max": 10, "step": 1, "unit": " дн."},
+
+    # --- map and speed ---
+    {"key": "fixed_map", "group": "Карта и скорость", "type": "toggle", "label": "Старая ручная карта", "default": False,
+     "hint": "Выключено: каждый раз новая деревня (река, дома, участки)."},
+    {"key": "seed", "group": "Карта и скорость", "type": "number", "label": "Номер деревни", "default": None,
+     "hint": "Пусто: каждый раз новая. Тот же номер даёт ту же карту."},
+    {"key": "pace", "group": "Карта и скорость", "type": "range", "label": "Пауза между часами",
+     "min": 0, "max": 5, "step": 0.25, "default": 1.0, "unit": " с",
+     "hint": "Меньше: быстрее. С ИИ-жителями час всё равно идёт столько, сколько они думают."},
+]
+
+
+def _get(cfg: dict, path: str) -> Any:
+    for part in path.split("."):
+        if not isinstance(cfg, dict) or part not in cfg:
+            raise KeyError(path)
+        cfg = cfg[part]
+    return cfg
+
+
+def _set(cfg: dict, path: str, value: Any) -> None:
+    *head, last = path.split(".")
+    for part in head:
+        cfg = cfg.setdefault(part, {})
+    cfg[last] = value
+
+
+def _has(path: str) -> bool:
+    try:
+        _get(DEFAULT_CONFIG, path)
+        return True
+    except KeyError:
+        return False
+
+
+def active() -> list[dict]:
+    return [k for k in KNOBS if "path" not in k or _has(k["path"])]
+
+
+def _to_ui(knob: dict, value: Any) -> Any:
+    if knob.get("scale") and isinstance(value, (int, float)) and not isinstance(value, bool):
+        v = value / knob["scale"]
+        return round(v) if abs(v - round(v)) < 1e-6 else round(v, 4)
+    return value
+
+
+def mode_defaults(mode: str) -> dict[str, Any]:
+    """Slider positions for `mode`: the effective config value of every path knob."""
+    cfg = make_config(modes.world_override(mode))
+    return {k["key"]: _to_ui(k, _get(cfg, k["path"])) for k in active() if "path" in k}
+
+
+def schema() -> dict:
+    return {"knobs": active(), "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k},
+            "mode_defaults": {m: mode_defaults(m) for m in modes.MODES}}
+
+
+def _clean(knob: dict, value: Any) -> Any:
+    t = knob["type"]
+    if t == "toggle":
+        return bool(value)
+    if t == "choice":
+        allowed = [o[0] for o in knob["options"]]
+        if value not in allowed:
+            raise ValueError(f"{knob['label']}: нет варианта {value!r}")
+        return value
+    if t == "number":
+        if value in (None, ""):
+            return None
+        return int(value)
+    v = float(value)
+    v = min(knob["max"], max(knob["min"], v))
+    if float(knob.get("step", 1)).is_integer() and float(knob["min"]).is_integer():
+        v = int(round(v))
+    return v
+
+
+def to_run(opts: dict) -> dict:
+    """Start-screen answers -> what the server needs: world `override`, `decide` kind, days, pace, seed.
+
+    Missing answers take the knob default (mode default for config knobs). Raises ValueError on bad input."""
+    knobs = {k["key"]: k for k in active()}
+    unknown = set(opts) - set(knobs)
+    if unknown:
+        raise ValueError(f"неизвестные настройки: {', '.join(sorted(unknown))}")
+    mode = _clean(knobs["mode"], opts.get("mode", modes.DEFAULT_MODE))
+    by_mode = mode_defaults(mode)
+    val = {}
+    for key, k in knobs.items():
+        raw = opts.get(key, by_mode.get(key, k.get("default")))
+        val[key] = _clean(k, raw)
+
+    override = copy.deepcopy(modes.world_override(mode))
+    if modes.disabled(mode):
+        override["disabled_actions"] = modes.disabled(mode)
+    for key, k in knobs.items():
+        if "path" in k:
+            v = val[key]
+            if k.get("scale") and not isinstance(v, bool):
+                v = round(v * k["scale"], 6)
+            _set(override, k["path"], v)
+    override["population"] = {"size": val["villagers"]}
+    override.setdefault("map", {})["procedural"] = not val["fixed_map"]
+    return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
+            "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
+            "seed": val["seed"], "summaries": val["summaries"], "values": val}

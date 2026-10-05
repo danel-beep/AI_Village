@@ -2,7 +2,7 @@
 
 The villagers' prompt is the same in every mode; only the numbers and rules of the world change
 (and the rules cheat sheet in the prompt shows those numbers as facts). Pick one with `mode:` in a
-run config, `--mode` on the command line, or the launcher menu.
+run config, `--mode` on the command line, or the app's start screen.
 
 A mode is a partial world config (merged over `config.DEFAULT_CONFIG`, under the run config's own
 `world:` overrides) plus actions it switches off. The chosen mode is recorded in the log header as

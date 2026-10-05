@@ -18,22 +18,26 @@ import asyncio
 import json
 import os
 import random
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import engine, keys, llm, mapgen, modes, reports
+from . import engine, keys, knobs, llm, mapgen, modes, reports
 from .highlights import Highlighter, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
 from .registry import GOD, ActionError
 from .run import bots_decider, llm_agents, night_reflection, run
 from .state import World
 
-VIEWER = Path(__file__).resolve().parent.parent / "viewer"
+ROOT = Path(__file__).resolve().parent.parent
+VIEWER = ROOT / "viewer"
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
 
 
@@ -239,16 +243,84 @@ class LiveSim:
                 **self.status()}
 
 
-def create_app(sim: LiveSim) -> FastAPI:
+def make_sim(world: World, *, models: list[str] | None, bots: list[str], seed: int, days: int,
+             log_path: str | None, pace: float = 1.0, summary_model: str | None = None,
+             reports_dir: str | None = None, reveal_reports: bool = False) -> LiveSim:
+    """Villager brains, nightly diaries and recaps around a fresh world (CLI and start screen alike)."""
+    on_night = None
+    if models:
+        agents = llm_agents(world, models)
+        decide = lambda name, obs: agents[name].decide(obs)
+        decide.agents = agents  # lets problem reports name the models
+        on_night = lambda w, day: night_reflection(w, agents, day)
+    else:
+        decide = bots_decider(world, bots, seed)
+    sm = summary_model or ("default" if keys.has_any_key() else "off")
+    summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
+    return LiveSim(world, decide, days, log_path, pace, on_night, summarizer, reports_dir, reveal_reports)
+
+
+class Host:
+    """The app's current village. With `setup` (the launcher), there is none until the start screen's
+    "Play" (`POST /api/start`), and "New village" (`POST /api/stop`) goes back to the start screen."""
+
+    def __init__(self, sim: LiveSim | None = None, runs_dir: str | None = None, reports_dir: str | None = None,
+                 reveal_reports: bool = False, setup: bool = False):
+        self.sim, self.setup = sim, setup
+        self.runs_dir = Path(runs_dir or "runs")
+        self.reports_dir = reports_dir
+        self.reveal_reports = reveal_reports
+        self.last: dict | None = None  # start-screen answers of the current run, to prefill the next one
+        self._lock = threading.Lock()
+
+    def start(self, opts: dict) -> LiveSim:
+        run_opts = knobs.to_run(opts)  # ValueError on bad input, before anything stops
+        seed = run_opts["seed"] or random.SystemRandom().randrange(1, 1_000_000)
+        with self._lock:
+            self.stop()
+            world = engine.new_world({**run_opts["override"], "seed": seed})
+            self.runs_dir.mkdir(parents=True, exist_ok=True)
+            log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.jsonl"
+            sm = None if run_opts["llm"] and run_opts["summaries"] else "off"
+            self.sim = make_sim(world, models=["default"] if run_opts["llm"] else None, bots=run_opts["bots"],
+                                seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
+                                summary_model=sm, reports_dir=self.reports_dir,
+                                reveal_reports=self.reveal_reports)
+            self.last = {**run_opts["values"], "seed": None}
+            self.sim.start()
+            print(f"Village seed {seed}: {log}")
+            return self.sim
+
+    def stop(self) -> None:
+        if self.sim is not None:
+            self.sim.stop()
+            self.sim = None
+
+    def runs(self) -> list[Path]:
+        return sorted(self.runs_dir.glob("*.jsonl"), reverse=True) if self.runs_dir.is_dir() else []
+
+
+def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     app = FastAPI(title="AI Village live")
-    app.state.sim = sim
+    host = host or Host(sim)
+    app.state.host = host
+
+    def need() -> LiveSim:
+        if host.sim is None:
+            raise HTTPException(409, "Деревня ещё не запущена: настройте её и нажмите «Играть».")
+        return host.sim
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         # The map viewer stays a plain log viewer; live mode and the god panel are injected here.
         html = (VIEWER / "index.html").read_text(encoding="utf-8")
-        inject = ('<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
-                  '<script src="/report.js"></script>\n<script src="/settings.js"></script>\n')
+        if host.sim is None:  # start screen only: settings first, the map comes after "Play"
+            inject = '<script src="/settings.js"></script>\n<script src="/setup.js"></script>\n'
+        else:
+            inject = ('<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
+                      '<script src="/report.js"></script>\n<script src="/settings.js"></script>\n')
+            if host.setup:
+                inject += '<script src="/setup.js"></script>\n'
         return html.replace("</body>", inject + "</body>", 1)
 
     @app.get("/pixelmap.js")
@@ -277,14 +349,16 @@ def create_app(sim: LiveSim) -> FastAPI:
 
     @app.get("/api/summary")
     def summaries() -> dict:
+        sim = need()
         return {"enabled": sim.summarizer is not None, "summaries": sim.summaries}
 
     @app.get("/api/highlights")
     def highlights() -> dict:
-        return {"highlights": sim.highlights}
+        return {"highlights": host.sim.highlights if host.sim else []}
 
     @app.post("/api/summary")
     def summary_now() -> dict:
+        sim = need()
         if sim.summarizer is None:
             raise HTTPException(400, "Сводки выключены: нужен ключ OpenRouter.")
         rec = sim.summarize()
@@ -300,7 +374,7 @@ def create_app(sim: LiveSim) -> FastAPI:
         if not note:
             raise HTTPException(400, "Напишите пару слов, что не так.")
         tick = body.get("tick")
-        path = sim.report(note[:5000], int(tick) if isinstance(tick, (int, float)) else None)
+        path = need().report(note[:5000], int(tick) if isinstance(tick, (int, float)) else None)
         return {"ok": True, "path": str(path), "name": path.name}
 
     def local_only(request: Request) -> None:
@@ -334,16 +408,77 @@ def create_app(sim: LiveSim) -> FastAPI:
         local_only(request)
         return llm.check()
 
+    # --- start screen (viewer/setup.js) ---
+    @app.get("/api/setup")
+    def setup_info() -> dict:
+        return {**knobs.schema(), "running": host.sim is not None, "can_restart": host.setup,
+                "last": host.last, "has_key": keys.has_any_key(),
+                "model": keys.get("model") or llm.DEFAULT_MODEL,
+                "finished": bool(host.sim and host.sim.finished)}
+
+    @app.post("/api/start")
+    def start(body: dict, request: Request) -> dict:
+        local_only(request)
+        opts = dict(body or {})
+        if opts.get("brains", "llm") == "llm" and not keys.has_any_key():
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+                                     "Или выберите ботов, они бесплатные.")
+        try:
+            sim = host.start(opts)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, **sim.status()}
+
+    @app.post("/api/stop")
+    def stop(request: Request) -> dict:
+        local_only(request)
+        if not host.setup:
+            raise HTTPException(400, "this server runs one village (started without --setup)")
+        host.stop()
+        return {"ok": True}
+
+    @app.get("/api/runs")
+    def past_runs(request: Request) -> dict:
+        local_only(request)
+        current = host.sim.log_path if host.sim else None
+        return {"runs": [{"name": r.stem, "kb": r.stat().st_size // 1024} for r in host.runs()[:15]
+                         if str(r) != current]}
+
+    @app.get("/replay/{name}", response_class=HTMLResponse)
+    def replay_run(name: str, request: Request) -> FileResponse:
+        local_only(request)
+        log = host.runs_dir / f"{name}.jsonl"
+        if not name.replace("-", "").replace("_", "").isalnum() or not log.is_file():
+            raise HTTPException(404)
+        out = log.with_suffix(".html")
+        if not out.is_file() or out.stat().st_mtime < log.stat().st_mtime:
+            subprocess.run([sys.executable, str(ROOT / "scripts" / "build_demo.py"), str(log), str(out)],
+                           check=True, stdout=subprocess.DEVNULL)
+        return FileResponse(out, media_type="text/html")
+
+    @app.post("/api/report-last")
+    def report_last(body: dict, request: Request) -> dict:
+        local_only(request)
+        note = str(body.get("note") or "").strip()
+        runs = host.runs()
+        if not note or not runs:
+            raise HTTPException(400, "Напишите пару слов, что не так." if runs else "Прошлых прогонов пока нет.")
+        path = reports.make_report(host.reports_dir or str(host.runs_dir.parent / "reports"), runs[0], note[:5000])
+        if host.reveal_reports:
+            reports.reveal(path)
+        return {"ok": True, "path": str(path), "name": path.name}
+
     @app.get("/api/meta")
     def meta() -> dict:
-        return sim.meta()
+        return need().meta()
 
     @app.get("/api/status")
     def status() -> dict:
-        return sim.status()
+        return need().status()
 
     @app.post("/api/god")
     def god(body: dict) -> dict:
+        sim = need()
         try:
             sim.queue_god(str(body.get("name")), body.get("args") or {})
         except ActionError as e:
@@ -352,6 +487,7 @@ def create_app(sim: LiveSim) -> FastAPI:
 
     @app.post("/api/control")
     def control(body: dict) -> dict:
+        sim = need()
         cmd = body.get("cmd")
         if cmd == "pause":
             sim.running.clear()
@@ -366,6 +502,10 @@ def create_app(sim: LiveSim) -> FastAPI:
     @app.websocket("/ws")
     async def ws(socket: WebSocket) -> None:
         await socket.accept()
+        sim = host.sim
+        if sim is None:
+            await socket.close()
+            return
         q, backlog = sim.subscribe()
         try:
             for msg in backlog:
@@ -398,12 +538,22 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: llm.DEFAULT_MODEL when OPENROUTER_API_KEY is set, else off)")
     p.add_argument("--reports", default=None, help="where problem reports go (default: <log dir>/reports)")
     p.add_argument("--reveal-reports", action="store_true", help="open the file manager on a new report")
+    p.add_argument("--setup", action="store_true",
+                   help="start with the in-app start screen (all settings in the browser, then Play)")
+    p.add_argument("--runs", default=None, help="with --setup: where run logs go (default: the --log folder)")
     mapgen.add_args(p)
     a = p.parse_args(argv)
     if a.seed is None:
         a.seed = random.SystemRandom().randrange(1, 1_000_000)
 
     import uvicorn
+
+    if a.setup:  # the app's start screen picks everything; the CLI flags are not used
+        runs = a.runs or str(Path(a.log).parent)
+        host = Host(None, runs, a.reports, a.reveal_reports, setup=True)
+        print(f"AI Village: http://{a.host}:{a.port} (настройте деревню и нажмите «Играть»)")
+        uvicorn.run(create_app(host=host), host=a.host, port=a.port, log_level="warning")
+        return 0
 
     override: dict = {**modes.world_override(a.mode), "seed": a.seed}
     if modes.disabled(a.mode):
@@ -412,18 +562,9 @@ def main(argv: list[str] | None = None) -> int:
         override["population"] = {"size": a.agents}
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     print(f"Village seed {a.seed} (run again with --seed {a.seed} to get the same map)")
-    on_night = None
-    if a.models:
-        agents = llm_agents(world, a.models.split(","))
-        decide = lambda name, obs: agents[name].decide(obs)
-        decide.agents = agents  # lets problem reports name the models
-        on_night = lambda w, day: night_reflection(w, agents, day)
-    else:
-        decide = bots_decider(world, a.bots.split(","), a.seed)
-    sm = a.summary_model or ("default" if keys.has_any_key() else "off")
-    summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
-    days = a.days or (3 if a.models else 30)
-    sim = LiveSim(world, decide, days, a.log, a.pace, on_night, summarizer, a.reports, a.reveal_reports)
+    sim = make_sim(world, models=a.models.split(",") if a.models else None, bots=a.bots.split(","), seed=a.seed,
+                   days=a.days or (3 if a.models else 30), log_path=a.log, pace=a.pace,
+                   summary_model=a.summary_model, reports_dir=a.reports, reveal_reports=a.reveal_reports)
     sim.start()
     print(f"AI Village live: http://{a.host}:{a.port}")
     uvicorn.run(create_app(sim), host=a.host, port=a.port, log_level="warning")
