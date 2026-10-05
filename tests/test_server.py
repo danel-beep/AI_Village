@@ -62,3 +62,33 @@ def test_live_push_and_pages(tmp_path):
     assert client.get("/god.js").status_code == 200 and client.get("/live.js").status_code == 200
     meta = client.get("/api/meta").json()
     assert "fire" in meta["god"] and meta["agents"] and meta["locations"]
+
+
+def test_recaps_and_problem_report(tmp_path):
+    import zipfile
+    from aivillage.summary import StubSummaryClient, Summarizer
+    world = engine.new_world({"seed": 3})
+    sim = LiveSim(world, bots_decider(world, ["worker"], 3), 2, str(tmp_path / "live.jsonl"), 0.0,
+                  summarizer=Summarizer(StubSummaryClient()))
+    client = TestClient(create_app(sim))
+    assert "/report.js" in client.get("/").text
+    sim.start()
+    wait(lambda: sim.finished)
+    wait(lambda: len(sim.summaries) >= 1)  # day 1 recap is written in the background
+    got = client.get("/api/summary").json()
+    assert got["enabled"] and got["summaries"][0]["from"].startswith("день 1")
+    now = client.post("/api/summary").json()
+    assert now["from_tick"] > got["summaries"][0]["to_tick"]
+    assert (tmp_path / "live.summary.json").exists()
+    assert client.post("/api/report", json={"note": ""}).status_code == 400
+    r = client.post("/api/report", json={"note": "огонь погас сам", "tick": 7}).json()
+    with zipfile.ZipFile(r["path"]) as z:
+        assert {"report.json", "run.jsonl", "summary.json"} <= set(z.namelist())
+        assert json.loads(z.read("report.json"))["tick"] == 7
+    replay(tmp_path / "live.jsonl")
+
+
+def test_recaps_off_without_summarizer(tmp_path):
+    sim, client = make(tmp_path)
+    assert client.get("/api/summary").json()["enabled"] is False
+    assert client.post("/api/summary").status_code == 400
