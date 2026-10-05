@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import governance, keys, plots
+from . import crises, governance, keys, plots
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -132,6 +132,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(governance.facts(cfg))
     if plots.enabled(cfg):
         lines.append(plots.facts(cfg))
+    if crisis := crises.fact(cfg):
+        lines.append(crisis)
     return "\n".join(lines)
 
 

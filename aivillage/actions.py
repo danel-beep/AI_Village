@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import ops, plots, seasons, tiles
+from . import crises, ops, plots, seasons, tiles
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer
@@ -451,7 +451,7 @@ def _price(ctx: Ctx, item: str, side: str) -> int:
     if info is None or not info.get("tradable", True):
         raise ActionError(f"the trader does not deal in {item}")
     ratio = ctx.cfg["npc_sell_ratio"] if side == "buy" else ctx.cfg["npc_buy_ratio"]
-    return max(1, int(info["value"] * ratio))
+    return max(1, int(info["value"] * ratio * crises.price_factor(ctx.world, item, side)))
 
 
 @ACTIONS.action("buy", "Buy from the trader at the market (expensive).", MarketArgs,
