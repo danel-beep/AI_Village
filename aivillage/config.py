@@ -83,6 +83,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "miner": ["stone", "ore"],
         "smith": [],
     },
+    # Procedural map (mapgen.py): with procedural on, every seed lays out its own village from the
+    # locations below (positions, roads, waypoints, homes with plots, resource amounts, start money);
+    # `unfairness` 0..1 goes from as equal as possible to random and unfair (see mapgen.MAP_DEFAULTS).
+    # Off here (the engine and its tests use the hand-made map below); the CLI and the live server
+    # turn it on unless --fixed-map.
+    "map": {"procedural": False, "unfairness": 0.3},
     # Map: a graph of locations. Homes are added per agent and connected to the square.
     # "slots" splits a resource into finite map objects (trees, beds, bushes, shoals, rocks; see tiles.py).
     # "plant": the resource can be sown in an empty bed (costs `seed` of it, ripe after `days` nights).
