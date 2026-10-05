@@ -122,6 +122,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
         },
     },
+    # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
+    # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
+    "governance": {
+        "enabled": True,
+        "first_election_day": 2,
+        "election_every_days": 5,
+        "law_vote_hours": 12,  # a proposal stays open this many waking hours
+        "max_open_proposals": 2,
+        "exile_days": 3,
+        # Actions an exiled villager may not use.
+        "exile_bans": ["buy", "sell", "fulfill_order", "vote", "run_for_mayor", "vote_law"],
+        # Allowed values for laws that set a number; laws start at "start" (tax: tax_amount).
+        "limits": {"tax": [0, 60], "theft_fine": [0, 50], "mayor_salary": [0, 20], "grant": [1, 200]},
+        "start": {"theft_fine": 0, "mayor_salary": 0},
+        "crime_memory_days": 7,  # a witnessed theft can be reported for this many days
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
