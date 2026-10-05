@@ -51,14 +51,17 @@ const MapLayer = (() => {
     }
   }
 
+  const SP = (g, n, x, y, o) => window.Sprites && Sprites.draw(g, n, x, y, o);
   function stump(g, x, y) {
     const { blob, R } = K;
+    if (SP(g, 'stump', x + 16, y + 31)) return;
     blob(g, x + 16, y + 29, 7, 3, STUMP); R(g, x + 12, y + 24, 8, 5, '#1b1b24'); R(g, x + 13, y + 24, 6, 4, '#8a5a35');
     blob(g, x + 16, y + 24, 4, 2, ['#e8c090', '#d9a870', '#a8743f']);
   }
 
   function sapling(g, x, y, f) {
     const { R, blob, C } = K, s = 3 + f * 6;
+    if (SP(g, 'sapling', x + 16, y + 31, { s: .6 + f * .5 })) return;
     R(g, x + 15, y + 30 - s - 4, 2, s + 4, C.wood);
     blob(g, x + 16, y + 30 - s - 4, s * .8 + 2, s * .6 + 2, [C.leafL, C.leaf, C.leafD]);
   }
@@ -79,7 +82,8 @@ const MapLayer = (() => {
     }
     // berry bushes: red dots = berries left
     for (const loc of locs('berries')) amounts(t, loc, 'berries').forEach((v, i) => { const s = spots[loc].berries[i]; if (!s) return;
-      const [x, y] = s; blob(g, x + 8, y + 10, 7, 5, v ? [C.leafL, C.leaf, C.leafD] : ['#8a9a5a', '#6f7f48', '#566238']);
+      const [x, y] = s; if (SP(g, v ? 'berry_bush' : 'bush', x + 8, y + 16, { alpha: v ? 1 : .75 })) return;
+      blob(g, x + 8, y + 10, 7, 5, v ? [C.leafL, C.leaf, C.leafD] : ['#8a9a5a', '#6f7f48', '#566238']);
       for (let k = 0; k < v; k++) P(g, x + 4 + (k * 5) % 10, y + 8 + (k % 2) * 3, '#e4572e'); });
     // fish shoals: little fish circling, one per unit left
     for (const loc of locs('fish')) amounts(t, loc, 'fish').forEach((v, i) => { const s = spots[loc].fish[i]; if (!s) return;
@@ -88,6 +92,7 @@ const MapLayer = (() => {
     // rocks shrink as they are mined; empty = pebbles
     for (const [r, ore] of [['stone', null], ['ore', '#d4a83a']]) for (const loc of locs(r)) amounts(t, loc, r).forEach((v, i) => {
       const s = spots[loc][r][i]; if (!s) return; const f = v / capOf(t, loc, r);
+      if (v && SP(g, ore ? 'gold_rock' : 'boulder', s[0] + 8, s[1] + 16, { s: .55 + .45 * f })) return;
       if (!v) { P(g, s[0] + 5, s[1] + 12, C.stoneD); P(g, s[0] + 9, s[1] + 13, C.stone); P(g, s[0] + 11, s[1] + 11, C.stoneD); return; }
       blob(g, s[0] + 8, s[1] + 14 - 4 * f, 2 + 4 * f, 1.5 + 3.5 * f, [C.stoneL, C.stone, C.stoneD]);
       if (ore) { P(g, s[0] + 7, s[1] + 13 - 4 * f, ore); if (f > .5) P(g, s[0] + 9, s[1] + 11 - 4 * f, ore); } });
@@ -110,7 +115,13 @@ const MapLayer = (() => {
     for (const id of t.view.fires || []) {
       const bx = layout.box[id]; if (!bx) continue;
       const [x0, y0, w, h] = bx, need = (info[id] || {}).water_needed || 3, n = 8 + need * 4, tall = 12 + need * 2.5;
-      for (let i = 0; i < n; i++) {
+      if (window.Sprites && Sprites.has('fire0')) {   // sprite flames: more and bigger the more water is still needed
+        const m = 2 + need;
+        for (let i = 0; i < m; i++) {
+          const fx = x0 + 6 + (w - 12) * (m > 1 ? i / (m - 1) : .5) + (K.rnd(i, 7) - .5) * 6, fy = y0 + h * (.45 + K.rnd(i, 8) * .4);
+          Sprites.draw(g, 'fire' + (Math.floor(sec * 9 + i * 1.7) % 4), fx, fy, { s: .8 + need * .12 + K.rnd(i, 9) * .3, flip: i % 2 === 1 });
+        }
+      } else for (let i = 0; i < n; i++) {
         const p = (sec * 1.6 + K.rnd(i, 3)) % 1, fx = x0 + 4 + K.rnd(i, 1) * (w - 8), fy = y0 + h * (.25 + K.rnd(i, 2) * .7) - p * tall;
         const r = (1 - p) * (3 + need * .6) + 1.5;
         blob(g, fx, fy, r, r * 1.4, ['#ffe066', '#ff9f1c', '#e4572e'], null);

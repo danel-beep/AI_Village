@@ -94,12 +94,15 @@ const PlotLayer = (() => {
     }
   }
 
+  const SP = (g, n, x, y, o) => window.Sprites && Sprites.draw(g, n, x, y, o);
   function coop(g, [x, y, w, h], b, sec) {
     const { R, P, C } = K;
+    if (!SP(g, 'coop', x + 6, y + 12, { s: .6 })) {   // code coop; hens and eggs below either way
     R(g, x + 1, y + 3, 10, 8, C.k); R(g, x + 2, y + 4, 8, 6, C.woodL);
     for (let yy = y + 5; yy < y + 10; yy += 2) R(g, x + 2, yy, 8, 1, C.wood);
     R(g, x, y + 1, 12, 3, C.k); R(g, x + 1, y + 2, 10, 1, '#b8483a'); R(g, x + 1, y + 1, 10, 1, '#d46a4f');
     R(g, x + 5, y + 7, 3, 3, C.k); R(g, x + 4, y + 9, 5, 1, C.woodD);   // door + ramp
+    }
     for (let k = 0; k < 2; k++) {   // hens pecking in front
       const hx = x + 12 + k * 2, peck = Math.sin(sec * 4 + k * 2) > .6 ? 1 : 0, hy = y + 4 + k * 4;
       R(g, hx, hy + 1, 3, 2, '#f4f0e6'); P(g, hx + 2, hy + peck, '#f4f0e6'); P(g, hx + 2, hy - 1 + peck, '#d8402c');
@@ -116,20 +119,24 @@ const PlotLayer = (() => {
     for (let xx = x; xx < x + w; xx += 5) R(g, xx, y + 1, 1, h - 2, C.woodD);
     R(g, x + w - 1, y + 1, 1, h - 2, C.woodD);
     const sway = Math.sin(sec * 1.3) > 0 ? 1 : 0, cx = x + 2, cy = y + 8;
+    if (!SP(g, 'cow', cx + 7, cy + 8, { s: .8, flip: Math.sin(sec * .21) > .7 })) {
     R(g, cx, cy, 9, 5, C.k); R(g, cx + 1, cy + 1, 7, 3, '#f4f0e6'); R(g, cx + 2, cy + 1, 2, 2, C.k); R(g, cx + 6, cy + 2, 2, 1, C.k);
     R(g, cx + 9, cy - 1 + sway, 4, 4, C.k); R(g, cx + 10, cy + sway, 3, 3, '#f4f0e6'); P(g, cx + 12, cy + 2 + sway, '#f0a0b0');
     P(g, cx + 10, cy - 2 + sway, '#c8b48a'); P(g, cx + 12, cy - 2 + sway, '#c8b48a');
     for (const lx of [cx + 1, cx + 3, cx + 5, cx + 7]) R(g, lx, cy + 5, 1, 3, '#5a4632');
     P(g, cx + 5, cy + 4, '#f0a0b0');
+    }
     const milk = (b.items || {}).milk || 0;   // milk cans by the fence
     for (let i = 0; i < Math.min(3, Math.ceil(milk / 3)); i++) { R(g, x + 2 + i * 4, y + h - 7, 3, 4, '#e8e8f0'); R(g, x + 2 + i * 4, y + h - 7, 3, 1, C.stoneD); }
   }
 
   function hive(g, [x, y, w, h], b, sec) {
     const { R, P, C } = K;
+    if (!SP(g, 'hive', x + 4, y + h)) {
     R(g, x + 3, y + h - 3, 2, 3, C.woodD);   // stand
     R(g, x + 1, y + 2, 6, 7, C.k); R(g, x + 2, y + 3, 4, 2, '#e0b040'); R(g, x + 2, y + 5, 4, 1, '#a87820'); R(g, x + 2, y + 6, 4, 2, '#e0b040');
     R(g, x, y + 1, 8, 2, C.woodD); P(g, x + 4, y + 7, C.k);
+    }
     if (((b.items || {}).honey || 0) > 0) { R(g, x + 6, y + h - 3, 2, 3, '#ffb020'); P(g, x + 6, y + h - 3, '#ffe080'); }
     for (let i = 0; i < 3; i++) {
       const a = sec * 3 + i * 2.1;
@@ -141,6 +148,7 @@ const PlotLayer = (() => {
   function houseLevel(g, h, level) {
     const { R, P, C } = K;
     if (level < 2) return;
+    if (K.houseSprite && K.houseSprite(g, h, Math.min(3, level))) return;
     const x = h.x, y = h.y;
     R(g, x + 19, y + 9, 11, 10, C.k); R(g, x + 20, y + 10, 9, 9, C.plaster);
     R(g, x + 22, y + 12, 5, 5, C.k); R(g, x + 23, y + 13, 3, 3, C.glass); R(g, x + 18, y + 8, 13, 2, C.woodD);

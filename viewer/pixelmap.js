@@ -1,5 +1,5 @@
 // Pixel-art map renderer for the AI Village viewer.
-// All art is drawn in code (no image files): every pixel is ours, so there is no third-party license to track.
+// Art: SpriteCook sprites (viewer/sprites.js) where the atlas has them, else drawn in code here (the fallback).
 // The world is painted on a low-res buffer (16 px tiles), upscaled 2x with no smoothing; text goes on top at full res.
 // Positions are viewer-only: the engine has no coordinates, only a graph of locations.
 const PixelMap = (() => {
@@ -35,7 +35,7 @@ const PixelMap = (() => {
             ['...k7777k...', '...k8888k...', '....kkkk....']],
   };
 
-  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null;
+  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null, pendingInit = null, looks = {};
 
   function rnd(x, y, s = 0) {
     let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
@@ -146,7 +146,11 @@ const PixelMap = (() => {
     }
   }
 
+  // Sprite art (viewer/sprites.js) when the atlas is loaded; the code-drawn art below is the fallback.
+  const SP = (g, n, x, y, o) => window.Sprites && Sprites.draw(g, n, x, y, o);
+  const ORE = { '#d4a83a': 'gold_rock', '#7ad0e0': 'crystal_rock' };
   function tree(g, x, y, pine) {
+    if (SP(g, pine ? 'pine' : rnd(x, y, 5) < .15 ? 'apple_tree' : 'oak', x + 16, y + 32)) return;
     blob(g, x + 16, y + 30, 11, 3, ['rgba(0,0,0,.18)', 'rgba(0,0,0,.18)', 'rgba(0,0,0,.18)'], null);
     R(g, x + 13, y + 20, 6, 10, C.k); R(g, x + 14, y + 20, 4, 9, C.wood); R(g, x + 14, y + 20, 1, 9, C.woodL);
     if (pine) {
@@ -164,9 +168,11 @@ const PixelMap = (() => {
       for (let i = 0; i < 6; i++) P(g, x + 8 + rnd(x, y, i) * 16, y + 6 + rnd(y, x, i) * 12, C.leafL);
     }
   }
-  function bush(g, x, y) { blob(g, x + 8, y + 10, 7, 5, [C.leafL, C.leaf, C.leafD]);
+  function bush(g, x, y) { if (SP(g, rnd(x, y) < .4 ? 'berry_bush' : 'bush', x + 8, y + 16)) return;
+    blob(g, x + 8, y + 10, 7, 5, [C.leafL, C.leaf, C.leafD]);
     if (rnd(x, y) < .4) { P(g, x + 5, y + 8, '#e4572e'); P(g, x + 10, y + 10, '#e4572e'); } }
-  function rock(g, x, y, ore) { blob(g, x + 8, y + 10, 6, 5, [C.stoneL, C.stone, C.stoneD]);
+  function rock(g, x, y, ore) { if (SP(g, ore ? ORE[ore] || 'copper_rock' : 'boulder', x + 8, y + 16)) return;
+    blob(g, x + 8, y + 10, 6, 5, [C.stoneL, C.stone, C.stoneD]);
     if (ore) { P(g, x + 6, y + 9, ore); P(g, x + 9, y + 11, ore); P(g, x + 10, y + 8, ore); } }
   function fence(g, x0, y0, x1, y1, gapX) {
     for (let x = x0; x <= x1; x++) for (const y of [y0, y1]) if (!(y === y1 && Math.abs(x - gapX) < 9)) {
@@ -174,7 +180,20 @@ const PixelMap = (() => {
     for (let y = y0; y <= y1; y += 8) for (const x of [x0, x1]) R(g, x, y, 2, 8, C.wood);
   }
 
+  // A house sprite of the given level (1-3) in the owner's roof colour, standing on the 3x3 lot; sets the chimney
+  // (smoke) and windows (night lights) to the sprite's. Returns false when there is no sprite art.
+  function houseSprite(g, h, level) {
+    const n = 'house' + level, k = Math.max(0, ROOFS.indexOf(h.roof)), bx = h.x + 24, by = h.y + 47;
+    if (!window.Sprites || !Sprites.has(n + '_r' + k)) return false;
+    if (level > 1 && layout.ground) g.drawImage(layout.ground, h.x, h.y - 2, 3 * T, 3 * T + 2, h.x, h.y - 2, 3 * T, 3 * T + 2);
+    SP(g, n + '_r' + k, bx, by);
+    const m = Sprites.meta(n);
+    h.chimney = [bx + m.chimney[0], by + m.chimney[1]];
+    h.windows = m.windows.map(([dx, dy]) => [bx + dx - 4, by + dy - 3]);
+    return true;
+  }
   function house(g, h) {
+    if (houseSprite(g, h, 1)) return;
     const { x, y, roof: [rm, rd, rl] } = h;
     R(g, x + 4, y + 46, 44, 2, 'rgba(0,0,0,.2)');
     // walls
@@ -205,6 +224,7 @@ const PixelMap = (() => {
     const goods = [['#e4572e', '#ff9f1c'], ['#76b041', '#f7e26b'], ['#c47ac0', '#e4572e']];
     for (let s = 0; s < 3; s++) {
       const x = 12 * T + 4 + s * 36, y = T + 2;
+      if (SP(g, 'market', x + 16, y + 34)) continue;
       R(g, x + 2, y + 6, 2, 26, C.woodD); R(g, x + 28, y + 6, 2, 26, C.woodD);
       R(g, x, y + 22, 32, 12, C.k); R(g, x + 1, y + 22, 30, 11, C.wood); R(g, x + 1, y + 22, 30, 2, C.woodL);
       for (let i = 0; i < 10; i++) { const gx = x + 3 + i * 3, c = goods[s][i % 2]; P(g, gx, y + 20, c); P(g, gx + 1, y + 20, c); P(g, gx, y + 19, c); }
@@ -221,14 +241,16 @@ const PixelMap = (() => {
   function square(g) {
     // well
     const x = 12 * T + 10, y = 7 * T + 4;
+    if (!SP(g, 'well', x + 10, y + 26)) {
     blob(g, x + 10, y + 19, 10, 6, [C.stoneL, C.stone, C.stoneD]); blob(g, x + 10, y + 18, 6, 3, ['#1d3550', '#1d3550', '#1d3550'], null);
     R(g, x + 2, y + 3, 2, 16, C.woodD); R(g, x + 16, y + 3, 2, 16, C.woodD);
     for (let i = 0; i < 6; i++) R(g, x - 1 + i, y + 3 - i, 22 - 2 * i, 1, i ? '#8f3328' : C.k);
     R(g, x - 1, y + 3, 22, 1, C.k); R(g, x + 9, y + 8, 2, 7, C.wood);
+    }
     // benches and lamps
     for (const bx of [16 * T + 2, 13 * T + 6]) { R(g, bx, 10 * T + 6, 22, 4, C.k); R(g, bx + 1, 10 * T + 6, 20, 3, C.woodL); R(g, bx + 2, 10 * T + 10, 2, 3, C.k); R(g, bx + 18, 10 * T + 10, 2, 3, C.k); }
     layout.lamps = [[12 * T + 2, 11 * T + 2], [18 * T + 12, 7 * T + 2]];
-    for (const [lx, ly] of layout.lamps) { R(g, lx, ly - 14, 2, 16, C.k); R(g, lx - 2, ly - 18, 6, 5, C.k); R(g, lx - 1, ly - 17, 4, 3, '#f7e26b'); }
+    for (const [lx, ly] of layout.lamps) if (!SP(g, 'lamp', lx + 1, ly + 3)) { R(g, lx, ly - 14, 2, 16, C.k); R(g, lx - 2, ly - 18, 6, 5, C.k); R(g, lx - 1, ly - 17, 4, 3, '#f7e26b'); }
   }
 
   function field(g) {
@@ -240,7 +262,7 @@ const PixelMap = (() => {
     }
     fence(g, 5 * T - 2, 2 * T - 6, 11 * T, 8 * T - 4, 8 * T + 8);
     // scarecrow
-    const x = 6 * T + 4, y = 5 * T - 2; R(g, x + 3, y + 4, 1, 12, C.woodD); R(g, x, y + 6, 8, 1, C.woodD);
+    const x = 6 * T + 4, y = 5 * T - 2; if (SP(g, 'scarecrow', x + 4, y + 17)) return; R(g, x + 3, y + 4, 1, 12, C.woodD); R(g, x, y + 6, 8, 1, C.woodD);
     R(g, x + 1, y + 6, 6, 5, '#c47a2c'); blob(g, x + 3.5, y + 3, 3, 3, ['#f2d38a', '#e8c060', '#c9a040']); R(g, x, y, 8, 1, '#5a3a2a');
   }
 
@@ -256,6 +278,7 @@ const PixelMap = (() => {
 
   function smithy(g) {
     const x = 20 * T, y = 8 * T;
+    if (SP(g, 'smithy', x + 32, y + 64)) { layout.forge = [x + 29, y + 49]; layout.smithyChimney = [x + 47, y + 1]; return; }
     R(g, x + 2, y + 62, 60, 2, 'rgba(0,0,0,.2)');
     R(g, x + 2, y + 26, 60, 36, C.k);
     for (let yy = y + 27; yy < y + 61; yy++) for (let xx = x + 3; xx < x + 61; xx++)
@@ -274,6 +297,10 @@ const PixelMap = (() => {
 
   function mine(g) {
     const x0 = 25 * T, y0 = 8 * T;
+    if (SP(g, 'mine', x0 + 38, y0 + 62)) {
+      if (!window.MapLayer) { rock(g, 29 * T - 4, 12 * T, '#d4a83a'); rock(g, 25 * T + 2, 12 * T + 2, '#7ad0e0'); rock(g, 28 * T, 13 * T + 4, null); }
+      return;
+    }
     const pal = [C.stoneL, C.stone, C.stoneD];
     for (let i = 0; i < 14; i++) blob(g, x0 + 6 + rnd(i, 1) * 68, y0 + 6 + rnd(i, 2) * 40, 10 + rnd(i, 3) * 8, 8 + rnd(i, 4) * 6, pal);
     blob(g, x0 + 40, y0 + 30, 30, 22, pal);
@@ -315,12 +342,17 @@ const PixelMap = (() => {
     items.sort((a, b) => a[1] - b[1]).forEach(([x, y, k]) => k === 'tree' ? tree(g, x, y, rnd(x, y) < .3) : k === 'bush' ? bush(g, x, y) : rock(g, x, y));
   }
 
+  // The background as it is before houses go on it: a bigger house (level 2-3) first wipes the small one with it.
+  function groundCopy() {
+    const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(bg, 0, 0);
+    layout.ground = c;
+  }
   function paintBackground() {
     bg = document.createElement('canvas'); bg.width = W; bg.height = H;
     const g = bg.getContext('2d');
     if (layout.gen) return paintGenerated(g);
     paintGround(g); river(g); field(g); square(g); market(g); smithy(g); mine(g); decor(g);
-    layout.houses.forEach(h => house(g, h)); forest(g);
+    groundCopy(); layout.houses.forEach(h => house(g, h)); forest(g);
   }
 
   // Generated village: the same landmark art, each shifted to where the generator put it.
@@ -333,11 +365,24 @@ const PixelMap = (() => {
     at('market', market);
     const sm = at('smithy', smithy); layout.forge = move(layout.forge, sm); layout.smithyChimney = move(layout.smithyChimney, sm);
     at('mine', mine); decor(g);
-    layout.houses.forEach(h => house(g, h)); at('forest', forest);
+    groundCopy(); layout.houses.forEach(h => house(g, h)); at('forest', forest);
   }
 
   // ---------- characters ----------
+  // Sprite villagers: a look that fits the profession (straw hat for the farmer, apron for the smith...), each look once
+  // while there are enough of them.
+  const PROF_LOOK = { farmer: [0, 5], smith: [4, 10], fisher: [9, 6], woodcutter: [6, 2], miner: [10, 3] };
+  function pickLooks(agents) {
+    const used = new Set(), out = {}, n = 12;
+    agents.forEach((a, k) => {
+      const pref = [...(PROF_LOOK[a.profession] || []), ...Array.from({ length: n }, (_, i) => (k + i) % n)];
+      const look = pref.find(i => !used.has(i)) ?? k % n; used.add(look); out[a.name] = look;
+    });
+    return out;
+  }
   function sheetFor(name, k) {
+    const art = window.Sprites && Sprites.ok && Sprites.villager(looks[name] ?? k);
+    if (art) return art;
     const shirt = color[name], skin = SKIN[k % SKIN.length], hair = HAIR[(k * 3 + 1) % HAIR.length];
     const map = { k: C.k, 1: skin[0], 2: skin[1], 3: hair, 4: shade(hair, .75), 5: shirt, 6: shade(shirt, .75),
                   7: PANTS[k % PANTS.length], 8: '#3a2a20' };
@@ -356,11 +401,16 @@ const PixelMap = (() => {
   }
 
   function init(header, colors) {
+    if (window.Sprites && !Sprites.ok) {   // paint with code art now, repaint once the sprite atlas is decoded
+      if (!pendingInit) Sprites.onReady(() => pendingInit && init(...pendingInit));
+      pendingInit = [header, colors];
+    } else pendingInit = null;
     names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
     if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
-    if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence });
+    if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence, houseSprite });
     paintBackground();
     buf = document.createElement('canvas'); buf.width = W; buf.height = H; b = buf.getContext('2d');
+    looks = pickLooks(header.config.agents);
     sheets = {}; names.forEach((n, k) => sheets[n] = sheetFor(n, k));
     return { width: W * S, height: H * S };
   }
@@ -369,7 +419,7 @@ const PixelMap = (() => {
   function spot(loc, k) {
     const ring = [[0, 0], [-13, 3], [13, 3], [-7, -9], [7, -9], [0, 11], [-20, -4], [20, -4], [-14, 13], [14, 13],
                   [-24, 8], [24, 8], [0, -16], [-28, -10], [28, -10], [-20, 18], [20, 18], [0, 22], [-30, 2], [30, 2]];
-    const [x, y] = layout.anchors[loc] || layout.anchors.square, [dx, dy] = ring[k % ring.length];
+    const [x, y] = layout.anchors[loc] || layout.anchors.square, [dx, dy] = ring[Math.max(0, k) % ring.length];   // k = -1: not active in that tick (hospital)
     return [x + Math.round(dx * 1.8), y + Math.round(dy * 1.2)];
   }
   function here(view, name) {
@@ -484,7 +534,7 @@ const PixelMap = (() => {
     ctx.drawImage(buf, cam.x0, cam.y0, W / cam.z, H / cam.z, 0, 0, W * S, H * S);
     labels(ctx, t, shown, selected, sec);
     Actors.noteTick(t, frac, dt);
-    Actors.bubbles(ctx, shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y - 8); return { n: a.n, sx, sy }; }),
+    Actors.bubbles(ctx, shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y + 8 - ((sheets[a.n] || {}).fh || 16)); return { n: a.n, sx, sy }; }),
                    selected, tr || String, W * S);
   }
 

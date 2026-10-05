@@ -215,7 +215,8 @@ const Actors = (() => {
     const pose = !a.moving && POSES[a.act] ? POSES[a.act](b, x, y, sec + a.k * .37, a) : {};
     const crouch = pose.crouch || 0, dy = (pose.dy || 0) + crouch;
     if (pose.back) pose.back();
-    b.drawImage(sheet, frame * 12, row * 16, 12, 16 - crouch, x - 6, y - 8 + dy, 12, 16 - crouch);
+    const fw = sheet.fw || 12, fh = sheet.fh || 16;   // sprite villagers (viewer/sprites.js) are bigger than code ones
+    b.drawImage(sheet, frame * fw, row * fh, fw, fh - crouch, x - fw / 2, y + 8 - fh + dy, fw, fh - crouch);
     if (pose.front) pose.front();
     if (a.moving && a.carry) bucket(b, x + 4, y + 3 + (Math.floor(sec * 7) % 2), true);
     b.restore();
