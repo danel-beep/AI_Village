@@ -24,4 +24,4 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 8. **Translation layer for viewers.** Agents speak English; viewer shows Russian translations of thoughts/says (batched, cached).
 9. **Run config in YAML.** `--config runs/x.yaml`: agents, models, mechanics on/off, god script.
 10. **Seasons.** Winter: field yields nothing; spec "economy".
-11. **CI.** GitHub Actions running pytest on PRs.
+11. ~~**CI.** GitHub Actions running pytest on PRs.~~ Готово: `.github/workflows/tests.yml` гоняет pytest на каждом PR и push в main.
