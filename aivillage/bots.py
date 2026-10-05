@@ -183,4 +183,118 @@ class ThiefBot(WorkerBot):
         return super().decide(obs)
 
 
-BOT_TYPES = {"random": RandomBot, "worker": WorkerBot, "thief": ThiefBot}
+class TraderBot(WorkerBot):
+    """A WorkerBot that also trades with neighbours at base value, skipping the NPC spread.
+
+    In the evening it walks to the square if it has something to sell or needs food; there
+    food producers sell cooked meals, the smith sells tools, woodcutters and miners sell wood
+    and ore to the smith, all for coins at the middle of the NPC buy/sell prices.
+    LonerBot is the same villager without trading: the baseline for the balance test.
+    """
+
+    RESERVE = 3  # cooked meals kept for yourself
+    MEALS = ["bread", "fish_soup"]
+    TRADES = True
+    market_day = 0  # the day this bot last gave up on the evening market
+
+    def _price(self, obs: dict, bundle: dict) -> int:
+        prices = obs["board"]["trader_prices"]
+        return sum((prices[k]["buy"] + prices[k]["sell"]) // 2 * n for k, n in bundle.items() if k in prices)
+
+    def _wants(self, obs: dict, item: str) -> int:
+        """How many of `item` this villager would buy for coins right now."""
+        me = obs["you"]
+        inv = me["inventory"]
+        if item in self.MEALS:
+            return max(0, self.RESERVE - sum(inv.get(m, 0) for m in self.MEALS))
+        if item == "tool":
+            return 0 if inv.get("tool") or me["profession"] == "smith" else 1
+        if me["profession"] == "smith":
+            return max(0, {"wood": 4, "ore": 2}.get(item, 0) - inv.get(item, 0))
+        return 0
+
+    def _for_sale(self, obs: dict) -> dict:
+        me = obs["you"]
+        inv, prof = me["inventory"], me["profession"]
+        sale: dict = {}
+        if sum(inv.get(m, 0) for m in self.MEALS) > self.RESERVE:
+            sale.update({m: inv[m] for m in self.MEALS if inv.get(m)})
+        if prof == "smith" and inv.get("tool", 0) > 1:
+            sale["tool"] = inv["tool"] - 1
+        if prof in ("woodcutter", "miner"):
+            sale.update({k: inv[k] for k in ("wood", "ore") if inv.get(k)})
+        return sale
+
+    @staticmethod
+    def _guess_demand(item: str, profession: str) -> int:
+        if item in TraderBot.MEALS:
+            return 0 if profession in ("farmer", "fisher") else 2
+        if item == "tool":
+            return 0 if profession == "smith" else 1
+        if item in ("wood", "ore"):
+            return {"wood": 4, "ore": 2}[item] if profession == "smith" else 0
+        return 0
+
+    def decide(self, obs: dict) -> dict:
+        me, here, t = obs["you"], obs["here"], obs["time"]
+        inv, loc = me["inventory"], me["location"]
+        tax_reserve = t["tax"] if t["next_tax_day"] - t["day"] <= 2 else 0
+
+        for o in obs["offers_to_you"]:
+            price = o["want"].get("coins", 0)
+            good = (self.TRADES and set(o["want"]) == {"coins"} and len(o["give"]) == 1
+                    and all(0 < self._wants(obs, k) >= n - 1 for k, n in o["give"].items())
+                    and me["coins"] - price >= tax_reserve and price <= self._price(obs, o["give"]))
+            return decision("accept" if good else "decline", {"offer_id": o["id"]}, "trade")
+
+        others = [v for v in obs["board"]["villagers"] if v["name"] != me["name"] and v["status"] == "active"]
+        evening = t["day_ends_at"] - 5 <= t["hour"] < t["day_ends_at"] - 2
+        sale = self._for_sale(obs)
+        buying = self._wants(obs, "bread") >= 1 and me["coins"] - tax_reserve >= 6
+        # Raw wood and ore are sold to the smith only in passing; meals and tools are worth the walk.
+        worth_walk = any(k in self.MEALS or k == "tool" for k in sale) or buying
+        market = self.TRADES and others and evening and worth_walk and self.market_day != t["day"]
+        if not market or me["satiety"] < 45 or obs["fires"]:
+            # Food producers cook everything they carry, so there is food to sell in the evening.
+            if loc == me["home"] and me["profession"] in ("farmer", "fisher"):
+                for recipe, raw in (("bread", "grain"), ("fish_soup", "fish")):
+                    if inv.get(raw, 0) >= 2:
+                        return decision("craft", {"recipe": recipe, "times": min(10, inv[raw] // 2)}, "cook")
+            return self._tweak(obs, super().decide(obs), tax_reserve)
+
+        if loc != "square":
+            return decision("move", {"to": "square"}, "evening market")
+        awake = {p["name"] for p in here["people"] if not p["asleep"]}
+        asked = {o["to"] for o in obs["your_offers"]}
+        for item, qty in sale.items():
+            for v in others:
+                n = min(qty, self._guess_demand(item, v["profession"]))
+                if v["name"] in awake and v["name"] not in asked and n:
+                    bundle = {item: n}
+                    price = self._price(obs, bundle)
+                    return decision("offer", {"to": v["name"], "give": bundle, "want": {"coins": price}},
+                                    say=f"{v['name']}, {n} {item} for {price} coins?")
+        if asked or (buying and any(v["profession"] in ("farmer", "fisher") for v in others if v["name"] in awake)):
+            return decision("wait", None, "evening market")
+        self.market_day = t["day"]  # nothing to do here today
+        return self._tweak(obs, super().decide(obs), tax_reserve)
+
+    def _tweak(self, obs: dict, d: dict, tax_reserve: int) -> dict:
+        """Small fixes to WorkerBot choices: miners dig ore, meals are bought for several days."""
+        act, me = d["action"], obs["you"]
+        if act["name"] == "work" and me["profession"] == "miner" and obs["here"]["resources"].get("ore"):
+            act["args"]["resource"] = "ore"  # ore is worth more than stone
+        if act["name"] == "buy" and act["args"].get("item") in self.MEALS:
+            price = obs["board"]["trader_prices"][act["args"]["item"]]["buy"]
+            need = max(1, self._wants(obs, act["args"]["item"]))
+            act["args"]["qty"] = max(1, min(need, (me["coins"] - tax_reserve) // price))
+        return d
+
+
+class LonerBot(TraderBot):
+    """The same villager, but it never trades with people, only with the NPC market."""
+
+    TRADES = False
+
+
+BOT_TYPES = {"random": RandomBot, "worker": WorkerBot, "thief": ThiefBot, "trader": TraderBot, "loner": LonerBot}
