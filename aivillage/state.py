@@ -218,6 +218,7 @@ class World:
     kin: Kin = field(default_factory=Kin)
     governance: Governance = field(default_factory=Governance)
     plots: dict[str, Plot] = field(default_factory=dict)  # home location id -> plot
+    crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -252,6 +253,7 @@ class World:
             kin=Kin.from_dict(d.get("kin", {})),
             governance=Governance.from_dict(d.get("governance", {})),
             plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
+            crises=d.get("crises", []),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

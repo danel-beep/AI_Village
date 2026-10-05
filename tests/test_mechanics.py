@@ -352,7 +352,7 @@ def test_winter_field_yields_nothing_until_spring():
 
 
 def test_seasons_can_be_disabled():
-    w = engine.new_world({"seed": 1, "seasons": {"enabled": False, "length_days": 1}})
+    w = engine.new_world({"seed": 1, "seasons": {"enabled": False, "length_days": 1}, "crises": {"enabled": False}})
     while w.day < 5:
         engine.step(w, {})
     assert w.locations["field"].resources["grain"] == 40

@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import clock, family, governance, mapgen, ops, plots, reputation, seasons, tiles
+from . import clock, crises, family, governance, mapgen, ops, plots, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -125,8 +125,10 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": [{"id": p.id, "name": p.name, "needs": p.needs, "contributed": p.contributed}
                          for p in world.projects.values() if not p.done],
-            "trader_prices": {i: {"buy": max(1, int(v["value"] * cfg["npc_sell_ratio"])),
-                                  "sell": max(1, int(v["value"] * cfg["npc_buy_ratio"]))}
+            "trader_prices": {i: {"buy": max(1, int(v["value"] * cfg["npc_sell_ratio"]
+                                                    * crises.price_factor(world, i, "buy"))),
+                                  "sell": max(1, int(v["value"] * cfg["npc_buy_ratio"]
+                                                     * crises.price_factor(world, i, "sell")))}
                               for i, v in cfg["items"].items() if v.get("tradable", True)},
             "recipes": cfg["recipes"],
             "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
@@ -138,6 +140,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     }
     obs.update(reputation.observe(world, name))
     obs.update(plots.observe(world, name))
+    obs.update(crises.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -391,11 +394,14 @@ def night(ctx: Ctx) -> None:
     w.hour = cfg["day_start_hour"]
     seasons.new_day(ctx)
     governance.new_day(ctx)
+    crises.new_day(ctx, rng_for(w, "crises"))
     for loc in w.locations.values():
         spec = cfg["locations"].get(loc.id, {}).get("resources", {})
         if w.day < loc.drought_until_day:
             continue
         for r, s in spec.items():
+            if crises.blocks_regrowth(w, loc.id, r):
+                continue
             cap = tiles.capacity(s) if s.get("slots") else s["max"]
             tiles.grow(loc, r, seasons.regen(cfg, w.day, r, s["regen"]), cap, s["max"])
     for loc in w.locations.values():
