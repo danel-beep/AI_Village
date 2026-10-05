@@ -109,7 +109,7 @@ def compute(records: list[dict]) -> dict:
                      "outcome": "burning", "put_out_by": None, "responders": {}}
                 fires.append(f)
                 open_fires[f"home_{victim}"] = f
-            elif kind in ("extinguish", "fire_out"):
+            elif kind in ("extinguish", "pour_water", "fire_out"):  # "extinguish": logs before pour_water
                 loc = ev.get("location") or positions.get(actor)
                 f = open_fires.get(loc)
                 if f is not None:
