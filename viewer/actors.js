@@ -41,6 +41,16 @@ const Actors = (() => {
     if (o && (act === 'gather' || act === 'mine')) return [o[0] - 3, o[1] + (act === 'mine' ? 7 : 5), 'right', true];
     const a = L.anchors[loc]; if (!a) return null;
     const ring = (pts) => { const [dx, dy, dir] = pts[k % pts.length]; return [a[0] + dx, a[1] + dy, dir]; };
+    const rv = loc === 'river' && L.gen && L.gen.river;   // generated map: the river can be on either side
+    if (rv && (act === 'fish' || act === 'water')) {
+      const T = L.T || 16, left = rv.side === 'left', face = left ? 'left' : 'right', d = rv.dock;
+      if (act === 'fish') {   // on the dock planks, the outermost first, facing the water
+        const xs = [...d.x].sort((p, q) => left ? p - q : q - p), x = xs[k % xs.length];
+        return [x * T + 8 + (left ? -2 : 2), d.y * T + 6 + (k >= xs.length ? 10 : 0), face];
+      }
+      const y = Math.max(0, Math.min(rv.x.length - 1, d.y + 2 + (k % 3)));   // on the bank just below the dock
+      return [left ? (rv.x[y] + 3) * T + 4 : rv.x[y] * T - 4, y * T + 8, face];
+    }
     if (act === 'fish' && loc === 'river') return [24 + (k % 4) * 9, 148, 'left'];
     if (act === 'water' && loc === 'river') return [56, 118 + (k % 3) * 9, 'left'];
     if (act === 'farm' && loc === 'field') return [[96, 112, 154, 168][k % 4], 60 + ((k >> 2) % 3) * 22, k % 2 ? 'left' : 'right'];
@@ -239,25 +249,36 @@ const Actors = (() => {
   }
 
   // ---------- bubbles (full-resolution canvas, constant size whatever the zoom) ----------
-  const said = {}; let lastTick = null, clock = 0, lastStamp = null;
+  // A bubble does not pop up at the start of the hour for everyone at once: each villager speaks at their own moment
+  // in the hour (the decision's own minute if the log has one, else a stable per-villager spread over the hour).
+  const said = {}, pending = {}; let lastTick = null, clock = 0, lastStamp = null;
+  const hash = s => { let h = 7; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 9973; return h / 9973; };
   function noteTick(t, frac, dt) {
     const stamp = t.tick + '|' + frac;
     if (stamp !== lastStamp) clock += dt;   // bubbles age only while the replay moves (pause keeps them readable)
     lastStamp = stamp;
-    if (t.tick === lastTick) return;
-    if (lastTick === null || Math.abs(t.tick - lastTick) > 3) for (const n in said) delete said[n];
-    lastTick = t.tick;
-    for (const [n, d] of Object.entries(t.decisions || {})) {
-      const act = d.action || {}, args = act.args || {};
-      let b = null;
-      if (d.say) b = { kind: 'say', text: d.say };
-      else if (act.name === 'say' && args.text) b = { kind: 'say', text: args.text };
-      else if (act.name === 'whisper' && args.text) b = { kind: 'whisper', text: args.text, to: args.to };
-      else if (d.thought) b = { kind: 'think', text: d.thought };
-      if (b) said[n] = { ...b, born: clock, life: Math.min(10, (b.kind === 'think' ? 4 : 5) + String(b.text).length * .04) };
+    if (t.tick !== lastTick) {
+      if (lastTick === null || Math.abs(t.tick - lastTick) > 3) for (const n in said) delete said[n];
+      for (const n in pending) delete pending[n];
+      const jumped = lastTick === null || t.tick !== lastTick + 1;
+      lastTick = t.tick;
+      for (const [n, d] of Object.entries(t.decisions || {})) {
+        const act = d.action || {}, args = act.args || {};
+        let b = null;
+        if (d.say) b = { kind: 'say', text: d.say };
+        else if (act.name === 'say' && args.text) b = { kind: 'say', text: args.text };
+        else if (act.name === 'whisper' && args.text) b = { kind: 'whisper', text: args.text, to: args.to };
+        else if (d.thought) b = { kind: 'think', text: d.thought };
+        if (!b) continue;
+        const m = d.minute != null ? d.minute : d.at != null ? d.at : null;
+        b.at = jumped ? 0 : m != null ? Math.min(.9, m / 60) : .05 + hash(n + t.tick) * .65;
+        b.life = Math.min(10, (b.kind === 'think' ? 4 : 5) + String(b.text).length * .04);
+        pending[n] = b;
+      }
+      if ((t.events || []).some(e => e.kind === 'fire'))
+        for (const n of Object.keys(t.view.agents)) if (!t.view.agents[n].asleep) said[n + '!'] = { kind: 'alarm', born: clock, life: 2.5 };
     }
-    if ((t.events || []).some(e => e.kind === 'fire'))
-      for (const n of Object.keys(t.view.agents)) if (!t.view.agents[n].asleep) said[n + '!'] = { kind: 'alarm', born: clock, life: 2.5 };
+    for (const [n, b] of Object.entries(pending)) if (frac >= b.at) { said[n] = { ...b, born: clock }; delete pending[n]; }
   }
   function wrap(ctx, text, maxW, maxLines) {
     const words = String(text).split(/\s+/), lines = [];
