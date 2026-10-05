@@ -28,6 +28,9 @@
   #drop { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.6); }
   #drop[hidden] { display:none; }
   #drop div { background:var(--panel); padding:24px; border-radius:12px; max-width:420px; }
+  body.nolog #side { display:none; }
+  body.nolog #bar { padding-right:150px; }  /* keep clear of the floating god-mode button */
+  #logbtn[aria-pressed=true] { background:var(--accent); color:#1d2321; }
   @media (max-width: 760px) { body { flex-direction:column; } #side { width:100%; max-width:none; height:45vh; } }
 </style>
 </head>
@@ -40,11 +43,11 @@
     <label class="muted">скорость <input id="speed" type="range" min="1" max="20" value="4"></label>
     <button id="lang" hidden title="язык мыслей и реплик">RU</button>
     <span id="clock"></span>
+    <button id="logbtn" title="показать или скрыть лог справа">📜 Лог</button>
   </div>
 </div>
 <div id="side">
   <h3>Жители</h3><div id="cards"></div>
-  <h3 id="diaryh" hidden>Дневник</h3><div id="diary" hidden></div>
   <h3>События</h3><div id="feed"></div>
 </div>
 <div id="drop"><div>
@@ -52,10 +55,11 @@
   <input type="file" id="file" accept=".jsonl,.json" multiple>
 </div></div>
 <script src="pixelmap.js"></script>
+<script src="dossier.js"></script>
 <script>
 const COLORS = ['#f2c14e','#e4572e','#76b041','#17bebb','#c47ac0','#ff9f1c','#2ec4b6','#e71d36','#a3c4f3','#ffbf69'];
 const cv = document.getElementById('c'), g = cv.getContext('2d');
-let header, ticks = [], diaries = [], i = 0, playing = false, last = 0, frac = 1, selected = null, names = [], color = {}, lastPanel = -1;
+let header, ticks = [], diaries = [], i = 0, playing = false, userPaused = false, last = 0, frac = 1, selected = null, names = [], color = {}, lastPanel = -1;
 
 // Data-source entry point. A dropped file, ?log=, the embedded demo and a live server all feed rows through here:
 // Viewer.start(headerRow) once, then Viewer.push(row) for each tick/diary row (rows may keep arriving).
@@ -65,7 +69,13 @@ function start(h) {
   names.forEach((n, k) => color[n] = COLORS[k % COLORS.length]);
   const size = PixelMap.init(header, color); cv.width = size.width; cv.height = size.height;
   document.getElementById('drop').hidden = true;
-  playing = true; document.getElementById('play').textContent = '⏸';
+  setPlaying(!userPaused, true);
+}
+// Play/pause. userPaused = the viewer pressed pause (live ticks must not resume it). Live mode listens to
+// 'viewer-play' and pauses the simulation on the server too (viewer/live.js).
+function setPlaying(p, quiet) {
+  playing = p; userPaused = !p; document.getElementById('play').textContent = p ? '⏸' : '▶';
+  if (!quiet) window.dispatchEvent(new CustomEvent('viewer-play', { detail: p }));
 }
 function push(row) {
   if (row.type === 'diary') diaries.push({ ...row, at: ticks.length - 1 });
@@ -75,11 +85,11 @@ function load(text) {
   const lines = text.split('\n').filter(Boolean).map(JSON.parse);
   start(lines[0]); lines.slice(1).forEach(push);
 }
-window.Viewer = { start, push, load };
+window.Viewer = { start, push, load, setPlaying };
 // Live feed (viewer/live.js): append a row and keep following if the viewer was at the newest ticks.
 window.viewerAppend = row => {
   const follow = i >= ticks.length - 3; push(row);
-  if (follow && row.view) { if (ticks.length - 1 - i > 2) { i = ticks.length - 2; frac = 0; } playing = true; document.getElementById('play').textContent = '⏸'; }
+  if (follow && row.view && !userPaused) { if (ticks.length - 1 - i > 2) { i = ticks.length - 2; frac = 0; } playing = true; }
 };
 // Translations: sidecar <log>.ru.json from aivillage/translate.py maps original text -> Russian.
 let TR = null, lang = 'en';
@@ -104,10 +114,18 @@ else if (qs) {
   fetch(qs).then(r => r.text()).then(load);
 }
 
-document.getElementById('play').onclick = () => { playing = !playing; document.getElementById('play').textContent = playing ? '⏸' : '▶'; };
+document.getElementById('play').onclick = () => setPlaying(!playing);
+// The log column can be hidden to give the map the whole width; remembered per browser.
+function setLog(show) {
+  document.body.classList.toggle('nolog', !show); document.getElementById('logbtn').setAttribute('aria-pressed', show);
+  try { localStorage.setItem('aiv-log', show ? '1' : '0'); } catch (e) {}
+}
+document.getElementById('logbtn').onclick = () => setLog(document.body.classList.contains('nolog'));
+try { setLog(localStorage.getItem('aiv-log') !== '0'); } catch (e) { setLog(true); }
 document.getElementById('stepb').onclick = () => go(i + 1);
 document.getElementById('scrub').oninput = e => go(+e.target.value, true);
 function go(n, jump) { if (!ticks.length) return; i = Math.max(0, Math.min(ticks.length - 1, n)); frac = jump ? 1 : 0; render(); }
+// Selecting a villager (map click via PixelMap.pick, a card, or Dossier's close button) opens their dossier.
 function select(n) { selected = selected === n ? null : n; lastPanel = -1; }
 // Click a villager on the map to follow them (canvas uses object-fit: contain, so undo the letterboxing).
 cv.onclick = e => {
@@ -137,7 +155,7 @@ function panel() {
       <div class="thought">${esc(tr(thoughts[n] || ''))}</div></div>`;
   }).join('');
   document.querySelectorAll('.card').forEach(el => el.onclick = () => select(el.dataset.n));
-  diaryPanel();
+  Dossier.render(selected);
   const feed = [];
   for (let k = i; k >= 0 && feed.length < 40; k--) for (const e of ticks[k].events.slice().reverse()) {
     const mine = selected && (e.actor === selected || e.to.includes(selected));
@@ -145,14 +163,6 @@ function panel() {
       feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:00</span> ${esc(tr(e.text))}</div>`);
   }
   document.getElementById('feed').innerHTML = feed.join('');
-}
-function diaryPanel() {
-  const own = selected ? diaries.filter(d => d.at <= i && d.entries[selected]).map(d => d.entries[selected]).reverse() : [];
-  document.getElementById('diaryh').hidden = document.getElementById('diary').hidden = !selected;
-  document.getElementById('diary').innerHTML = !selected ? '' : own.length ? own.map(d => `<div class="card"><span class="muted">День ${d.day}</span>
-    <div class="thought">${esc(tr(d.text))}</div>${Object.entries(d.people || {}).map(([p, note]) =>
-    `<div class="muted"><b style="color:${color[p] || 'inherit'}">${esc(p)}</b>: ${esc(tr(note))}</div>`).join('')}</div>`).join('')
-    : '<div class="muted">Пока записей нет: дневник пишется ночью.</div>';
 }
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
