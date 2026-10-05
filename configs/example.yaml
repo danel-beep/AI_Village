@@ -11,6 +11,10 @@ log: runs/example.jsonl
 model: stub
 bot: worker
 
+# Economy mode (aivillage/modes.py): standard, peaceful, scarcity, debt, gold_rush, lawless.
+# It changes only the rules of the world; `world:` below is applied on top of it.
+mode: standard
+
 # Omit `agents` to get the 5 default villagers.
 agents:
   - {name: Anna, profession: farmer}

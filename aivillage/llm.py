@@ -81,7 +81,13 @@ def world_facts(cfg: dict) -> str:
     lines.append(f"- Map: {roads}; every home_<Name> -> square. move finds the path itself, one step per hour.")
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
-    lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days.")
+    lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days. If you cannot pay, it takes "
+                 f"all your coins and you are locked out of your house for {cfg['eviction_days']} days.")
+    lines.append(f"- Stealing from an awake person works {cfg['steal_awake_target_success']:.0%} of the time "
+                 f"(a sleeping one: always, and they do not see who); each awake bystander notices it with "
+                 f"{cfg['steal_notice_chance']:.0%} chance; at most {cfg['max_steal_qty']} per attempt.")
+    lines.append("- Debts are written on the public board, but nobody forces repayment. "
+                 "Orders on the board pay the whole reward to the first person who delivers.")
     if rep := reputation.fact(cfg):
         lines.append(rep)
     fam = cfg.get("family")

@@ -25,7 +25,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import engine, reports
+from . import engine, modes, reports
 from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
 from .registry import GOD, ActionError
 from .run import bots_decider, llm_agents, night_reflection, run
@@ -324,6 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bots", default="worker,worker,thief,worker,random")
     p.add_argument("--models", default=None, help="OpenRouter model ids (comma-separated) or 'stub'")
     p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
+    p.add_argument("--mode", default=modes.DEFAULT_MODE, choices=list(modes.MODES),
+                   help="economy mode (aivillage/modes.py)")
     p.add_argument("--log", default="runs/live.jsonl", help="also write the replayable log here")
     p.add_argument("--pace", type=float, default=1.0, help="seconds between ticks (min wait)")
     p.add_argument("--host", default="127.0.0.1")
@@ -337,7 +339,9 @@ def main(argv: list[str] | None = None) -> int:
 
     import uvicorn
 
-    override: dict = {"seed": a.seed}
+    override: dict = {**modes.world_override(a.mode), "seed": a.seed}
+    if modes.disabled(a.mode):
+        override["disabled_actions"] = modes.disabled(a.mode)
     if a.agents:
         from .config import DEFAULT_CONFIG
         override["agents"] = DEFAULT_CONFIG["agents"][: a.agents]
