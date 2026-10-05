@@ -28,11 +28,12 @@ from .registry import ACTIONS
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
 
-SYSTEM = """You are {name}, a villager ({profession}) in a small village. You are a person, not an assistant.
-Survive and live your life: eat, work, earn coins, pay the weekly tax, deal with your neighbours.
-Nobody tells you what is right. You may cooperate, trade, lend, promise, lie, steal or betray. Others may do the same to you.
-Coins only enter the village when someone sells to the trader at the market, who pays little and charges a lot,
-so trading directly with neighbours is usually better.
+# Neutral on purpose: the run compares how different models behave, so the prompt states the rules of the
+# world and never suggests a strategy or a morality. A villager's character (CHARACTERS) is the only nudge.
+SYSTEM = """You are {name}, a {profession} living in a small village. You are a person, not an assistant.
+How you live is up to you. Every action below is part of this world; none is forbidden or required.
+You need food to live, and the village collects a tax. Coins only enter the village when someone sells to the trader
+at the market, who pays little and charges a lot.{character}
 
 Each hour you get a JSON observation and answer with ONE JSON object and nothing else:
 {{"thought": "short private reasoning, nobody else sees it",
@@ -51,17 +52,43 @@ Rules of thumb:
 - buy/sell work only at the market. Talking to, giving to or trading with someone needs them in the same place ("here.people").
 - If "last_error" is set, your previous action failed: read why and do something different.
 - Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
-- Hungry with no food? Anyone can gather berries in the forest or buy bread at the market; or ask a neighbour.
+- Food comes from gathering (berries in the forest, fish at the river), crafting, the market or other people.
 - Plan a few hours ahead: travel takes hours, and work/craft only pay off if you finish them.
 
 Item maps look like {{"bread": 2, "coins": 5}}. Keep "thought" under 40 words."""
 
-REFLECT = """You are {name}, a villager ({profession}). The day is over and you are alone with your thoughts.
+REFLECT = """You are {name}, a {profession} in a small village.{character} The day is over and you are alone with your thoughts.
 Below is what you did, said and noticed today. Answer with ONE JSON object and nothing else:
 {{"diary": "your private diary entry for today, first person, at most {words} words",
-  "people": {{"<Name>": "what you now think of this person: trust, debts, promises, grudges, plans (one or two sentences)"}}}}
+  "people": {{"<Name>": "what you now think of this person and why (one or two sentences)"}}}}
 In "people" include only villagers your opinion of changed today; their old entries are kept otherwise.
 Be honest with yourself: nobody else will ever read this."""
+
+# Character presets: a soft hint about temperament, never an instruction to do something. Picked per villager in
+# the run config (`agents[].character`: a key here or free text; `characters: random` for the rest).
+CHARACTERS = {
+    "friendly": "You are warm by nature and enjoy having people around.",
+    "generous": "You find it hard to watch someone go without when you have enough.",
+    "honest": "Your word matters to you, even when keeping it costs you.",
+    "cautious": "You trust people slowly and like to keep something in reserve.",
+    "ambitious": "You want to be someone who matters in this village.",
+    "greedy": "Money means a lot to you, and you hate seeing others richer than you.",
+    "aggressive": "You have a short temper and do not let anyone push you around.",
+    "sly": "You notice other people's weak spots and things left unattended.",
+    "lazy": "You like an easy life and avoid hard work when you can.",
+}
+CHARACTER_MAX_CHARS = 300
+
+
+def character_text(value: str | None, *, mode: str = "default", seed: int = 0, name: str = "") -> str:
+    """The character line for one villager: a preset key, custom text, or (no value and mode "random") a preset
+    picked from the seed and name, so a run is reproducible. Empty = the neutral default."""
+    if not value and mode == "random":
+        value = random.Random(f"{seed}:character:{name}").choice(sorted(CHARACTERS))
+    if not value or value == "default":
+        return ""
+    return CHARACTERS.get(value, value.strip()[:CHARACTER_MAX_CHARS])
+
 
 DIARY_WORDS = 150
 DAY_LOG_LINES = 40
@@ -89,9 +116,9 @@ def world_facts(cfg: dict) -> str:
                  "SELL to the trader at b coins.")
     lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days. If you cannot pay, it takes "
                  f"all your coins and you are locked out of your house for {cfg['eviction_days']} days.")
-    lines.append(f"- Stealing from an awake person works {cfg['steal_awake_target_success']:.0%} of the time "
-                 f"(a sleeping one: always, and they do not see who); each awake bystander notices it with "
-                 f"{cfg['steal_notice_chance']:.0%} chance; at most {cfg['max_steal_qty']} per attempt.")
+    lines.append(f"- steal succeeds {cfg['steal_awake_target_success']:.0%} of the time against an awake person and always "
+                 f"against a sleeping one; awake people nearby notice it with {cfg['steal_notice_chance']:.0%} chance; "
+                 f"at most {cfg['max_steal_qty']} per attempt.")
     lines.append("- Debts are written on the public board, but nobody forces repayment. "
                  "Orders on the board pay the whole reward to the first person who delivers.")
     if rep := reputation.fact(cfg):
@@ -573,10 +600,11 @@ class LLMAgent:
     day_log: list[str] = field(default_factory=list)  # today's turns, consumed by reflect()
     villagers: set[str] = field(default_factory=set)
     disabled_actions: frozenset[str] = frozenset()
+    character: str = ""  # character_text(); "" = neutral default
 
     def messages(self, obs: dict) -> list[dict]:
         system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe(self.disabled_actions),
-                               facts=self.facts or "(none)")
+                               facts=self.facts or "(none)", character="\n" + self.character if self.character else "")
         memory = {"notes": self.notes or "none", "your_last_actions": self.recent}
         if self.people:
             memory["people"] = self.people
@@ -630,7 +658,8 @@ class LLMAgent:
         if not self.day_log:
             return None
         log, self.day_log = self.day_log, []
-        system = REFLECT.format(name=self.name, profession=self.profession, words=DIARY_WORDS)
+        system = REFLECT.format(name=self.name, profession=self.profession, words=DIARY_WORDS,
+                               character=" " + self.character if self.character else "")
         user = (f"End of day {day}. What you thought of people before today: {json.dumps(self.people or 'nothing yet')}\n"
                 "Today:\n" + "\n".join(log))
         try:

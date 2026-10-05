@@ -530,7 +530,7 @@ class PersonArgs(BaseModel):
     person: str
 
 
-@ACTIONS.action("share_chest", "Give someone access to your chest (an alliance). They can take everything.",
+@ACTIONS.action("share_chest", "Give someone access to your chest. They can take everything.",
                 PersonArgs)
 def share_chest(ctx: Ctx, a: Agent, args: PersonArgs) -> None:
     other = _agent(ctx, args.person)

@@ -24,7 +24,11 @@ mode: standard
 agents:
   - {name: Anna, profession: farmer}
   - {name: Boris, profession: fisher, bot: thief}
-  - {name: Clara, profession: woodcutter, model: stub}
+  - {name: Clara, profession: woodcutter, model: stub, character: friendly}
+# character: a preset (friendly, generous, honest, cautious, ambitious, greedy, aggressive, sly, lazy),
+# your own text (a soft hint, at most 300 chars), or default (neutral prompt).
+# Villagers without one: characters: default (neutral) or random (a preset each, fixed by the seed).
+characters: default
 
 # Switch actions off for this run (they vanish from the prompt and are rejected by the engine).
 mechanics:
