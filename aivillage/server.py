@@ -170,6 +170,10 @@ def create_app(sim: LiveSim) -> FastAPI:
         inject = '<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
         return html.replace("</body>", inject + "</body>", 1)
 
+    @app.get("/pixelmap.js")
+    def pixelmap_js() -> FileResponse:
+        return FileResponse(VIEWER / "pixelmap.js", media_type="text/javascript")
+
     @app.get("/live.js")
     def live_js() -> FileResponse:
         return FileResponse(VIEWER / "live.js", media_type="text/javascript")

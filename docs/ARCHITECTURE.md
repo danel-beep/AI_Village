@@ -40,7 +40,8 @@ god events ─┐
 | `aivillage/metrics.py` | behaviour metrics from a log only (JSON + Russian markdown) |
 | `aivillage/server.py` | live mode: FastAPI app runs `run.run()` in a thread, streams log records over `/ws`, god events via `POST /api/god` (queued into `god_script`, so they are logged and replay exactly), pause/pace via `POST /api/control` |
 | `viewer/live.js`, `viewer/god.js` | injected by the server into `index.html`: live feed (uses only `load()` / `ticks` / optional `window.viewerAppend`) and the god panel built from GOD schemas |
-| `viewer/index.html` | 2D replay of a log; `scripts/build_demo.py` bundles a log into one page |
+| `viewer/index.html` | Replay UI (controls, villager cards, diary, events). Feed it via `Viewer.start(header)` / `Viewer.push(row)`; `scripts/build_demo.py` bundles a log + scripts into one page |
+| `viewer/pixelmap.js` | Pixel-art map renderer: map layout (viewer-only coordinates), art drawn in code, walking, fire, lighting |
 
 ## How to add a mechanic
 
