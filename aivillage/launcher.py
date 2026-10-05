@@ -24,7 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MODEL = os.environ.get("AIVILLAGE_MODEL", "openai/gpt-6-luna")  # same as llm.DEFAULT_MODEL
-LLM_AGENTS = 5
+LLM_AGENTS = 5  # default answer to "how many villagers"
+MAX_VILLAGERS = 60  # population.MAX_SIZE
 LLM_DAYS = 10
 BOT_DAYS = 30
 
@@ -112,9 +113,20 @@ def watch_old(home: Path) -> int:
     return 0
 
 
+def ask_villagers(llm: bool) -> int:
+    price = " Примерно $0.003 за жителя за игровой день." if llm else ""
+    while True:
+        ans = input(f"Сколько жителей? От 2 до {MAX_VILLAGERS}, Enter = {LLM_AGENTS}.{price} ").strip()
+        if not ans:
+            return LLM_AGENTS
+        if ans.isdigit() and 2 <= int(ans) <= MAX_VILLAGERS:
+            return int(ans)
+        print(f"Нужно число от 2 до {MAX_VILLAGERS}.")
+
+
 def menu(home: Path) -> int:
     print("\n=== AI Village ===")
-    print(f"  1 — Деревня с ИИ-жителями ({LLM_AGENTS} жителей, модель {MODEL}, стоит центы)")
+    print(f"  1 — Деревня с ИИ-жителями (модель {MODEL}, стоит центы)")
     print("  2 — Деревня с ботами (бесплатно, без ключа)")
     print("  3 — Посмотреть прошлый прогон")
     print("  4 — Сменить ключ OpenRouter")
@@ -124,9 +136,10 @@ def menu(home: Path) -> int:
         if not key:
             return 0
         os.environ["OPENROUTER_API_KEY"] = key
-        return live(home, ["--models", MODEL, "--agents", str(LLM_AGENTS), "--days", str(LLM_DAYS)])
+        n = ask_villagers(llm=True)
+        return live(home, ["--models", MODEL, "--agents", str(n), "--days", str(LLM_DAYS)])
     if choice == "2":
-        return live(home, ["--days", str(BOT_DAYS)])
+        return live(home, ["--agents", str(ask_villagers(llm=False)), "--days", str(BOT_DAYS)])
     if choice == "3":
         return watch_old(home)
     if choice == "4":

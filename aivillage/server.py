@@ -242,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--bots", default="worker,worker,thief,worker,random")
     p.add_argument("--models", default=None, help="OpenRouter model ids (comma-separated) or 'stub'")
-    p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
+    p.add_argument("--agents", type=int, default=0, help="number of villagers (more than 5 get generated names; resources scale up)")
     p.add_argument("--log", default="runs/live.jsonl", help="also write the replayable log here")
     p.add_argument("--pace", type=float, default=1.0, help="seconds between ticks (min wait)")
     p.add_argument("--host", default="127.0.0.1")
@@ -253,8 +253,7 @@ def main(argv: list[str] | None = None) -> int:
 
     override: dict = {"seed": a.seed}
     if a.agents:
-        from .config import DEFAULT_CONFIG
-        override["agents"] = DEFAULT_CONFIG["agents"][: a.agents]
+        override["population"] = {"size": a.agents}
     world = engine.new_world(override)
     on_night = None
     if a.models:

@@ -46,6 +46,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "inbox_size": 30,
     "order_every_days": 3,
     "order_ttl_days": 3,
+    "orders_per_post": 1,  # orders posted at once; scaled with the population (coins for tax)
     "fire_ticks": 4,
     "fire_water_needed": 3,
     # Items. value = base price; NPC buys at value*npc_buy_ratio, sells at value*npc_sell_ratio.
@@ -122,6 +123,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
         },
     },
+    # Population (aivillage/population.py): size N > len(agents) adds generated villagers (seeded names,
+    # professions by weight); resources and project needs scale by max(1, N / base_size). None = just `agents`.
+    "population": {
+        "size": None,
+        "base_size": 5,  # the map numbers above are tuned for this many villagers
+        "scale_resources": True,
+        "scale_projects": True,
+        "scale_orders": True,  # more council orders at once: they are the main coin source besides the trader
+        "profession_weights": {"farmer": 1.2, "fisher": 1.2, "woodcutter": 1, "miner": 1, "smith": 0.6},
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
@@ -143,4 +154,5 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def make_config(override: dict | None = None) -> dict:
-    return _merge(DEFAULT_CONFIG, override or {})
+    from .population import resolve
+    return resolve(_merge(DEFAULT_CONFIG, override or {}))

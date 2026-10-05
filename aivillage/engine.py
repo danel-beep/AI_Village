@@ -350,9 +350,10 @@ def night(ctx: Ctx) -> None:
         if o.status == "open" and w.day > o.expires_day:
             o.status = "expired"
     if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
-        tpl = ctx.rng.choice(cfg["order_templates"])
-        o = Order(w.new_id("order"), dict(tpl["needs"]), tpl["reward"], w.day + cfg["order_ttl_days"])
-        w.orders[o.id] = o
-        ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
-                 f"until day {o.expires_day}.", visibility="public")
+        for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
+            tpl = ctx.rng.choice(cfg["order_templates"])
+            o = Order(w.new_id("order"), dict(tpl["needs"]), tpl["reward"], w.day + cfg["order_ttl_days"])
+            w.orders[o.id] = o
+            ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
+                     f"until day {o.expires_day}.", visibility="public")
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")
