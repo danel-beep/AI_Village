@@ -15,6 +15,7 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 - Live viewer (#6): `pip install -e .[live]`, `python -m aivillage.server`, open http://localhost:8000. Ticks stream over WebSocket; god panel (fire, treasure, rumor, drought, sickness, gift) + pause/speed; god events are logged, replay stays exact. `viewer/live.js` + `viewer/god.js` are injected by the server.
 - Backlog 7 (branch `claude/project-thread-qzs03i`): pixel-art viewer. Free tilesets were unreachable from the sandbox, so all art is drawn in code in `viewer/pixelmap.js` (no third-party license): tiled map (river+dock, fenced field, market stalls, cobbled square with well, forest, mine, smithy, one coloured house per villager, up to 6 per street row), 12x16 villagers with walk cycles walking along paths, chimney smoke, fire, evening lighting. Click a villager (map or card) to follow them and read their night diaries. Data-source entry point for a live server: `Viewer.start(header)` + `Viewer.push(row)`. `build_demo.py` inlines local scripts.
 - Demo replay published: https://claude.ai/artifact/Ftf7M9UrQnRYXxohReXqYy
+- Backlog 4 (branch `claude/project-thread-sl1k6b`): economy balance. `satiety_loss_per_hour` 3→2 (about one meal a day), forest wood 80/regen 40, mine stone 60/regen 30, ore 30/regen 10 (before: woodcutter, miner, smith were evicted or hospitalised even solo). New bots `TraderBot` (evening market at the square, sells meals/tools/wood/ore at the NPC mid price) and `LonerBot` (same, NPC only). `tests/test_balance.py`, a full year with winter, 3 seeds: loners never hit hospital or eviction; traders end with about +30% village wealth and no profession below 90% of its solo result. Not covered: food regen is fixed per map, so 20 agents will need bigger field/river numbers.
 
 ## Blocked
 
@@ -24,7 +25,6 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 
 1. **First LLM run + report.** 3–5 agents on one cheap model, 5 days; record cost per agent-day, invalid-action rate, interesting episodes; tune the prompt. (Needs the key.)
 2. ~~Night reflection / diary~~ — done (see above). Viewer shows diaries on villager click.
-4. **Balance pass with bots.** Non-food professions barely survive solo; tune `config.py` so trade is clearly better than solo but solo is possible. Add a balance test.
 5. ~~Metrics script~~ — done (`aivillage/metrics.py`).
 6. ~~Live viewer~~ — done (see above).
 9. ~~**Run config in YAML.**~~ Done, see above.
