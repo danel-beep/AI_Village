@@ -56,7 +56,10 @@
 </div></div>
 <script src="maplayer.js"></script>
 <script src="pixelmap.js"></script>
+<script src="actors.js"></script>
+<script src="camera.js"></script>
 <script src="dossier.js"></script>
+<script src="highlights.js"></script>
 <script>
 const COLORS = ['#f2c14e','#e4572e','#76b041','#17bebb','#c47ac0','#ff9f1c','#2ec4b6','#e71d36','#a3c4f3','#ffbf69'];
 const cv = document.getElementById('c'), g = cv.getContext('2d');
@@ -140,7 +143,9 @@ function render() {
   const t = ticks[i], prev = ticks[Math.max(0, i - 1)];
   PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr });
   document.getElementById('scrub').value = i;
-  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:00`;
+  // Minutes run with the animation, so the clock keeps ticking while the next hour is being computed.
+  const mm = t.view.hour === prev.view.hour + 1 ? Math.min(59, Math.floor(frac * 60)) : 0;
+  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function panel() {
@@ -167,10 +172,15 @@ function panel() {
 }
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
+let seenLen = 0, gap = 0, lastArrive = 0;
 function loop(ts) {
   const speed = +document.getElementById('speed').value, dt = (ts - last) / 1000; last = ts;
+  // Live: when showing the newest tick, stretch the hour to the usual gap between ticks, so villagers keep moving
+  // until the next one arrives instead of rushing for half a second and freezing.
+  if (ticks.length === seenLen + 1) { const now = ts / 1000; if (lastArrive) gap = gap ? gap * .7 + (now - lastArrive) * .3 : now - lastArrive; lastArrive = now; }
+  seenLen = ticks.length;
   if (playing && ticks.length) {
-    frac += dt * speed / 2;
+    frac += dt / Math.max(2 / speed, i >= ticks.length - 1 && gap ? Math.min(gap, 30) : 0);
     if (frac >= 1) { if (i < ticks.length - 1) { i++; frac = 0; } else { frac = 1; playing = false; } }
   }
   render(); panel();

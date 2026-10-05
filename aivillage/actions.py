@@ -428,7 +428,7 @@ def accept(ctx: Ctx, a: Agent, args: OfferIdArgs) -> None:
     _transfer_bundle(a, sender, o.want)
     del ctx.world.offers[o.id]
     ctx.emit("trade", f"{sender.name} and {a.name} traded: {fmt_items(o.give)} for {fmt_items(o.want)}.",
-             actor=a.name, location=a.location, visibility="location", to=[sender.name], offer=o.id)
+             actor=a.name, location=a.location, visibility="location", to=[sender.name], offer=o.id, partner=sender.name)
 
 
 @ACTIONS.action("decline", "Decline a trade offer made to you.", OfferIdArgs,

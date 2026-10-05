@@ -51,6 +51,18 @@ class Registry:
         self.specs: dict[str, ActionSpec] = {}
         # World-config key listing actions switched off for a run (run config "mechanics.disabled").
         self.disabled_key = disabled_key
+        # guard(ctx, actor, action_name) -> reason it is forbidden, or None. Lets rule modules
+        # (e.g. governance: exile) forbid actions without touching them.
+        self.guards: list[Callable[[Ctx, Agent, str], str | None]] = []
+
+    def forbidden(self, ctx: Ctx, actor: Agent | None, name: str) -> str | None:
+        if actor is None:
+            return None
+        for g in self.guards:
+            why = g(ctx, actor, name)
+            if why:
+                return why
+        return None
 
     def disabled(self, cfg: dict) -> frozenset[str]:
         return frozenset(cfg.get(self.disabled_key) or ()) if self.disabled_key else frozenset()
@@ -77,12 +89,16 @@ class Registry:
     def run(self, ctx: Ctx, actor: Agent, name: str, raw_args: dict | None) -> None:
         if name in self.disabled(ctx.cfg):
             raise ActionError(f"'{name}' is not possible in this village")
+        why = self.forbidden(ctx, actor, name)
+        if why:
+            raise ActionError(why)
         spec, args = self.parse(name, raw_args)
         spec.apply(ctx, actor, args)
 
     def available(self, ctx: Ctx, actor: Agent) -> list[str]:
         off = self.disabled(ctx.cfg)
-        return [n for n, s in self.specs.items() if n not in off and s.available(ctx, actor)]
+        return [n for n, s in self.specs.items() if n not in off and s.available(ctx, actor)
+                and not self.forbidden(ctx, actor, n)]
 
     def describe(self, disabled: frozenset[str] | set[str] = frozenset()) -> str:
         return "\n".join(s.prompt_line() for n, s in self.specs.items() if n not in disabled)

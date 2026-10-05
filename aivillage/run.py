@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine, tiles
+from . import engine, modes, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -100,6 +100,11 @@ def view(world: World) -> dict:
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
                                 "profession": a.profession, "inventory": a.inventory}
                        for a in world.agents.values()},
+            "kin": {"feelings": world.kin.feelings, "couples": [m.spouses for m in world.kin.marriages.values()]},
+            # reputation.py: each villager's own tally of others and the rumors they heard (non-empty only)
+            "social": {a.name: {"reputation": a.reputation, "rumors": a.rumors}
+                       for a in world.agents.values() if a.reputation or a.rumors},
+            "mayor": world.governance.mayor, "treasury": world.governance.coins,
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
@@ -165,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="LLM agents instead of bots: comma-separated OpenRouter model ids cycled over agents, "
                         "'default' for llm.DEFAULT_MODEL, or 'stub' to test the LLM pipeline without a key")
     p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
+    p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
+                                                "standard, peaceful, scarcity, debt, gold_rush, lawless")
     a = p.parse_args(argv)
 
     if a.replay:
@@ -177,9 +184,12 @@ def main(argv: list[str] | None = None) -> int:
     except runconfig.ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    for key in ("days", "seed", "log"):
+    for key in ("days", "seed", "log", "mode"):
         if getattr(a, key) is not None:
             setattr(rc, key, getattr(a, key))
+    if rc.mode not in modes.MODES:
+        print(f"unknown mode '{rc.mode}' (have: {', '.join(modes.MODES)})", file=sys.stderr)
+        return 2
     override = rc.world_override()
     if a.agents:
         from .config import DEFAULT_CONFIG

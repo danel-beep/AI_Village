@@ -136,6 +136,65 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
         },
     },
+    # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
+    # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
+    "governance": {
+        "enabled": True,
+        "first_election_day": 2,
+        "election_every_days": 5,
+        "law_vote_hours": 12,  # a proposal stays open this many waking hours
+        "max_open_proposals": 2,
+        "exile_days": 3,
+        # Actions an exiled villager may not use.
+        "exile_bans": ["buy", "sell", "fulfill_order", "vote", "run_for_mayor", "vote_law"],
+        # Allowed values for laws that set a number; laws start at "start" (tax: tax_amount).
+        "limits": {"tax": [0, 60], "theft_fine": [0, 50], "mayor_salary": [0, 20], "grant": [1, 200]},
+        "start": {"theft_fine": 0, "mayor_salary": 0},
+        "crime_memory_days": 7,  # a witnessed theft can be reported for this many days
+    },
+    # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
+    # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.
+    "family": {
+        "feeling_max": 100,
+        "friend_at": 30,      # label "friend" at or above, "enemy" at or below -friend_at
+        "decay_per_night": 1,  # every feeling drifts 1 point toward 0 each night
+        "hang_out_gain": 4,    # both sides, once per pair per day
+        "propose_min": 25,     # proposer's and accepter's own feeling needed
+        "proposal_ttl_days": 2,
+        "wedding_cost": 0,     # coins the proposer pays (burned) when the proposal is accepted
+        "wedding_boost": 20,   # both feelings raised to at least propose_min + this
+        "spouse_night_gain": 1,
+        "divorce_hurt": 40,    # the left spouse's feeling drops by this
+        "estate_statuses": ["dead", "exiled", "banished"],  # property passes on in these states
+        # event kind -> [who, delta]: "to" = addressees about the actor, "both" = both ways,
+        # "lender" = the debt's lender, "owner" = who lives in the house where it happened
+        "on_event": {
+            "give": ["to", 5], "lend": ["to", 4], "repay": ["lender", 4], "trade": ["both", 2],
+            "whisper": ["both", 1], "letter": ["to", 1], "decline": ["to", -1],
+            "steal_attempt": ["to", -20], "witness": ["to", -10], "default": ["lender", -15],
+            "fire_out": ["owner", 10], "extinguish": ["owner", 4],
+        },
+    },
+    # Reputation and rumors (aivillage/reputation.py). Each agent keeps its own tally of deeds it saw or
+    # lived through; "deltas" maps event kinds to score changes. Rumors (gossip) never change scores.
+    "reputation": {
+        "enabled": True,
+        "score_cap": 10,
+        "notes_per_person": 3,
+        "rumors_kept": 6,
+        "deltas": {
+            "witness": -3,        # saw someone steal
+            "steal_attempt": -4,  # caught someone stealing from you
+            "default": -3,        # debt not repaid on time (public)
+            "repay": 2,           # debt fully repaid on time (public)
+            "fire_out": 3,        # put out a fire (public)
+            "extinguish": 1,      # helped with a fire (seen there)
+            "give": 1,
+            "lend": 1,
+            "trade": 1,           # completed a trade with you
+            "contribute": 1,      # gave to a village project (public)
+        },
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

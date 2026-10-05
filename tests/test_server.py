@@ -99,3 +99,20 @@ def test_recaps_off_without_summarizer(tmp_path):
     sim, client = make(tmp_path)
     assert client.get("/api/summary").json()["enabled"] is False
     assert client.post("/api/summary").status_code == 400
+
+
+def test_highlights_without_key_last_day_too(tmp_path):
+    world = engine.new_world({"seed": 3})
+    sim = LiveSim(world, bots_decider(world, ["worker", "thief", "random", "worker"], 3), 1,
+                  str(tmp_path / "live.jsonl"), 0.0)
+    client = TestClient(create_app(sim))
+    assert "highlights.js" in client.get("/").text
+    sim.god.put({"name": "fire", "args": {"person": "Anna"}})
+    sim.start()
+    wait(lambda: sim.finished)
+    wait(lambda: sim.highlights)  # rules pick them when recaps are off; the last day has no next morning
+    got = client.get("/api/highlights").json()["highlights"]
+    assert [d["day"] for d in got] == [1] and got[0]["source"] == "rules"
+    assert any(it["kind"] == "fire" and it["who"] == ["Anna"] for it in got[0]["items"])
+    assert json.loads((tmp_path / "live.highlights.json").read_text(encoding="utf-8")) == got
+    replay(tmp_path / "live.jsonl")
