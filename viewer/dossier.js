@@ -33,7 +33,7 @@
     typeof v === 'object' && v ? Object.entries(v).map(([x, q]) => `${q} ${x}`).join(', ') : String(v)).join(' · ');
   const act = a => a ? `<b>${esc(a.name)}</b> ${esc(fmtArgs(a.args))}` : '<span class="muted">ждёт</span>';
   const bar = (v, c) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%;background:${c}"></i></div>`;
-  const when = t => `д${t.view.day} ${String(t.view.hour).padStart(2, '0')}:00`;
+  const when = t => `д${t.view.day} ${String(t.view.hour).padStart(2, '0')}:${String(t.view.minute || 0).padStart(2, '0')}`;
 
   // Walk ticks 0..i once: this villager's decisions, failed actions, counts and contacts.
   function collect(n) {

@@ -22,7 +22,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import ops
+from . import clock, ops
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -86,8 +86,7 @@ def voters(world: World) -> list[str]:
 
 
 def tick_time(cfg: dict, tick: int) -> str:
-    per_day = cfg["day_end_hour"] - cfg["day_start_hour"]
-    return f"day {1 + tick // per_day} {cfg['day_start_hour'] + tick % per_day:02d}:00"
+    return clock.label(cfg, tick)
 
 
 def describe_law(p: LawProposal) -> str:
@@ -218,7 +217,7 @@ def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
         if target.status == "dead":
             raise ActionError(f"{target.name} is dead")
         person = target.name
-    p = LawProposal(w.new_id("law"), args.law, a.name, w.tick + gc["law_vote_hours"], value, person, yes=[a.name])
+    p = LawProposal(w.new_id("law"), args.law, a.name, w.tick + clock.hours(ctx.cfg, gc["law_vote_hours"]), value, person, yes=[a.name])
     g.proposals[p.id] = p
     ctx.emit("law_proposed", f"Mayor {a.name} proposes a law ({p.id}): {describe_law(p)}. Vote with vote_law "
              f"until {tick_time(ctx.cfg, p.closes_tick)}.", actor=a.name, visibility="public", law=p.id)

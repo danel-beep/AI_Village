@@ -18,6 +18,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from .clock import per_hour
 from .summary import digest, ticks_of
 
 
@@ -63,9 +64,11 @@ def read_report(path: str | Path) -> tuple[dict, list[dict]]:
 
 def around(recs: list[dict], tick: int | None, hours: int) -> list[dict]:
     ticks = ticks_of(recs)
+    cfg = next((r["config"] for r in recs if r.get("type") == "header"), {})
+    n = hours * per_hour(cfg)  # old hourly logs have no tick_minutes: one tick per hour
     if tick is None:
-        return ticks[-hours:]
-    return [t for t in ticks if tick - hours <= t["tick"] <= tick + 1]
+        return ticks[-n:]
+    return [t for t in ticks if tick - n <= t["tick"] <= tick + 1]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("show")
     s.add_argument("zip")
-    s.add_argument("--hours", type=int, default=3, help="ticks before the reported moment to print")
+    s.add_argument("--hours", type=int, default=3, help="game hours before the reported moment to print")
     a = p.parse_args(argv)
     meta, recs = read_report(a.zip)
     print(json.dumps(meta, ensure_ascii=False, indent=1))
@@ -81,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nlog: {len(ticks)} ticks" + (f", last tick {ticks[-1]['tick']}" if ticks else ""))
     errors = [e for t in ticks for e in t.get("events") or [] if e.get("kind") == "error"]
     print(f"rejected actions in the whole log: {len(errors)}")
-    print("\n" + digest(around(recs, meta.get("tick"), a.hours), max_lines=400))
+    cfg = next((r["config"] for r in recs if r.get("type") == "header"), None)
+    print("\n" + digest(around(recs, meta.get("tick"), a.hours), max_lines=400, cfg=cfg))
     return 0
 
 
