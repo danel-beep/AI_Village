@@ -1,0 +1,32 @@
+# Example run config:  python -m aivillage.run --config configs/example.yaml
+# Every field is optional. Unknown keys are errors, so typos fail before any model is called.
+# CLI flags (--days, --seed, --log, --models, --bots, --agents) override this file.
+
+days: 3
+seed: 7
+log: runs/example.jsonl
+
+# Default brain for agents that name none: an OpenRouter model id, or "stub" (offline, no key).
+# Without `model`, agents are scripted bots of kind `bot` (worker, thief, random).
+model: stub
+bot: worker
+
+# Omit `agents` to get the 5 default villagers.
+agents:
+  - {name: Anna, profession: farmer}
+  - {name: Boris, profession: fisher, bot: thief}
+  - {name: Clara, profession: woodcutter, model: stub}
+
+# Switch actions off for this run (they vanish from the prompt and are rejected by the engine).
+mechanics:
+  disabled: [lend]
+
+# Any setting from aivillage/config.py (merged over the defaults).
+world:
+  death_mode: hospital
+  start_coins: 30
+
+# God script: day starts at 1, hour is the in-game hour (6..21 by default).
+god:
+  - {day: 2, hour: 10, name: fire, args: {person: Anna}}
+  - {day: 3, hour: 8, name: rumor, args: {to: Boris, text: "The well water is poisoned."}}
