@@ -16,10 +16,11 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 - Backlog 7 (branch `claude/project-thread-qzs03i`): pixel-art viewer. Free tilesets were unreachable from the sandbox, so all art is drawn in code in `viewer/pixelmap.js` (no third-party license): tiled map (river+dock, fenced field, market stalls, cobbled square with well, forest, mine, smithy, one coloured house per villager, up to 6 per street row), 12x16 villagers with walk cycles walking along paths, chimney smoke, fire, evening lighting. Click a villager (map or card) to follow them and read their night diaries. Data-source entry point for a live server: `Viewer.start(header)` + `Viewer.push(row)`. `build_demo.py` inlines local scripts.
 - Demo replay published: https://claude.ai/artifact/Ftf7M9UrQnRYXxohReXqYy
 - Backlog 4 (branch `claude/project-thread-sl1k6b`): economy balance. `satiety_loss_per_hour` 3→2 (about one meal a day), forest wood 80/regen 40, mine stone 60/regen 30, ore 30/regen 10 (before: woodcutter, miner, smith were evicted or hospitalised even solo). New bots `TraderBot` (evening market at the square, sells meals/tools/wood/ore at the NPC mid price) and `LonerBot` (same, NPC only). `tests/test_balance.py`, a full year with winter, 3 seeds: loners never hit hospital or eviction; traders end with about +30% village wealth and no profession below 90% of its solo result. Not covered: food regen is fixed per map, so 20 agents will need bigger field/river numbers.
+- One-click launcher (branch `claude/project-thread-m74d7m`): `scripts/install.ps1` (Windows, one PowerShell line) and `scripts/install.sh` (Mac/Linux, one Terminal line) put an "AI Village" icon on the Desktop. Each start (`scripts/start.ps1` / `start.sh`) installs uv (which brings Python 3.12) if missing, re-downloads `main` from GitHub into `~/AIVillage/app`, and opens a Russian menu (`aivillage/launcher.py`): LLM village (5 agents, `AIVILLAGE_MODEL`, default `google/gemini-2.5-flash-lite`, key asked once, stored in `~/AIVillage/openrouter_key`), bots village, open a past run (built with `build_demo.py`), change key. Browser opens itself; logs go to `~/AIVillage/runs`. Requires the repo to stay public. Tested on Linux only; Windows/Mac scripts untested on real machines. 24/7 cloud hosting not set up (would need a paid host account, e.g. Railway; nothing registered).
+- Demo artifact rebuilt from current main (same link).
 
 ## Blocked
-
-- First real-model run: needs `OPENROUTER_API_KEY` in the project's cloud environment and network access to `openrouter.ai`.
+- Nothing.
 
 ## Backlog (independent)
 
