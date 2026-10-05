@@ -45,8 +45,12 @@ class JsonlLog:
 
 def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] | None = None,
         log_path: str | Path | None = None, check_every_tick: bool = True,
-        on_tick: Callable[[World, list], None] | None = None) -> dict:
-    """Drive the world for `days` days. Returns summary stats."""
+        on_tick: Callable[[World, list], None] | None = None,
+        on_night: Callable[[World, int], dict] | None = None) -> dict:
+    """Drive the world for `days` days. Returns summary stats.
+
+    `on_night(world, day)` runs after each day ends; whatever it returns is logged as a `diary` record
+    (outside the engine, so replay ignores it)."""
     log = JsonlLog(log_path)
     log.write({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash()})
     stats: Counter = Counter()
@@ -60,7 +64,7 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
                 results = list(pool.map(lambda pair: decide(*pair), observations))
             decisions = dict(zip(asked, results))
             god = (god_script or {}).get(world.tick, [])
-            tick = world.tick
+            tick, day = world.tick, world.day
             events = engine.step(world, decisions, god)
             if check_every_tick:
                 check(world)
@@ -71,6 +75,10 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
                        "events": [asdict(e) for e in events], "hash": world.hash(), "view": view(world)})
             if on_tick:
                 on_tick(world, events)
+            if on_night and world.day != day:
+                entries = on_night(world, day)
+                if entries:
+                    log.write({"type": "diary", "day": day, "entries": entries})
     finally:
         log.close()
     return dict(stats)
@@ -102,6 +110,8 @@ def replay(path: str | Path) -> World:
     if world.hash() != header["hash"]:
         raise AssertionError("initial world differs (engine or config changed)")
     for rec in recs:
+        if rec.get("type") != "tick":
+            continue
         for name in rec["asked"]:
             engine.observe(world, name)
         engine.step(world, rec["decisions"], rec["god"])
@@ -182,13 +192,20 @@ def main(argv: list[str] | None = None) -> int:
         hours = world.config["day_end_hour"] - world.config["day_start_hour"]
         victim = names[rc.seed % len(names)]
         god.setdefault((a.fire_day - 1) * hours + 4, []).append({"name": "fire", "args": {"person": victim}})
-    stats = run(world, decide, rc.days, god, rc.log)
+    on_night = (lambda w, day: night_reflection(w, agents, day)) if agents else None
+    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night)
     print(summary(world, stats))
     for name, ag in agents.items():
         u = ag.usage
         print(f"  {name:8} {ag.client.model:30} calls={u.calls} fail={u.failures} "
               f"tokens={u.prompt_tokens}+{u.completion_tokens} cost=${u.cost_usd:.4f}")
     return 0
+
+
+def night_reflection(world: World, agents: dict, day: int) -> dict:
+    """Living LLM agents write a diary entry and update what they think of people."""
+    from .llm import reflect_all
+    return reflect_all({n: ag for n, ag in agents.items() if world.agents[n].status != "dead"}, day)
 
 
 def llm_agents(world: World, models: list[str] | dict[str, str]) -> dict:

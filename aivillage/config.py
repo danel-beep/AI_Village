@@ -105,6 +105,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
         {"needs": {"tool": 2, "wood": 5}, "reward": 90},
         {"needs": {"lock": 1, "stone": 10, "fish": 5}, "reward": 85},
     ],
+    # Seasons (backlog #10): a season scales nightly resource regrowth. Day 1 is the first day of
+    # order[0]. "wither" empties resources at the first dawn of a season (field crops die in winter).
+    "seasons": {
+        "enabled": True,
+        "length_days": 7,
+        "order": ["spring", "summer", "autumn", "winter"],
+        "regen_multiplier": {
+            "summer": {"berries": 1.5},
+            "autumn": {"grain": 1.5},
+            "winter": {"grain": 0, "berries": 0, "fish": 0.5},
+        },
+        "wither": {"winter": {"field": ["grain"]}},
+        "announce": {
+            "spring": "The field grows again.",
+            "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
+        },
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
