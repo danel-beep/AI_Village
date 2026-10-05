@@ -158,9 +158,10 @@ class LLMAgent:
     client: Client
     notes: str = ""
     usage: Usage = field(default_factory=Usage)
+    disabled_actions: frozenset[str] = frozenset()
 
     def messages(self, obs: dict) -> list[dict]:
-        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe())
+        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe(self.disabled_actions))
         user = "Observation (your notes: " + json.dumps(self.notes or "none") + "):\n" + json.dumps(compact_obs(obs))
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 

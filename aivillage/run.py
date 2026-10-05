@@ -1,6 +1,7 @@
 """Run a simulation, write a replayable JSONL log, and replay logs.
 
     python -m aivillage.run --days 10 --bots worker,worker,thief,worker,random --log runs/demo.jsonl
+    python -m aivillage.run --config configs/example.yaml
     python -m aivillage.run --replay runs/demo.jsonl
 """
 
@@ -128,10 +129,12 @@ def summary(world: World, stats: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Run the AI Village with scripted bots.")
-    p.add_argument("--days", type=int, default=10)
-    p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--bots", default="worker", help="comma-separated bot kinds, cycled over agents")
+    p = argparse.ArgumentParser(description="Run the AI Village with scripted bots or LLM agents.")
+    p.add_argument("--config", default=None, help="YAML run config (see configs/example.yaml); "
+                                                  "flags below override it")
+    p.add_argument("--days", type=int, default=None, help="default 10")
+    p.add_argument("--seed", type=int, default=None, help="default 1")
+    p.add_argument("--bots", default=None, help="comma-separated bot kinds, cycled over agents (default worker)")
     p.add_argument("--log", default=None, help="write a replayable JSONL log here")
     p.add_argument("--replay", default=None, help="replay and verify a log instead of running")
     p.add_argument("--fire-day", type=int, default=0, help="god: set a random house on fire on this day")
@@ -145,39 +148,61 @@ def main(argv: list[str] | None = None) -> int:
         w = replay(a.replay)
         print(f"replay OK: {w.tick} ticks, final hash {w.hash()}")
         return 0
-    override: dict = {"seed": a.seed}
+    from . import runconfig
+    try:
+        rc = runconfig.load(a.config) if a.config else runconfig.RunConfig()
+    except runconfig.ConfigError as e:
+        print(e, file=sys.stderr)
+        return 2
+    for key in ("days", "seed", "log"):
+        if getattr(a, key) is not None:
+            setattr(rc, key, getattr(a, key))
+    override = rc.world_override()
     if a.agents:
         from .config import DEFAULT_CONFIG
-        override["agents"] = DEFAULT_CONFIG["agents"][: a.agents]
+        override["agents"] = (override.get("agents") or DEFAULT_CONFIG["agents"])[: a.agents]
     world = engine.new_world(override)
-    kinds = a.bots.split(",")
-    agents = None
+    names = sorted(world.agents)
+    brains = rc.brains(names)
+    # Old-style flags cycle over agents and override the file.
     if a.models:
-        agents = llm_agents(world, a.models.split(","))
-        decide = lambda name, obs: agents[name].decide(obs)
-    else:
-        decide = bots_decider(world, kinds, a.seed)
-    god = {}
+        models = a.models.split(",")
+        brains = {n: ("model", models[i % len(models)]) for i, n in enumerate(names)}
+    elif a.bots:
+        kinds = a.bots.split(",")
+        brains = {n: ("bot", kinds[i % len(kinds)]) for i, n in enumerate(names)}
+    agents = llm_agents(world, {n: m for n, (kind, m) in brains.items() if kind == "model"})
+    bots = {n: BOT_TYPES[k](n, rc.seed) for n, (kind, k) in brains.items() if kind == "bot"}
+
+    def decide(name: str, obs: dict) -> dict:
+        return agents[name].decide(obs) if name in agents else bots[name].decide(obs)
+
+    god = rc.god_script(world.config)
     if a.fire_day:
         hours = world.config["day_end_hour"] - world.config["day_start_hour"]
-        victim = sorted(world.agents)[a.seed % len(world.agents)]
-        god[(a.fire_day - 1) * hours + 4] = [{"name": "fire", "args": {"person": victim}}]
-    stats = run(world, decide, a.days, god, a.log)
+        victim = names[rc.seed % len(names)]
+        god.setdefault((a.fire_day - 1) * hours + 4, []).append({"name": "fire", "args": {"person": victim}})
+    stats = run(world, decide, rc.days, god, rc.log)
     print(summary(world, stats))
-    for name, ag in (agents or {}).items():
+    for name, ag in agents.items():
         u = ag.usage
         print(f"  {name:8} {ag.client.model:30} calls={u.calls} fail={u.failures} "
               f"tokens={u.prompt_tokens}+{u.completion_tokens} cost=${u.cost_usd:.4f}")
     return 0
 
 
-def llm_agents(world: World, models: list[str]) -> dict:
+def llm_agents(world: World, models: list[str] | dict[str, str]) -> dict:
+    """models: ids cycled over agents, or agent name -> id. An id is an OpenRouter model or 'stub'."""
+    if isinstance(models, list):
+        models = {n: models[i % len(models)] for i, n in enumerate(sorted(world.agents))}
+    if not models:
+        return {}
     from .llm import LLMAgent, OpenRouterClient, StubClient
+    off = frozenset(world.config.get("disabled_actions") or ())
     out = {}
-    for i, name in enumerate(sorted(world.agents)):
-        m = models[i % len(models)]
+    for name, m in models.items():
         client = StubClient(name) if m == "stub" else OpenRouterClient(m)
-        out[name] = LLMAgent(name, world.agents[name].profession, client)
+        out[name] = LLMAgent(name, world.agents[name].profession, client, disabled_actions=off)
     return out
 
 
