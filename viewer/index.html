@@ -59,6 +59,7 @@
 <script src="actors.js"></script>
 <script src="camera.js"></script>
 <script src="dossier.js"></script>
+<script src="highlights.js"></script>
 <script>
 const COLORS = ['#f2c14e','#e4572e','#76b041','#17bebb','#c47ac0','#ff9f1c','#2ec4b6','#e71d36','#a3c4f3','#ffbf69'];
 const cv = document.getElementById('c'), g = cv.getContext('2d');
@@ -142,7 +143,9 @@ function render() {
   const t = ticks[i], prev = ticks[Math.max(0, i - 1)];
   PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr });
   document.getElementById('scrub').value = i;
-  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:00`;
+  // Minutes run with the animation, so the clock keeps ticking while the next hour is being computed.
+  const mm = t.view.hour === prev.view.hour + 1 ? Math.min(59, Math.floor(frac * 60)) : 0;
+  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function panel() {

@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine, tiles
+from . import engine, modes, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -174,6 +174,8 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: env AIVILLAGE_FALLBACK_MODELS)")
     p.add_argument("--agents", type=int, default=0,
                    help="number of villagers: the first N, or more with generated names (resources scale up)")
+    p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
+                                                "standard, peaceful, scarcity, debt, gold_rush, lawless")
     a = p.parse_args(argv)
 
     if a.replay:
@@ -186,9 +188,12 @@ def main(argv: list[str] | None = None) -> int:
     except runconfig.ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    for key in ("days", "seed", "log"):
+    for key in ("days", "seed", "log", "mode"):
         if getattr(a, key) is not None:
             setattr(rc, key, getattr(a, key))
+    if rc.mode not in modes.MODES:
+        print(f"unknown mode '{rc.mode}' (have: {', '.join(modes.MODES)})", file=sys.stderr)
+        return 2
     override = rc.world_override()
     if a.agents:
         override["population"] = {**(override.get("population") or {}), "size": a.agents}
