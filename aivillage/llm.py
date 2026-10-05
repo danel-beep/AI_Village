@@ -63,8 +63,8 @@ class OpenRouterClient(Client):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
     def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 2,
-                 max_tokens: int = 400):
-        self.model = model
+                 max_tokens: int = 400, temperature: float = 0.8):
+        self.model, self.temperature = model, temperature
         self.key = api_key or os.environ.get("OPENROUTER_API_KEY")
         if not self.key:
             raise RuntimeError("OPENROUTER_API_KEY is not set")
@@ -72,7 +72,7 @@ class OpenRouterClient(Client):
 
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
         body = json.dumps({"model": self.model, "messages": messages, "max_tokens": self.max_tokens,
-                           "temperature": 0.8, "usage": {"include": True}}).encode()
+                           "temperature": self.temperature, "usage": {"include": True}}).encode()
         req = urllib.request.Request(self.URL, body, {"Authorization": f"Bearer {self.key}",
                                                       "Content-Type": "application/json"})
         last: Exception | None = None

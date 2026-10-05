@@ -2,6 +2,7 @@
 
     python scripts/build_demo.py runs/demo.jsonl out/demo.html [--fragment]
 
+A translation sidecar next to the log (<log>.ru.json, see aivillage/translate.py) is embedded too.
 --fragment drops the <html>/<head>/<body> wrapper (for hosts that add their own).
 """
 import json
@@ -12,6 +13,9 @@ from pathlib import Path
 log, out = Path(sys.argv[1]), Path(sys.argv[2])
 html = (Path(__file__).parent.parent / "viewer" / "index.html").read_text()
 embed = "<script>window.EMBEDDED_LOG = " + json.dumps(log.read_text()).replace("</", "<\\/") + ";</script>\n"
+tr = log.with_name(log.name.removesuffix(".jsonl") + ".ru.json")
+if tr.exists():
+    embed += "<script>window.EMBEDDED_TR = " + tr.read_text().replace("</", "<\\/") + ";</script>\n"
 html = html.replace("<script>\n// Positions", embed + "<script>\n// Positions", 1)
 if "--fragment" in sys.argv:
     html = re.sub(r"<!doctype html>|</?html[^>]*>|</?head>|</?body>|<meta[^>]*>", "", html)

@@ -6,6 +6,7 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 
 - Step 1: deterministic engine, 25 actions, god mode (fire, treasure, rumor, drought, sickness, gift), scripted bots, invariants, replay, 46 tests.
 - Step 2 (PR #1): LLM agents via OpenRouter + stub, parallel turns, per-agent token/cost accounting, 2D log viewer, `build_demo.py`.
+- Translation for viewers (backlog 8): `python -m aivillage.translate runs/x.jsonl` writes sidecar `runs/x.ru.json` (thoughts, says, event texts; batched, cached in `runs/.cache/`, model `google/gemini-2.5-flash-lite`, ~$0.0002 per 3-agent day). Viewer has an RU/EN button; `build_demo.py` embeds the sidecar. The model transliterates names (Boris → Борис) despite the prompt.
 - Demo replay published: https://claude.ai/artifact/Ftf7M9UrQnRYXxohReXqYy
 
 ## Blocked
@@ -21,7 +22,6 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 5. **Metrics script.** From a log: interaction graph, trades, debts repaid/defaulted, thefts seen/unseen, Gini by day, fire responders. Output JSON + markdown.
 6. **Live viewer.** FastAPI + WebSocket server streaming ticks while the sim runs; god buttons in the viewer.
 7. **Pixel-art viewer.** Replace canvas shapes with a free top-down tileset and character sprites (same log format).
-8. **Translation layer for viewers.** Agents speak English; viewer shows Russian translations of thoughts/says (batched, cached).
 9. **Run config in YAML.** `--config runs/x.yaml`: agents, models, mechanics on/off, god script.
 10. **Seasons.** Winter: field yields nothing; spec "economy".
 11. **CI.** GitHub Actions running pytest on PRs.

@@ -37,6 +37,7 @@
     <button id="play">▶</button><button id="stepb">⏭</button>
     <input id="scrub" type="range" min="0" value="0">
     <label class="muted">скорость <input id="speed" type="range" min="1" max="20" value="4"></label>
+    <button id="lang" hidden title="язык мыслей и реплик">RU</button>
     <span id="clock"></span>
   </div>
 </div>
@@ -46,7 +47,7 @@
 </div>
 <div id="drop"><div>
   <p><b>AI Village</b>: открой лог прогона (<code>runs/*.jsonl</code>) или передай <code>?log=путь</code>.</p>
-  <input type="file" id="file" accept=".jsonl,.json">
+  <input type="file" id="file" accept=".jsonl,.json" multiple>
 </div></div>
 <script>
 // Positions are viewer-only: the engine has no coordinates, only a graph of locations.
@@ -74,10 +75,28 @@ function load(text) {
   playing = true; document.getElementById('play').textContent = '⏸';
   i = 0; frac = 1; render();
 }
-document.getElementById('file').onchange = e => e.target.files[0].text().then(load);
+// Translations: sidecar <log>.ru.json from aivillage/translate.py maps original text -> Russian.
+let TR = null, lang = 'en';
+function tr(s) { return lang !== 'en' && TR && TR[s] || s; }
+function setTr(obj) {
+  if (!obj || obj.type !== 'translation') return;
+  TR = obj.texts; lang = obj.lang; const b = document.getElementById('lang'); b.hidden = false; b.textContent = lang.toUpperCase();
+}
+document.getElementById('lang').onclick = e => {
+  lang = lang === 'en' ? 'ru' : 'en'; e.target.textContent = lang.toUpperCase(); lastPanel = -1;
+};
+document.getElementById('file').onchange = e => {
+  const fs = [...e.target.files], log = fs.find(f => f.name.endsWith('.jsonl')) || fs[0];
+  fs.filter(f => f !== log).forEach(f => f.text().then(t => { setTr(JSON.parse(t)); lastPanel = -1; }));
+  log.text().then(load);
+};
 const qs = new URLSearchParams(location.search).get('log');
+if (window.EMBEDDED_TR) setTr(window.EMBEDDED_TR);
 if (window.EMBEDDED_LOG) load(window.EMBEDDED_LOG);
-else if (qs) fetch(qs).then(r => r.text()).then(load);
+else if (qs) {
+  fetch(qs.replace(/\.jsonl$/, '') + '.ru.json').then(r => r.ok ? r.json() : null).then(setTr, () => {});
+  fetch(qs).then(r => r.text()).then(load);
+}
 
 document.getElementById('play').onclick = () => { playing = !playing; document.getElementById('play').textContent = playing ? '⏸' : '▶'; };
 document.getElementById('stepb').onclick = () => go(i + 1);
@@ -121,7 +140,7 @@ function drawAgents(prev, t) {
     g.fillStyle = '#fff'; g.font = '600 11px system-ui'; g.textAlign = 'center'; g.fillText(n, x, y + 26);
     if (v.asleep) { g.fillText('z z', x + 16, y - 14); continue; }
     const said = (t.decisions[n] || {}).say;
-    if (said) bubble(x, y - 20, String(said));
+    if (said) bubble(x, y - 20, tr(String(said)));
   }
 }
 function bubble(x, y, text) {
@@ -150,14 +169,14 @@ function panel() {
     return `<div class="card ${n === selected ? 'sel' : ''}" data-n="${n}"><span class="name" style="color:${color[n]}">${n}</span>
       <span class="muted">${v.profession} · ${t.view.locations[v.location] || v.location} · ${v.status}</span>
       <div class="muted">еда ${v.satiety} · здоровье ${v.health} · ${v.coins} монет · ${inv}</div>
-      <div class="thought">${esc(thoughts[n] || '')}</div></div>`;
+      <div class="thought">${esc(tr(thoughts[n] || ''))}</div></div>`;
   }).join('');
   document.querySelectorAll('.card').forEach(el => el.onclick = () => { selected = selected === el.dataset.n ? null : el.dataset.n; lastPanel = -1; });
   const feed = [];
   for (let k = i; k >= 0 && feed.length < 40; k--) for (const e of ticks[k].events.slice().reverse()) {
     const mine = selected && (e.actor === selected || e.to.includes(selected));
     if ((selected ? mine : e.visibility !== 'private') && feed.length < 40)
-      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:00</span> ${esc(e.text)}</div>`);
+      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:00</span> ${esc(tr(e.text))}</div>`);
   }
   document.getElementById('feed').innerHTML = feed.join('');
 }

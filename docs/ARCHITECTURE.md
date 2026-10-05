@@ -35,6 +35,7 @@ god events ─┐
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |
 | `aivillage/run.py` | run loop (parallel decisions), JSONL log, `replay`, CLI |
+| `aivillage/translate.py` | post-processes a finished log into a `<log>.ru.json` sidecar for spectators (never touches the log) |
 | `viewer/index.html` | 2D replay of a log; `scripts/build_demo.py` bundles a log into one page |
 
 ## How to add a mechanic
