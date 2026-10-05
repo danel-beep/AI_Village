@@ -121,6 +121,38 @@ class Letter:
 
 
 @dataclass
+class LawProposal:
+    id: str
+    law: str  # tax | theft_fine | mayor_salary | exile | payout | grant
+    proposer: str
+    closes_tick: int
+    value: int | None = None
+    person: str | None = None
+    yes: list[str] = field(default_factory=list)
+    no: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Governance:
+    """Mayor, treasury and laws (aivillage/governance.py). `coins` is the treasury."""
+    mayor: str | None = None
+    coins: int = 0
+    laws: dict[str, int] = field(default_factory=dict)  # law -> value in force (overrides config)
+    candidates: dict[str, str] = field(default_factory=dict)  # name -> campaign pitch
+    votes: dict[str, str] = field(default_factory=dict)  # voter -> candidate (secret ballot)
+    proposals: dict[str, LawProposal] = field(default_factory=dict)  # open law proposals
+    # Witnessed thefts that can still be reported: {"thief", "victim", "day", "known_by": [...]}
+    crimes: list[dict] = field(default_factory=list)
+    exiled: dict[str, int] = field(default_factory=dict)  # name -> exiled until this day
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Governance":
+        d = dict(d)
+        d["proposals"] = {k: LawProposal(**v) for k, v in d.get("proposals", {}).items()}
+        return cls(**d)
+
+
+@dataclass
 class Marriage:
     id: str
     spouses: list[str]
@@ -170,6 +202,7 @@ class World:
     fires: dict[str, Fire] = field(default_factory=dict)
     mail: list[Letter] = field(default_factory=list)
     kin: Kin = field(default_factory=Kin)
+    governance: Governance = field(default_factory=Governance)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -201,6 +234,7 @@ class World:
             fires={k: Fire(**v) for k, v in d["fires"].items()},
             mail=[Letter(**v) for v in d["mail"]],
             kin=Kin.from_dict(d.get("kin", {})),
+            governance=Governance.from_dict(d.get("governance", {})),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

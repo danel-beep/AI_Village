@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import family, ops, reputation, seasons, tiles
+from . import family, governance, ops, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -79,7 +79,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     beds = plant_info(world, loc)
     obs = {
         "time": {"day": world.day, "hour": world.hour, "day_ends_at": cfg["day_end_hour"],
-                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": cfg["tax_amount"],
+                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": governance.tax_amount(world),
                  **seasons.time_info(cfg, world.day)},
         "you": {
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
@@ -118,6 +118,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "available_actions": ACTIONS.available(ctx, a) if ops.can_act(a) else [],
     }
     obs.update(reputation.observe(world, name))
+    if governance.enabled(cfg):
+        obs["government"] = governance.observe(world, name)
     if consume_inbox:
         a.inbox.clear()
         a.last_error = None
@@ -261,6 +263,7 @@ def wake_busy_agents(ctx: Ctx) -> None:
 def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
     wake_busy_agents(ctx)
+    governance.end_of_hour(ctx)
     for a in w.agents.values():
         if a.status != "active":
             continue
@@ -350,6 +353,7 @@ def night(ctx: Ctx) -> None:
     w.day += 1
     w.hour = cfg["day_start_hour"]
     seasons.new_day(ctx)
+    governance.new_day(ctx)
     for loc in w.locations.values():
         spec = cfg["locations"].get(loc.id, {}).get("resources", {})
         if w.day < loc.drought_until_day:
@@ -374,14 +378,15 @@ def night(ctx: Ctx) -> None:
 
     # Weekly tax
     if (w.day - 1) % cfg["tax_every_days"] == 0:
+        tax = governance.tax_amount(w)
         for a in w.agents.values():
             if a.status == "dead":
                 continue
-            if a.coins >= cfg["tax_amount"]:
-                ops.burn_coins(w, a, cfg["tax_amount"])
-                ctx.emit("tax", f"You paid {cfg['tax_amount']} coins of tax.", to=[a.name])
+            if a.coins >= tax:
+                governance.pay_tax(w, a, tax)
+                ctx.emit("tax", f"You paid {tax} coins of tax.", to=[a.name])
             else:
-                ops.burn_coins(w, a, a.coins)
+                governance.pay_tax(w, a, a.coins)
                 a.evicted_until_day = w.day + cfg["eviction_days"]
                 ctx.emit("evicted", f"{a.name} could not pay the tax and is locked out of their house "
                          f"for {cfg['eviction_days']} days.", visibility="public")

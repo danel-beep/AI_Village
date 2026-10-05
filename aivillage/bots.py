@@ -78,6 +78,16 @@ class RandomBot(Bot):
         elif name == "fulfill_order":
             orders = [o["id"] for o in obs["board"]["orders"]] or ["order0"]
             args = {"order_id": r.choice(orders)}
+        elif name == "run_for_mayor":
+            args = {"pitch": r.choice(["lower taxes", "bread for all", ""])}
+        elif name in ("vote", "report_theft"):
+            args = {"candidate" if name == "vote" else "person": r.choice(people + ["Nobody"])}
+        elif name == "propose_law":
+            args = {"law": r.choice(["tax", "theft_fine", "mayor_salary", "exile", "payout", "grant", "bogus"]),
+                    "value": r.randint(-5, 70), "person": r.choice(people)}
+        elif name == "vote_law":
+            props = [p["id"] for p in obs.get("government", {}).get("proposals", [])] or ["law0"]
+            args = {"proposal_id": r.choice(props), "vote": r.choice(["yes", "no", "maybe"])}
         if r.random() < 0.05:
             args = {"garbage": [1, 2, 3]}
         return decision(name, args, thought="random", say="hi" if r.random() < 0.05 else None)

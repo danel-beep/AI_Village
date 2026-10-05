@@ -17,6 +17,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from . import governance
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -88,6 +89,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(f"- Relations: your feelings about people grow from gifts, loans, trades, help and hang_out, "
                      f"fall after theft or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
                      f"share a house and chests; a spouse (else your best friend) inherits if you die.")
+    if governance.enabled(cfg):
+        lines.append(governance.facts(cfg))
     return "\n".join(lines)
 
 
@@ -225,6 +228,9 @@ def compact_obs(obs: dict) -> dict:
     for k, v in list(o["board"].items()):
         if not v:
             del o["board"][k]
+    for k, v in list(o.get("government", {}).items()):
+        if k != "mayor" and (v is None or v is False or v == [] or v == {}):
+            del o["government"][k]
     return o
 
 
