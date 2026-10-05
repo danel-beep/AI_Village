@@ -23,10 +23,10 @@ import time
 from collections import deque
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import engine, mapgen, modes, reports
+from . import engine, keys, llm, mapgen, modes, reports
 from .highlights import Highlighter, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
 from .registry import GOD, ActionError
@@ -248,7 +248,7 @@ def create_app(sim: LiveSim) -> FastAPI:
         # The map viewer stays a plain log viewer; live mode and the god panel are injected here.
         html = (VIEWER / "index.html").read_text(encoding="utf-8")
         inject = ('<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
-                  '<script src="/report.js"></script>\n')
+                  '<script src="/report.js"></script>\n<script src="/settings.js"></script>\n')
         return html.replace("</body>", inject + "</body>", 1)
 
     @app.get("/pixelmap.js")
@@ -302,6 +302,37 @@ def create_app(sim: LiveSim) -> FastAPI:
         tick = body.get("tick")
         path = sim.report(note[:5000], int(tick) if isinstance(tick, (int, float)) else None)
         return {"ok": True, "path": str(path), "name": path.name}
+
+    def local_only(request: Request) -> None:
+        # Keys live on this computer; never let another machine on the network read or change them.
+        if not request.client or request.client.host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+            raise HTTPException(403, "settings are only available on this computer")
+
+    @app.get("/api/settings")
+    def settings(request: Request) -> dict:
+        local_only(request)
+        return {**keys.public(), "default_model": llm.DEFAULT_MODEL, "home": str(keys.home())}
+
+    @app.post("/api/settings")
+    def save_settings(body: dict, request: Request) -> dict:
+        local_only(request)
+        changes = {k: body[k] for k in ("provider", "model", "parallel") if k in body}
+        for k in ("openai_key", "openrouter_key"):
+            if (body.get(k) or "").strip():  # empty field = keep the saved key
+                changes[k] = body[k]
+        for k in body.get("clear") or ():
+            if k in ("openai_key", "openrouter_key"):
+                changes[k] = ""
+        try:
+            keys.save(changes)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e))
+        return {**keys.public(), "default_model": llm.DEFAULT_MODEL, "home": str(keys.home())}
+
+    @app.post("/api/settings/check")
+    def check_settings(request: Request) -> dict:
+        local_only(request)
+        return llm.check()
 
     @app.get("/api/meta")
     def meta() -> dict:
@@ -389,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
         on_night = lambda w, day: night_reflection(w, agents, day)
     else:
         decide = bots_decider(world, a.bots.split(","), a.seed)
-    sm = a.summary_model or ("default" if os.environ.get("OPENROUTER_API_KEY") else "off")
+    sm = a.summary_model or ("default" if keys.has_any_key() else "off")
     summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
     days = a.days or (3 if a.models else 30)
     sim = LiveSim(world, decide, days, a.log, a.pace, on_night, summarizer, a.reports, a.reveal_reports)

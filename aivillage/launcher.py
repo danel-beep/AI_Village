@@ -5,7 +5,8 @@ Started by the desktop icon that scripts/install.sh / scripts/install.ps1 create
 
     python -m aivillage.launcher [--home DIR]
 
-The OpenRouter key is asked once and stored in <home>/openrouter_key (never in the repo).
+An OpenAI or OpenRouter key is asked once and stored in <home>/settings.json (aivillage/keys.py,
+never in the repo); the viewer's settings panel edits the same file.
 Run logs go to <home>/runs, so code updates never touch them.
 """
 
@@ -22,8 +23,10 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+from . import keys
+from .llm import DEFAULT_MODEL
+
 ROOT = Path(__file__).resolve().parent.parent
-MODEL = os.environ.get("AIVILLAGE_MODEL", "openai/gpt-6-luna")  # same as llm.DEFAULT_MODEL
 LLM_AGENTS = 5  # default answer to "how many villagers"
 MAX_VILLAGERS = 60  # population.MAX_SIZE
 LLM_DAYS = 3  # test runs: short and cheap
@@ -31,33 +34,31 @@ BOT_DAYS = 30
 
 
 def load_key(home: Path) -> str | None:
-    f = home / "openrouter_key"
-    key = f.read_text().strip() if f.exists() else ""
-    return key or None
+    """Any usable key: OpenAI or OpenRouter (settings.json, old openrouter_key file, or env)."""
+    return keys.get("openai_key", home) or keys.get("openrouter_key", home)
 
 
-def save_key(home: Path, key: str) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    f = home / "openrouter_key"
-    f.write_text(key.strip() + "\n")
-    try:
-        f.chmod(0o600)
-    except OSError:
-        pass
+def save_key(home: Path, key: str) -> str:
+    """Store a pasted key under the right provider (sk-or-... = OpenRouter, other sk-... = OpenAI)."""
+    field = "openrouter_key" if key.startswith("sk-or-") else "openai_key"
+    keys.save({field: key}, home)
+    return field
 
 
 def ask_key(home: Path) -> str | None:
-    print("\nНужен ключ OpenRouter (через него жители-ИИ думают).")
-    print("Где взять: зайдите на https://openrouter.ai/keys , нажмите «Create Key»,")
-    print("скопируйте ключ (начинается с sk-or-) и вставьте сюда.")
-    key = input("Ключ (или просто Enter, чтобы отменить): ").strip()
+    print("\nНужен ключ, через него жители-ИИ думают. Подходит любой из двух:")
+    print("  • OpenAI (начинается с sk-): https://platform.openai.com/api-keys → «Create new secret key»")
+    print("  • OpenRouter (начинается с sk-or-): https://openrouter.ai/keys → «Create Key»")
+    print("Ключи можно поменять и в самой игре: кнопка «⚙️ Настройки» вверху слева.")
+    key = input("Вставьте ключ (или просто Enter, чтобы отменить): ").strip()
     if not key:
         return None
-    if not key.startswith("sk-or-"):
-        print("Похоже, это не ключ OpenRouter (он начинается с sk-or-). Попробуйте ещё раз.")
+    if not key.startswith("sk-"):
+        print("Похоже, это не ключ (он начинается с sk-). Попробуйте ещё раз.")
         return None
-    save_key(home, key)
-    print("Ключ сохранён на этом компьютере, больше спрашивать не буду.")
+    field = save_key(home, key)
+    print(f"Ключ {'OpenAI' if field == 'openai_key' else 'OpenRouter'} сохранён на этом компьютере, "
+          "больше спрашивать не буду.")
     return key
 
 
@@ -175,23 +176,19 @@ def report_last(home: Path) -> int:
 
 def menu(home: Path) -> int:
     print("\n=== AI Village ===")
-    print(f"  1 — Деревня с ИИ-жителями (модель {MODEL}, стоит центы)")
+    model = keys.get("model", home) or DEFAULT_MODEL
+    print(f"  1 — Деревня с ИИ-жителями (модель {model}, стоит центы)")
     print("  2 — Деревня с ботами (бесплатно, без ключа)")
     print("  3 — Посмотреть прошлый прогон")
-    print("  4 — Сменить ключ OpenRouter")
+    print("  4 — Добавить или сменить ключ (OpenAI или OpenRouter)")
     print("  5 — Сообщить о проблеме в последнем прогоне")
     choice = input("Введите цифру и нажмите Enter [1]: ").strip() or "1"
     if choice == "1":
-        key = load_key(home) or ask_key(home)
-        if not key:
+        if not (load_key(home) or ask_key(home)):
             return 0
-        os.environ["OPENROUTER_API_KEY"] = key
         n = ask_villagers(llm=True)
-        return live(home, ["--models", MODEL, "--agents", str(n), "--days", str(LLM_DAYS), *ask_rules()])
+        return live(home, ["--models", "default", "--agents", str(n), "--days", str(LLM_DAYS), *ask_rules()])
     if choice == "2":
-        key = load_key(home)  # bots need no key, but with one the recap panel works too
-        if key:
-            os.environ["OPENROUTER_API_KEY"] = key
         n = ask_villagers(llm=False)
         return live(home, ["--agents", str(n), "--days", str(BOT_DAYS), *ask_rules()])
     if choice == "3":
@@ -210,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--home", default=str(Path.home() / "AIVillage"), help="where the key and runs are kept")
     a = p.parse_args(argv)
     try:
+        os.environ["AIVILLAGE_HOME"] = a.home  # the server and LLM clients read keys from there
         return menu(Path(a.home))
     except (KeyboardInterrupt, EOFError):
         return 0
