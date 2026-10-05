@@ -3,23 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Village viewer</title>
+<title>AI Village</title>
 <style>
-  :root { --bg:#1d2321; --panel:#252c29; --ink:#e8efe9; --muted:#9db0a4; --accent:#f2c14e; }
+  /* Layout: map canvas fills the left, a village log column on the right; stacks on phones.
+     Deliberately single dark "evening in the village" look in both themes. */
+  :root { --bg:#1d2321; --panel:#252c29; --card:#1f2623; --ink:#e8efe9; --muted:#9db0a4; --accent:#f2c14e;
+          --btn:#34403b; --rule:#333d38; --bubble:#fffbe8; color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, sans-serif; display:flex; height:100vh; }
   #map { flex:1; min-width:0; display:flex; flex-direction:column; }
   canvas { width:100%; flex:1; image-rendering:pixelated; background:#5b8c4a; }
   #bar { display:flex; gap:8px; align-items:center; padding:8px; background:var(--panel); flex-wrap:wrap; }
   #bar input[type=range]#scrub { flex:1; min-width:120px; }
-  button { background:#34403b; color:var(--ink); border:0; padding:6px 10px; border-radius:6px; cursor:pointer; }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--accent); }
+  button { background:var(--btn); color:var(--ink); border:0; padding:6px 10px; border-radius:6px; cursor:pointer; }
   #side { width:360px; max-width:45vw; background:var(--panel); overflow:auto; padding:10px; }
-  .card { background:#1f2623; border-radius:8px; padding:8px; margin-bottom:8px; cursor:pointer; }
+  .card { background:var(--card); border-radius:8px; padding:8px; margin-bottom:8px; cursor:pointer; }
   .card.sel { outline:2px solid var(--accent); }
   .name { font-weight:600; }
   .muted { color:var(--muted); font-size:12px; }
   .thought { font-style:italic; color:#cfe3d6; margin-top:4px; }
-  #feed div { border-bottom:1px solid #333d38; padding:3px 0; font-size:12px; }
+  #feed div { border-bottom:1px solid var(--rule); padding:3px 0; font-size:12px; }
   h3 { margin:10px 0 6px; font-size:13px; color:var(--muted); text-transform:uppercase; }
   #drop { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.6); }
   #drop div { background:var(--panel); padding:24px; border-radius:12px; max-width:420px; }
@@ -66,12 +70,14 @@ function load(text) {
   names = header.config.agents.map(a => a.name);
   names.forEach((n, k) => color[n] = COLORS[k % COLORS.length]);
   document.getElementById('scrub').max = ticks.length - 1;
-  document.getElementById('drop').style.display = 'none';
+  document.getElementById('drop').hidden = true;
+  playing = true; document.getElementById('play').textContent = '⏸';
   i = 0; frac = 1; render();
 }
 document.getElementById('file').onchange = e => e.target.files[0].text().then(load);
 const qs = new URLSearchParams(location.search).get('log');
-if (qs) fetch(qs).then(r => r.text()).then(load);
+if (window.EMBEDDED_LOG) load(window.EMBEDDED_LOG);
+else if (qs) fetch(qs).then(r => r.text()).then(load);
 
 document.getElementById('play').onclick = () => { playing = !playing; document.getElementById('play').textContent = playing ? '⏸' : '▶'; };
 document.getElementById('stepb').onclick = () => go(i + 1);
