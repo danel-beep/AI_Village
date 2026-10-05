@@ -1,15 +1,15 @@
-// Recaps and problem reports: injected by aivillage/server.py. Two buttons at the bottom left:
+// Recaps and problem reports: injected by aivillage/server.py. Two buttons at the top left:
 // "Что произошло?" (LLM recaps from /api/summary, new ones also arrive over the live feed) and
 // "Сообщить о проблеме" (note + the tick being watched -> POST /api/report -> a zip on disk).
 // Reads only the viewer globals `ticks` / `i`, so it does not depend on the viewer's layout.
 (() => {
   const css = document.createElement('style');
   css.textContent = `
-    #rp-bar { position:fixed; left:12px; bottom:12px; z-index:30; display:flex; gap:6px; }
+    #rp-bar { position:fixed; left:8px; top:38px; z-index:30; display:flex; gap:6px; }
     #rp-bar button { background:#34403b; color:#e8efe9; border-radius:20px; padding:7px 12px; font-weight:600;
       box-shadow:0 2px 8px rgba(0,0,0,.5); }
-    .rp-panel { position:fixed; left:12px; bottom:56px; z-index:30; width:360px; max-width:calc(100vw - 24px);
-      max-height:60vh; overflow:auto; background:#252c29; color:#e8efe9; border-radius:12px; padding:10px;
+    .rp-panel { position:fixed; left:8px; top:78px; z-index:30; width:360px; max-width:calc(100vw - 24px);
+      max-height:calc(100vh - 150px); overflow:auto; background:#252c29; color:#e8efe9; border-radius:12px; padding:10px;
       box-shadow:0 4px 16px rgba(0,0,0,.6); font:13px/1.45 system-ui, sans-serif; }
     .rp-panel[hidden] { display:none; }
     .rp-panel h4 { margin:2px 0 8px; font-size:13px; color:#9db0a4; text-transform:uppercase; }

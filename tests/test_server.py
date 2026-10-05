@@ -64,6 +64,13 @@ def test_live_push_and_pages(tmp_path):
     assert "fire" in meta["god"] and meta["agents"] and meta["locations"]
 
 
+def test_viewer_scripts_served(tmp_path):
+    sim = LiveSim(engine.new_world({"seed": 1}), lambda n, o: None, 1)
+    client = TestClient(create_app(sim))
+    assert "Dossier" in client.get("/dossier.js").text
+    assert client.get("/missing.js").status_code == 404
+    assert 'src="dossier.js"' in client.get("/").text
+
 def test_recaps_and_problem_report(tmp_path):
     import zipfile
     from aivillage.summary import StubSummaryClient, Summarizer

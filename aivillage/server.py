@@ -136,8 +136,10 @@ class LiveSim:
     # --- recaps and problem reports ---
     def _summarize_day(self, day: int) -> None:
         days = [d for d in by_day(list(self.ticks), self.world.config) if day_of(d[0], self.world.config)[0] == day]
-        if days:
-            self.summarize(days[0])
+        done = max((s["to_tick"] for s in self.summaries), default=-1)
+        rest = [t for t in (days[0] if days else []) if t["tick"] > done]  # skip what a button recap covered
+        if len(rest) >= 2:
+            self.summarize(rest)
 
     def summarize(self, ticks: list[dict] | None = None) -> dict | None:
         """Recap `ticks`, or by default everything since the last recap (at least the last 4 hours)."""
@@ -233,9 +235,13 @@ def create_app(sim: LiveSim) -> FastAPI:
     def god_js() -> FileResponse:
         return FileResponse(VIEWER / "god.js", media_type="text/javascript")
 
-    @app.get("/report.js")
-    def report_js() -> FileResponse:
-        return FileResponse(VIEWER / "report.js", media_type="text/javascript")
+    @app.get("/{name}.js")
+    def viewer_js(name: str) -> FileResponse:
+        # Any other viewer script (dossier.js, ...) that index.html loads by relative path.
+        path = VIEWER / f"{name}.js"
+        if not name.replace("_", "").isalnum() or not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="text/javascript")
 
     @app.get("/api/summary")
     def summaries() -> dict:
