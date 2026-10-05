@@ -37,6 +37,7 @@ class JsonlLog:
     def write(self, rec: dict) -> None:
         if self.f:
             self.f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            self.f.flush()  # a problem report can zip the log mid-run
 
     def close(self) -> None:
         if self.f:
@@ -150,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Run the AI Village with scripted bots or LLM agents.")
     p.add_argument("--config", default=None, help="YAML run config (see configs/example.yaml); "
                                                   "flags below override it")
-    p.add_argument("--days", type=int, default=None, help="default 10")
+    p.add_argument("--days", type=int, default=None, help="default 3")
     p.add_argument("--seed", type=int, default=None, help="default 1")
     p.add_argument("--bots", default=None, help="comma-separated bot kinds, cycled over agents (default worker)")
     p.add_argument("--log", default=None, help="write a replayable JSONL log here")
