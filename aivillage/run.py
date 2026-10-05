@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine
+from . import engine, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -37,6 +37,7 @@ class JsonlLog:
     def write(self, rec: dict) -> None:
         if self.f:
             self.f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            self.f.flush()  # a problem report can zip the log mid-run
 
     def close(self) -> None:
         if self.f:
@@ -99,7 +100,11 @@ def view(world: World) -> dict:
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
                                 "profession": a.profession, "inventory": a.inventory}
                        for a in world.agents.values()},
-            "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()}}
+            "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
+            "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
+                          for f in world.fires.values()},
+            "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
+                    for l in world.locations.values() if l.slots}}
 
 
 def read_log(path: str | Path) -> Iterable[dict]:
@@ -150,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Run the AI Village with scripted bots or LLM agents.")
     p.add_argument("--config", default=None, help="YAML run config (see configs/example.yaml); "
                                                   "flags below override it")
-    p.add_argument("--days", type=int, default=None, help="default 10")
+    p.add_argument("--days", type=int, default=None, help="default 3")
     p.add_argument("--seed", type=int, default=None, help="default 1")
     p.add_argument("--bots", default=None, help="comma-separated bot kinds, cycled over agents (default worker)")
     p.add_argument("--log", default=None, help="write a replayable JSONL log here")

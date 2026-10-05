@@ -2,7 +2,7 @@
 // PixelMap attaches it to its canvas on the first draw; everything here is in map pixels (W x H) or canvas pixels.
 const Camera = (() => {
   const MAXZ = 6;
-  let cv = null, W = 1, H = 1, S = 2, z = 1, zt = 1, cx = 0, cy = 0, follow = null, down = null, dragged = false;
+  let cv = null, box = null, W = 1, H = 1, S = 2, z = 1, zt = 1, cx = 0, cy = 0, follow = null, down = null, dragged = false;
 
   const clampZ = v => Math.max(1, Math.min(MAXZ, v));
   function clampC() {
@@ -45,9 +45,9 @@ const Camera = (() => {
       if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName)) return;
       if (e.key === '+' || e.key === '=') zoomAt(1.25); else if (e.key === '-') zoomAt(.8); else if (e.key === '0') reset();
     });
-    const box = document.createElement('div'), parent = canvas.parentElement;
+    box = document.createElement('div'); const parent = canvas.parentElement;
     if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
-    box.style.cssText = 'position:absolute;top:8px;right:8px;display:flex;gap:4px;z-index:5';
+    box.style.cssText = 'position:absolute;left:8px;display:flex;gap:4px;z-index:5';   // bottom-left of the map, kept there in update()
     for (const [t, title, fn] of [['+', 'приблизить (колесо мыши)', () => zoomAt(1.4)], ['−', 'отдалить', () => zoomAt(1 / 1.4)],
                                   ['⤢', 'вся деревня (клавиша 0)', reset]]) {
       const bt = document.createElement('button'); bt.textContent = t; bt.title = title; bt.onclick = fn;
@@ -65,6 +65,7 @@ const Camera = (() => {
     const p = follow && pos(follow);
     if (p) { const f = 1 - Math.exp(-dt * 4); cx += (p[0] - cx) * f; cy += (p[1] - cy) * f; }
     clampC();
+    if (box) box.style.top = (cv.offsetTop + cv.offsetHeight - 38) + 'px';
   }
 
   return { attach, update, view, toWorld, toScreen };

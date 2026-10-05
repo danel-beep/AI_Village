@@ -226,7 +226,7 @@ const PixelMap = (() => {
   }
 
   function field(g) {
-    for (let y = 2 * T + 3; y < 8 * T - 4; y += 4) for (let x = 5 * T + 3; x < 11 * T - 3; x += 4) {
+    if (!window.MapLayer) for (let y = 2 * T + 3; y < 8 * T - 4; y += 4) for (let x = 5 * T + 3; x < 11 * T - 3; x += 4) {
       if (Math.abs(x - (8 * T + 8)) < 9) continue;
       const ripe = rnd(x, y, 9) < .7;
       P(g, x, y, ripe ? C.wheatD : C.sprout); P(g, x, y - 1, ripe ? C.wheat : C.sprout); P(g, x + 1, y - 2, ripe ? C.wheat : '#9ad060');
@@ -278,7 +278,7 @@ const PixelMap = (() => {
     R(g, ex, ey + 4, 3, 32, C.wood); R(g, ex + 21, ey + 4, 3, 32, C.wood); R(g, ex - 1, ey + 2, 26, 4, C.woodD);
     for (let y = ey + 30; y < 12 * T + 14; y += 3) { R(g, ex + 6, y, 12, 1, C.woodD); }
     R(g, ex + 7, ey + 30, 1, 12 * T + 14 - ey - 30, '#8a8a92'); R(g, ex + 16, ey + 30, 1, 12 * T + 14 - ey - 30, '#8a8a92');
-    rock(g, 29 * T - 4, 12 * T, '#d4a83a'); rock(g, 25 * T + 2, 12 * T + 2, '#7ad0e0'); rock(g, 28 * T, 13 * T + 4, null);
+    if (!window.MapLayer) { rock(g, 29 * T - 4, 12 * T, '#d4a83a'); rock(g, 25 * T + 2, 12 * T + 2, '#7ad0e0'); rock(g, 28 * T, 13 * T + 4, null); }
   }
 
   function forest(g) {
@@ -289,7 +289,8 @@ const PixelMap = (() => {
       if (Math.abs(x + 16 - layout.anchors.forest[0]) < 14 && y + 24 > cy) continue;
       list.push([x, y, rnd(tx, ty, 13) < .5]);
     }
-    list.sort((a, b) => a[1] - b[1]).forEach(([x, y, pine]) => tree(g, x, y, pine));
+    const live = window.MapLayer ? MapLayer.claimTrees(list, cx, cy) : new Set();
+    list.filter(t => !live.has(t)).sort((a, b) => a[1] - b[1]).forEach(([x, y, pine]) => tree(g, x, y, pine));
     R(g, cx - 18, cy + 4, 10, 6, C.k); R(g, cx - 17, cy + 5, 8, 4, C.wood); R(g, cx - 16, cy + 5, 6, 1, '#e8c090');
     P(g, cx + 12, cy - 6, '#e4572e'); P(g, cx + 13, cy - 6, '#e4572e'); P(g, cx + 12, cy - 5, '#f4f4f4');
   }
@@ -334,7 +335,9 @@ const PixelMap = (() => {
   }
 
   function init(header, colors) {
-    names = header.config.agents.map(a => a.name); color = colors; buildLayout(); paintBackground();
+    names = header.config.agents.map(a => a.name); color = colors; buildLayout();
+    if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
+    paintBackground();
     buf = document.createElement('canvas'); buf.width = W; buf.height = H; b = buf.getContext('2d');
     sheets = {}; names.forEach((n, k) => sheets[n] = sheetFor(n, k));
     return { width: W * S, height: H * S };
@@ -390,6 +393,7 @@ const PixelMap = (() => {
       const ph = (sec * .8 + rnd(x, y) * 6) % 6; if (ph > 1.2) continue;
       R(b, x + (ph * 3 | 0), y, 3, 1, C.waterL);
     }
+    if (window.MapLayer) MapLayer.draw(b, t, e, sec);
     const fires = new Set(t.view.fires || []);
     const homeNow = new Set(names.filter(n => t.view.agents[n].location === 'home_' + n && t.view.agents[n].status === 'active'));
     // chimney smoke
@@ -398,8 +402,9 @@ const PixelMap = (() => {
       b.globalAlpha = .5 * (1 - p); blob(b, sx, sy, r, r, ['#e8e8ee', '#d0d0d8', '#b8b8c4'], null); b.globalAlpha = 1; } };
     smoke(...layout.smithyChimney, .3);
     layout.houses.forEach((h, k) => { if (homeNow.has(h.name)) smoke(...h.chimney, k * .37); });
-    // fire (before villagers, so buckets of water land on top of it)
-    for (const id of fires) {
+    // fire, before villagers so buckets of water land on top of it (the map layer sizes it by the water still needed)
+    if (window.MapLayer) MapLayer.drawTop(b, t, e, sec);
+    else for (const id of fires) {
       const bx = layout.box[id]; if (!bx) continue;
       const [x0, y0, w, h] = bx;
       for (let i = 0; i < 26; i++) {
@@ -421,8 +426,8 @@ const PixelMap = (() => {
         dir: r.dir, moving: r.moving, carry: r.moving && fires.size > 0 && (v.inventory.water || 0) > 0 };
       let tx = r.x, ty = r.y;
       if (!r.moving) {
-        const ws = Actors.workSpot(a.act, v.location, k, layout);
-        if (ws) [tx, ty, a.dir] = ws;
+        const ws = Actors.workSpot(a.act, v.location, k, layout, info);
+        if (ws) [tx, ty, a.dir, a.real] = ws;
         else if (a.act === 'idle') { const w = Actors.wander(idx + 1, sec); tx += w.dx; ty += w.dy; a.dir = w.dir; a.moving = w.moving; }
         const other = info.to && prevPos[info.to];
         if (a.act === 'talk' && other && Math.abs(other[0] - tx) > 2) a.dir = other[0] > tx ? 'right' : 'left';

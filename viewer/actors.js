@@ -8,8 +8,8 @@ const Actors = (() => {
   const KIND = { move: 'walk', extinguish: 'pour', fire_out: 'pour', pour_water: 'pour', craft: 'craft', eat: 'eat',
     buy: 'trade', sell: 'trade', fulfill_order: 'trade', contribute: 'trade', say: 'talk', whisper: 'talk', offer: 'talk',
     trade: 'talk', decline: 'talk', give: 'talk', lend: 'talk', repay: 'talk', steal: 'sneak', theft: 'sneak',
-    plant: 'farm', sow: 'farm', harvest: 'farm', chop: 'chop', fish: 'fish' };
-  const PRI = { walk: 9, pour: 8, sneak: 7, craft: 6, chop: 5, mine: 5, farm: 5, fish: 5, water: 5, gather: 5, eat: 4,
+    plant: 'sow', harvest: 'farm' };
+  const PRI = { walk: 9, pour: 8, sneak: 7, craft: 6, sow: 5, chop: 5, mine: 5, farm: 5, fish: 5, water: 5, gather: 5, eat: 4,
                 trade: 3, talk: 2 };
   const SHADOW = ['rgba(0,0,0,.25)', 'rgba(0,0,0,.25)', 'rgba(0,0,0,.25)'];
   const gx = () => PixelMap.gfx;
@@ -20,9 +20,9 @@ const Actors = (() => {
     const out = {};
     for (const e of t.events || []) {
       if (!e.actor) continue;
-      const res = e.kind === 'work' && (/gathered \d+ (\w+)|no (\w+) left/.exec(e.text) || []).slice(1).find(Boolean);
-      const act = e.kind === 'work' ? WORK[res] : KIND[e.kind];
-      if (act && (!out[e.actor] || PRI[act] > PRI[out[e.actor].act])) out[e.actor] = { act, text: e.text || '' };
+      const d = e.data || {}, res = d.resource || (/gathered \d+ (\w+)|no (\w+) left/.exec(e.text) || []).slice(1).find(Boolean);
+      const act = e.kind === 'work' ? WORK[res] : KIND[e.kind], slot = e.kind === 'plant' ? d.slot : (d.slots || [])[0];
+      if (act && (!out[e.actor] || PRI[act] > PRI[out[e.actor].act])) out[e.actor] = { act, text: e.text || '', res, slot };
     }
     for (const [n, d] of Object.entries(t.decisions || {})) {
       const args = (d.action || {}).args || {}, to = args.to || args.person || args.target;
@@ -32,8 +32,13 @@ const Actors = (() => {
     return out;
   }
 
-  // Where a villager stands for an activity (map pixels), or null for the usual spot around the location.
-  function workSpot(act, loc, k, L) {
+  // Where a villager stands for an activity: [x, y, dir, atObject] in map pixels, or null for the usual spot.
+  // With the map layer (viewer/maplayer.js) work happens at the very tree, bed, bush or rock the log names.
+  function workSpot(act, loc, k, L, info = {}) {
+    const o = info.slot != null && window.MapLayer && MapLayer.spotOf && MapLayer.spotOf(loc, info.res, info.slot);
+    if (o && act === 'chop') return [o[0] + 6, o[1] + 23, 'right', true];
+    if (o && (act === 'farm' || act === 'sow')) return [o[0] + 6 + (k * 9) % Math.max(1, o[2] - 12), o[1] + o[3] / 2 - 4, k % 2 ? 'left' : 'right', true];
+    if (o && (act === 'gather' || act === 'mine')) return [o[0] - 3, o[1] + (act === 'mine' ? 7 : 5), 'right', true];
     const a = L.anchors[loc]; if (!a) return null;
     const ring = (pts) => { const [dx, dy, dir] = pts[k % pts.length]; return [a[0] + dx, a[1] + dy, dir]; };
     if (act === 'fish' && loc === 'river') return [24 + (k % 4) * 9, 148, 'left'];
@@ -102,7 +107,7 @@ const Actors = (() => {
     chop(b, x, y, sec, a) {
       const { R, C } = gx(), s = swing(sec, .9, -2.3, .55);
       return { dy: s.since < .08 ? 1 : 0, front() {
-        R(b, x + 7, y + 3, 7, 5, C.k); R(b, x + 8, y + 3, 5, 4, C.wood); R(b, x + 8, y + 3, 5, 1, '#e8c090');
+        if (!a.real) { R(b, x + 7, y + 3, 7, 5, C.k); R(b, x + 8, y + 3, 5, 4, C.wood); R(b, x + 8, y + 3, 5, 1, '#e8c090'); }
         tool(b, x + 1, y + 1, s.ang, 7, 'axe');
         burst(b, x + 10, y + 2, s.since, 6, [C.woodL, '#e8c090', C.wood], s.k);
       } };
@@ -110,10 +115,15 @@ const Actors = (() => {
     mine(b, x, y, sec, a) {
       const { blob, C } = gx(), s = swing(sec, 1, -2.2, .5), ore = a.loc === 'mine' && /ore/.test(a.text);
       return { dy: s.since < .08 ? 1 : 0, front() {
-        blob(b, x + 11, y + 5, 4, 3, [C.stoneL, C.stone, C.stoneD]);
+        if (!a.real) blob(b, x + 11, y + 5, 4, 3, [C.stoneL, C.stone, C.stoneD]);
         tool(b, x + 1, y + 1, s.ang, 7, 'pick');
         burst(b, x + 10, y + 3, s.since, 7, ore ? ['#fff6b0', '#ffd23f', C.stoneL] : [C.stoneL, '#fff6b0', C.stone], s.k, 26, .3);
       } };
+    },
+    sow(b, x, y, sec, a) {
+      const { P } = gx(), u = (sec / 1.2) % 1, k = Math.floor(sec / 1.2);
+      return { crouch: 1, front() { P(b, x + 4, y + (u < .3 ? 0 : 2), '#f2c9a0');
+        burst(b, x + 6, y + 2, u * 1.2, 4, ['#e0c040', '#b8962c'], k, 8, .5); } };
     },
     farm(b, x, y, sec, a) {
       const { R, C } = gx(), s = swing(sec, 1.1, -1.9, .9);
@@ -123,8 +133,7 @@ const Actors = (() => {
     gather(b, x, y, sec, a) {
       const { blob, P, C } = gx(), u = (sec / 1.4) % 1, k = Math.floor(sec / 1.4);
       return { crouch: 2, front() {
-        blob(b, x + 10, y + 3, 5, 4, [C.leafL, C.leaf, C.leafD]);
-        P(b, x + 9, y + 2, '#e4572e'); P(b, x + 12, y + 4, '#e4572e');
+        if (!a.real) { blob(b, x + 10, y + 3, 5, 4, [C.leafL, C.leaf, C.leafD]); P(b, x + 9, y + 2, '#e4572e'); P(b, x + 12, y + 4, '#e4572e'); }
         P(b, x + 5 + (u < .5 ? 2 : 0), y + 2, '#f2c9a0');
         if (u > .5) P(b, Math.round(x + 9 - (u - .5) * 10), Math.round(y + 1 - Math.sin((u - .5) * 6) * 3), '#ff4d3a');
         burst(b, x + 10, y + 1, (u * 1.4) % 1.4, 3, [C.leafL], k, 10, .25);

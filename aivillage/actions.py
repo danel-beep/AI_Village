@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import ops
+from . import ops, seasons, tiles
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer
@@ -103,6 +103,10 @@ def step_move(ctx: Ctx, a: Agent, dest: str) -> None:
              to=[a.name])
 
 
+USED_UP = {"wood": "felled a tree", "grain": "harvested a whole bed", "berries": "picked a bush clean",
+           "fish": "fished out a shoal", "stone": "broke up a rock", "ore": "mined out an ore vein"}
+
+
 def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
     """One hour of gathering. Returns the amount gathered (may be 0 if exhausted)."""
     cfg = ctx.cfg
@@ -118,10 +122,15 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
         amount *= cfg["work_tool_multiplier"]
     if resource == "water":
         amount = 2
-    amount = min(amount, loc.resources.get(resource, 0))
+    taken = tiles.take(loc, resource, amount)
+    amount = sum(n for _, n in taken)
     if amount > 0:
-        loc.resources[resource] -= amount
         ops.mint(ctx.world, a.inventory, resource, amount)
+    for slot, _ in taken:
+        if slot >= 0 and loc.slots[resource][slot] == 0:  # log-only, for the map: a tree fell, a bed is bare
+            ctx.emit("slot_empty", f"{a.name} {USED_UP.get(resource, 'used up a ' + resource + ' spot')} at the "
+                     f"{loc.name}.", actor=a.name,
+                     location=loc.id, resource=resource, slot=slot)
     if using_tool:
         a.tool_wear += 1
         if a.tool_wear >= cfg["tool_durability_hours"]:
@@ -129,7 +138,8 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
             ops.burn(ctx.world, a.inventory, "tool", 1)
             ctx.emit("tool_broke", "Your tool wore out and broke.", to=[a.name])
     ctx.emit("work", f"You gathered {amount} {resource}." if amount else f"There is no {resource} left here.",
-             actor=a.name, to=[a.name])
+             actor=a.name, location=loc.id, to=[a.name], resource=resource, amount=amount,
+             slots=[s for s, _ in taken if s >= 0])
     return amount
 
 
@@ -685,19 +695,56 @@ def fulfill_order(ctx: Ctx, a: Agent, args: OrderArgs) -> None:
              visibility="public", order=o.id)
 
 
-@ACTIONS.action("extinguish", "Throw water on a fire here (uses 1 water).",
+@ACTIONS.action("extinguish", "Pour all the water you carry on a fire here (as much as it still needs).",
                 available=lambda c, a: a.location in c.world.fires)
 def extinguish(ctx: Ctx, a: Agent, args) -> None:
     fire = ctx.world.fires.get(a.location)
     if fire is None:
         raise ActionError("nothing is burning here")
     _need(a.inventory, {"water": 1})
-    ops.burn(ctx.world, a.inventory, "water", 1)
-    fire.water_needed -= 1
+    used = min(ops.count(a.inventory, "water"), fire.water_needed)
+    ops.burn(ctx.world, a.inventory, "water", used)
+    fire.water_needed -= used
+    data = dict(helper=a.name, house=a.location, buckets=used, water_needed=fire.water_needed)
     if fire.water_needed <= 0:
         del ctx.world.fires[a.location]
-        ctx.emit("fire_out", f"{a.name} put out the fire at {_here(ctx, a).name}!", actor=a.name,
-                 visibility="public", helper=a.name)
+        ctx.emit("fire_out", f"{a.name} poured {used} water and put out the fire at {_here(ctx, a).name}!",
+                 actor=a.name, location=a.location, visibility="public", **data)
     else:
-        ctx.emit("extinguish", f"{a.name} threw water on the fire ({fire.water_needed} more needed).",
-                 actor=a.name, location=a.location, visibility="location", helper=a.name)
+        ctx.emit("pour_water", f"{a.name} poured {used} water on the fire ({fire.water_needed} more needed, "
+                 f"{fire.ticks_left} hours left).", actor=a.name, location=a.location, visibility="location", **data)
+
+
+class PlantArgs(BaseModel):
+    crop: str | None = Field(None, description="what to sow here; default: the first crop that can be sown here")
+
+
+def _sowable(ctx: Ctx, loc) -> dict:
+    spec = ctx.cfg["locations"].get(loc.id, {}).get("resources", {})
+    return {r: s for r, s in spec.items() if "plant" in s}
+
+
+@ACTIONS.action("plant", "Sow a seed in a free bed here (takes 1 hour). It ripens after some nights; then work here "
+                "to harvest. Anyone can harvest a ripe bed.", PlantArgs,
+                available=lambda c, a: bool(_sowable(c, _here(c, a))))
+def plant(ctx: Ctx, a: Agent, args: PlantArgs) -> None:
+    loc = _here(ctx, a)
+    sowable = _sowable(ctx, loc)
+    if not sowable:
+        raise ActionError("nothing can be planted here")
+    crop = args.crop or next(iter(sowable))
+    if crop not in sowable:
+        raise ActionError(f"{crop} cannot be planted here; can plant: {', '.join(sowable)}")
+    rule = sowable[crop]["plant"]
+    if seasons.regen(ctx.cfg, ctx.world.day, crop, 1) == 0:
+        raise ActionError(f"the ground is frozen: {crop} cannot be planted this season")
+    free = tiles.free_beds(loc, crop)
+    if not free:
+        raise ActionError(f"no free bed: every bed here still has {crop} or is already sown")
+    _need(a.inventory, {crop: rule["seed"]})
+    ops.burn(ctx.world, a.inventory, crop, rule["seed"])
+    slot = free[0]
+    ripe = ctx.world.day + rule["days"]
+    loc.planted[str(slot)] = {"resource": crop, "by": a.name, "ripe_day": ripe}
+    ctx.emit("plant", f"{a.name} planted {crop} at the {loc.name} (ripe on day {ripe}).", actor=a.name,
+             location=loc.id, visibility="location", resource=crop, slot=slot, ripe_day=ripe)

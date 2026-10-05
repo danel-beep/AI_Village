@@ -89,10 +89,13 @@
     panel.innerHTML = controls + '<h4>Вмешаться</h4>' + forms +
       `<datalist id="god-items">${meta.items.map(n => `<option value="${esc(n)}:1">`).join('')}</datalist>`;
 
+    // Same pause as the viewer's ⏸ button: Viewer.setPlaying fires 'viewer-play', live.js tells the server.
     let paused = meta.paused;
     const pauseBtn = panel.querySelector('#god-pause');
-    pauseBtn.onclick = () => post('/api/control', { cmd: paused ? 'resume' : 'pause' }).then(s => {
-      paused = s.paused; pauseBtn.textContent = paused ? '▶ Продолжить' : '⏸ Пауза';
+    if (paused) Viewer.setPlaying(false, true);
+    pauseBtn.onclick = () => Viewer.setPlaying(paused);
+    window.addEventListener('village-paused', e => {
+      paused = e.detail; pauseBtn.textContent = paused ? '▶ Продолжить' : '⏸ Пауза';
     });
     panel.querySelector('#god-pace').onchange = e => post('/api/control', { cmd: 'pace', seconds: +e.target.value });
     for (const form of panel.querySelectorAll('form')) form.onsubmit = ev => {
