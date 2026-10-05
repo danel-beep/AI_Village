@@ -30,6 +30,7 @@ god events ─┐
 | `aivillage/registry.py` | `ACTIONS` / `GOD` registries: args model → prompt line, JSON schema, validation |
 | `aivillage/actions.py` | agent actions |
 | `aivillage/god.py` | experimenter interventions |
+| `aivillage/governance.py` | mayor elections, law proposals and votes, treasury, exile (via `ACTIONS.guards`), theft reports; engine hooks `end_of_hour` / `new_day` |
 | `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
@@ -51,6 +52,7 @@ god events ─┐
 1. Numbers → `config.py`.
 2. State, if needed → a field in `state.py` (and `from_dict`).
 3. Action → `@ACTIONS.action("name", "one-line description for the model", ArgsModel, available=...)` in `actions.py`. Validate everything first, raise `ActionError` with a message the agent can act on, then mutate. Use `ops` for items/coins and `ctx.emit` for what others see (`visibility`: public / location / private).
+   To forbid an action under some rule without editing it, append a guard to `ACTIONS.guards` (see `governance._exile_guard`).
 4. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
 5. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
 6. `python -m pytest -q` must stay green.
