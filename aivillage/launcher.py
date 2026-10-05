@@ -139,6 +139,23 @@ def ask_mode() -> str:
     return DEFAULT_MODE
 
 
+def ask_unfairness(mode: str) -> list[str]:
+    """Start fairness for the generated village; Enter keeps the mode's own setting."""
+    from .modes import MODES, unfairness
+    u = unfairness(mode)
+    print("\nНасколько нечестный старт? 0 — у всех одинаковые участки, деньги и расстояния до работы; "
+          "10 — всё случайно: у кого-то большой участок и запасы, у кого-то клочок земли и пустой карман.")
+    ans = input(f"Число от 0 до 10, Enter = {round(u * 10)} (как в режиме «{MODES[mode]['title']}»): ").strip()
+    if ans.isdigit() and 0 <= int(ans) <= 10:
+        return ["--unfairness", str(int(ans) / 10)]
+    return []
+
+
+def ask_rules() -> list[str]:
+    mode = ask_mode()
+    return ["--mode", mode, *ask_unfairness(mode)]
+
+
 def report_last(home: Path) -> int:
     """Same zip as the viewer's button, for when the browser is closed or a past run is open."""
     from . import reports
@@ -170,10 +187,10 @@ def menu(home: Path) -> int:
         if not (load_key(home) or ask_key(home)):
             return 0
         n = ask_villagers(llm=True)
-        return live(home, ["--models", "default", "--agents", str(n), "--days", str(LLM_DAYS), "--mode", ask_mode()])
+        return live(home, ["--models", "default", "--agents", str(n), "--days", str(LLM_DAYS), *ask_rules()])
     if choice == "2":
         n = ask_villagers(llm=False)
-        return live(home, ["--agents", str(n), "--days", str(BOT_DAYS), "--mode", ask_mode()])
+        return live(home, ["--agents", str(n), "--days", str(BOT_DAYS), *ask_rules()])
     if choice == "3":
         return watch_old(home)
     if choice == "4":

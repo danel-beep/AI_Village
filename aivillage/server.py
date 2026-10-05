@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import json
 import os
+import random
 import threading
 import time
 from collections import deque
@@ -25,7 +26,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import engine, keys, llm, modes, reports
+from . import engine, keys, llm, mapgen, modes, reports
 from .highlights import Highlighter, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
 from .registry import GOD, ActionError
@@ -382,7 +383,7 @@ def create_app(sim: LiveSim) -> FastAPI:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Run the AI Village and watch it live in the browser.")
     p.add_argument("--days", type=int, default=None, help="default 3 with --models (test runs), 30 with bots")
-    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--seed", type=int, default=None, help="default: a new random village every start")
     p.add_argument("--bots", default="worker,worker,thief,worker,random")
     p.add_argument("--models", default=None, help="OpenRouter model ids (comma-separated) or 'stub'")
     p.add_argument("--agents", type=int, default=0, help="number of villagers (more than 5 get generated names; resources scale up)")
@@ -397,7 +398,10 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: llm.DEFAULT_MODEL when OPENROUTER_API_KEY is set, else off)")
     p.add_argument("--reports", default=None, help="where problem reports go (default: <log dir>/reports)")
     p.add_argument("--reveal-reports", action="store_true", help="open the file manager on a new report")
+    mapgen.add_args(p)
     a = p.parse_args(argv)
+    if a.seed is None:
+        a.seed = random.SystemRandom().randrange(1, 1_000_000)
 
     import uvicorn
 
@@ -406,7 +410,8 @@ def main(argv: list[str] | None = None) -> int:
         override["disabled_actions"] = modes.disabled(a.mode)
     if a.agents:
         override["population"] = {"size": a.agents}
-    world = engine.new_world(override)
+    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
+    print(f"Village seed {a.seed} (run again with --seed {a.seed} to get the same map)")
     on_night = None
     if a.models:
         agents = llm_agents(world, a.models.split(","))
