@@ -83,6 +83,11 @@ def world_facts(cfg: dict) -> str:
     lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days.")
     if rep := reputation.fact(cfg):
         lines.append(rep)
+    fam = cfg.get("family")
+    if fam:
+        lines.append(f"- Relations: your feelings about people grow from gifts, loans, trades, help and hang_out, "
+                     f"fall after theft or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
+                     f"share a house and chests; a spouse (else your best friend) inherits if you die.")
     return "\n".join(lines)
 
 

@@ -100,6 +100,7 @@ def view(world: World) -> dict:
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
                                 "profession": a.profession, "inventory": a.inventory}
                        for a in world.agents.values()},
+            "kin": {"feelings": world.kin.feelings, "couples": [m.spouses for m in world.kin.marriages.values()]},
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},

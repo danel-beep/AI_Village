@@ -33,6 +33,7 @@ god events ─┐
 | `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
 | `aivillage/reputation.py` | reputation (each agent's own tally of deeds it saw: thefts, defaults, repaid debts, fire help, trades, gifts) and rumors (`gossip` action; stored with the teller, never scored). Hooks in via `ops.EVENT_HOOKS`; adds `reputation` / `rumors` to `observe()`; config block `reputation` |
 | `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
+| `aivillage/family.py` | feelings (directed scores moved by events via `family.on_event`), hang_out/propose/answer_proposal/divorce, marriage (shared house + chests), inheritance; feelings via `ops.EVENT_HOOKS`; engine calls `after_hour` (estates) / `after_night`; `observe()["relations"]`. Unlike reputation (what I saw), feelings are the relationship that drives marriage and inheritance |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |
