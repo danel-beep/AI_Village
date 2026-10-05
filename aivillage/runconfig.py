@@ -15,6 +15,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .bots import BOT_TYPES
+from . import modes
 from .config import DEFAULT_CONFIG
 from .registry import ACTIONS, GOD
 
@@ -60,7 +61,12 @@ class RunConfig(Strict):
     # Default brain for agents that name none: a model id ("stub" works offline) or a bot kind.
     model: str | None = None
     bot: str = "worker"
+    # Backup OpenRouter models for when the main one is rate-limited or down (empty = env AIVILLAGE_FALLBACK_MODELS).
+    fallback_models: list[str] = Field(default_factory=list)
+    mode: str = modes.DEFAULT_MODE  # economy mode, see aivillage/modes.py
     agents: list[AgentSpec] | None = None  # None = the default villagers
+    # How many villagers: `agents` (or the default five) first, the rest generated (aivillage/population.py).
+    villagers: int | None = Field(default=None, ge=1, le=60)
     mechanics: Mechanics = Field(default_factory=Mechanics)
     world: dict = Field(default_factory=dict)  # overrides of config.DEFAULT_CONFIG
     god: list[GodEvent] = Field(default_factory=list)
@@ -68,6 +74,8 @@ class RunConfig(Strict):
     @model_validator(mode="after")
     def check_names(self):
         errs = []
+        if self.mode not in modes.MODES:
+            errs.append(f"mode: unknown economy mode '{self.mode}' (have: {', '.join(modes.MODES)})")
         unknown = set(self.world) - set(DEFAULT_CONFIG)
         if unknown:
             errs.append(f"world: unknown settings {sorted(unknown)}")
@@ -110,14 +118,17 @@ class RunConfig(Strict):
 
     def world_override(self) -> dict:
         """Partial world config for `engine.new_world` (brains stripped from agents)."""
-        out = dict(self.world)
+        out = modes.world_override(self.mode, self.world)
         out["seed"] = self.seed
         if self.agents is not None:
             out["agents"] = [{"name": a.name, "profession": a.profession,
                               **a.model_dump(include={"plot_cells", "house_level", "buildings"}, exclude_none=True)}
                              for a in self.agents]
-        if self.mechanics.disabled:
-            out["disabled_actions"] = sorted(self.mechanics.disabled)
+        if self.villagers:
+            out["population"] = {**(out.get("population") or {}), "size": self.villagers}
+        off = set(self.mechanics.disabled) | set(modes.disabled(self.mode))
+        if off:
+            out["disabled_actions"] = sorted(off)
         return out
 
     def brains(self, names: list[str]) -> dict[str, tuple[Literal["model", "bot"], str]]:

@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import family, governance, ops, plots, reputation, seasons, tiles
+from . import family, governance, mapgen, ops, plots, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -27,6 +27,8 @@ GodEvent = dict[str, Any]  # {"name": str, "args": {...}}
 
 def new_world(config: dict | None = None) -> World:
     cfg = make_config(config)
+    if cfg["map"].get("procedural") and "layout" not in cfg["map"]:
+        cfg = mapgen.generate(cfg)  # a replayed log already carries its map, so it is never re-rolled
     w = World(config=cfg, hour=cfg["day_start_hour"])
     for lid, spec in cfg["locations"].items():
         res = {r: v["start"] for r, v in spec.get("resources", {}).items()}
@@ -35,12 +37,17 @@ def new_world(config: dict | None = None) -> World:
     for spec in cfg["agents"]:
         name = spec["name"]
         home = f"home_{name}"
-        w.locations[home] = Location(home, f"{name}'s house", ["square"])
-        w.locations["square"].neighbors.append(home)
+        links = cfg["map"].get("homes", {}).get(name, ["square"])
+        w.locations[home] = Location(home, f"{name}'s house", list(links))
+        for to in links:
+            w.locations[to].neighbors.append(home)
         a = Agent(name=name, profession=spec["profession"], home=home, location=home,
                   satiety=cfg["satiety_start"], health=cfg["health_max"])
         w.agents[name] = a
-        ops.mint_coins(w, a, cfg["start_coins"])
+        start = cfg["map"].get("start", {}).get(name, {})  # mapgen's unfair start, if any
+        ops.mint_coins(w, a, start.get("coins", cfg["start_coins"]))
+        for item, n in sorted(start.get("items", {}).items()):
+            ops.mint(w, a.inventory, item, n)
         w.chests[f"chest_{name}"] = Chest(f"chest_{name}", name, home)
         plots.setup(w, spec, home)
     for pid, spec in cfg["projects"].items():
@@ -403,11 +410,12 @@ def night(ctx: Ctx) -> None:
         if o.status == "open" and w.day > o.expires_day:
             o.status = "expired"
     if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
-        tpl = ctx.rng.choice(cfg["order_templates"])
-        o = Order(w.new_id("order"), dict(tpl["needs"]), tpl["reward"], w.day + cfg["order_ttl_days"])
-        w.orders[o.id] = o
-        ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
-                 f"until day {o.expires_day}.", visibility="public")
+        for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
+            tpl = ctx.rng.choice(cfg["order_templates"])
+            o = Order(w.new_id("order"), dict(tpl["needs"]), tpl["reward"], w.day + cfg["order_ttl_days"])
+            w.orders[o.id] = o
+            ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
+                     f"until day {o.expires_day}.", visibility="public")
     plots.after_night(ctx)
     family.after_night(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")

@@ -46,6 +46,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "inbox_size": 30,
     "order_every_days": 3,
     "order_ttl_days": 3,
+    "orders_per_post": 1,  # orders posted at once; scaled with the population (coins for tax)
     # Fire: burns fire_ticks hours, then the house and chest are lost. Every fire_grow_hours it needs
     # one more bucket (up to fire_water_max). Night counts as fire_night_hours of burning.
     "fire_ticks": 10,
@@ -87,6 +88,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "miner": ["stone", "ore"],
         "smith": [],
     },
+    # Procedural map (mapgen.py): with procedural on, every seed lays out its own village from the
+    # locations below (positions, roads, waypoints, homes with plots, resource amounts, start money);
+    # `unfairness` 0..1 goes from as equal as possible to random and unfair (see mapgen.MAP_DEFAULTS).
+    # Off here (the engine and its tests use the hand-made map below); the CLI and the live server
+    # turn it on unless --fixed-map.
+    "map": {"procedural": False, "unfairness": 0.3},
     # Map: a graph of locations. Homes are added per agent and connected to the square.
     # "slots" splits a resource into finite map objects (trees, beds, bushes, shoals, rocks; see tiles.py).
     # "plant": the resource can be sown in an empty bed (costs `seed` of it, ripe after `days` nights).
@@ -133,6 +140,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "spring": "The field grows again.",
             "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
         },
+    },
+    # Population (aivillage/population.py): size N > len(agents) adds generated villagers (seeded names,
+    # professions by weight); resources and project needs scale by max(1, N / base_size). None = just `agents`.
+    "population": {
+        "size": None,
+        "base_size": 5,  # the map numbers above are tuned for this many villagers
+        "scale_resources": True,
+        "scale_projects": True,
+        "scale_orders": True,  # more council orders at once: they are the main coin source besides the trader
+        "profession_weights": {"farmer": 1.2, "fisher": 1.2, "woodcutter": 1, "miner": 1, "smith": 0.6},
     },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
@@ -194,12 +211,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     # Private plots (aivillage/plots.py): each house has a yard of `cells` where its family builds.
-    # An agent spec may set its own start: "plot_cells", "house_level", "buildings" (a list of kinds, free).
+    # An agent spec may set its own start: "plot_cells", "house_level", "buildings" (a list of kinds, free);
+    # "plot_cells" wins over the generated map's yard.
     # Building costs: "coins" (to the treasury) + "items" (from the inventory). Animals eat "feed" of
     # "feed_item" from the owner's chest each night, else make nothing; stock stops at "cap".
     "plots": {
         "enabled": True,
         "start_cells": 6,
+        # On a generated map (config "map", mapgen.py) the start comes from the fenced yard instead:
+        # (yard tiles - house_tiles) * cells_per_yard_tile; the default 1-tile yard gives 6 cells.
+        "cells_per_yard_tile": 0.5,
+        "house_tiles": 9,
         "max_cells": 24,          # expand_plot stops here (house upgrades still add cells)
         "expand_cells": 2,
         "expand_price": 25,       # first purchase; each next one costs expand_price_step more
@@ -244,4 +266,5 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def make_config(override: dict | None = None) -> dict:
-    return _merge(DEFAULT_CONFIG, override or {})
+    from .population import resolve
+    return resolve(_merge(DEFAULT_CONFIG, override or {}))

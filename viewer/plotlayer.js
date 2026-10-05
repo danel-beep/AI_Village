@@ -1,72 +1,88 @@
 // Private plots layer: each house's yard with what its family built (aivillage/plots.py), drawn from view.plots.
-// The yard is a 6x4 grid of 8x11 px cells behind the house (layout.plots[home] = [x, y, w, h] overrides it, e.g. from a
-// generated map). Owned cells are mown lawn, the rest wild grass; buildings are packed into owned cells in build order:
-// garden beds (soil, sprouts, gold when ripe), a chicken coop with hens, a cow pen, beehives with bees, a fence round
-// the owned land. Whatever lies ready (eggs, milk, honey, grain) is shown, so a thief's target is visible.
-// House level 2 adds a roof dormer, level 3 a second chimney with a golden cap. A new building raises a dust puff.
-// pixelmap.js calls init() once and draw() under the villagers.
+// A yard is a grid of cells (8 px wide). On the hand-made map it is 6x4 cells of 8x11 px behind the house: owned
+// cells (view.plots[home].cells) are mown lawn, filled from the house side; a fence building encloses them. On a
+// generated map (viewer/mapgen.js) the yard is the fenced plot around the house (8x16 px cells, nearest the house
+// first); land bought beyond it shows as staked lawn rows behind the plot, and a fence building adds a hedge.
+// Buildings are packed into the yard in build order (deterministic, nothing jumps between ticks): garden beds (soil,
+// sprouts, gold when ripe), a chicken coop with hens, a cow pen, beehives with bees. What lies ready (eggs, milk,
+// honey, grain) is shown, so a thief's target is visible. House level 2 adds a roof dormer, level 3 a second chimney
+// with a golden cap. A new building raises a dust puff. pixelmap.js calls init() once and draw() under the villagers.
 const PlotLayer = (() => {
   let K, yards = {};
-  const COLS = 6, ROWS = 4, CELL = 8;
   const SIZE = { garden_bed: [1, 1], chicken_coop: [2, 1], cow_pen: [2, 2], beehive: [1, 1], fence: [0, 0] };
+  const key = (c, r) => c + ',' + r;
 
   function init(kit) {
     K = kit;
     const { layout, T } = K;
     yards = {};
     for (const h of layout.houses) {
-      const id = 'home_' + h.name;
-      yards[id] = { rect: (layout.plots || {})[id] || [h.x, h.y - 3 * T + 2, 3 * T, 3 * T - 4], house: h };
+      const id = 'home_' + h.name, given = (layout.plots || {})[id] || h.plot;
+      if (given) {
+        const [x, y, w, hh] = given, cols = Math.round(w / 8), rows = Math.round(hh / 16), order = [];
+        const dist = (c, r) => { const cx = x + c * 8 + 4, cy = y + r * 16 + 8;
+          return Math.max(h.x - cx, cx - (h.x + 3 * T), 0) + Math.max(h.y - cy, cy - (h.y + 3 * T), 0); };
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+          const cx = x + c * 8 + 4, cy = y + r * 16 + 8;
+          if (cx > h.x && cx < h.x + 3 * T && cy > h.y && cy < h.y + 3 * T) continue;   // the house itself
+          if (c === 0 || c === cols - 1 || r === 0) { if (cols > 2 && rows > 1 && dist(c, r) > 24) continue; }  // fence posts
+          order.push([c, r]);
+        }
+        order.sort((p, q) => dist(...p) - dist(...q) || q[1] - p[1] || p[0] - q[0]);
+        yards[id] = { ox: x, oy: y, cw: 8, ch: 16, cols, order, gen: true, rect: given, house: h };
+      } else {
+        const order = [];
+        for (let r = 3; r >= 0; r--) for (let c = 0; c < 6; c++) order.push([c, r]);
+        yards[id] = { ox: h.x, oy: h.y - 3 * T + 2, cw: 8, ch: 11, cols: 6, order, gen: false, house: h };
+      }
     }
   }
 
-  // Owned cells fill from the house side (bottom row) upwards, left to right.
-  function cellXY(rect, i) {
-    const [x, y, w, h] = rect, cw = w / COLS, ch = h / ROWS;
-    return [x + (i % COLS) * cw, y + h - ch * (1 + Math.floor(i / COLS)), cw, ch];
+  // Cells the family may use now: on a generated map the whole fenced yard plus rows behind it for bought land.
+  function owned(yd, cells) {
+    if (!yd.gen) return yd.order.slice(0, Math.min(cells, yd.order.length));
+    const out = yd.order.slice();
+    for (let r = -1; out.length < cells && r > -4; r--) for (let c = 0; c < yd.cols && out.length < cells; c++) out.push([c, r]);
+    return out;
   }
 
-  // Greedy packing in build order; deterministic, so a building never jumps between ticks.
-  function pack(buildings, cells) {
-    const n = Math.min(cells, COLS * ROWS), used = new Set(), out = [];
-    const free = (c, r) => c < COLS && r < ROWS && r * COLS + c < n && !used.has(r * COLS + c);
+  function pack(buildings, cells, yd) {
+    const own = yd ? owned(yd, cells) : [];
+    const free = new Set(own.map(([c, r]) => key(c, r))), out = [];
     for (const b of buildings) {
       const [bw, bh] = SIZE[b.kind] || [1, 1];
       if (!bw) continue;
-      let spot = null;
-      for (let i = 0; i < n && !spot; i++) {
-        const c = i % COLS, r = Math.floor(i / COLS);
-        let ok = true;
-        for (let dr = 0; dr < bh && ok; dr++) for (let dc = 0; dc < bw && ok; dc++) ok = free(c + dc, r + dr);
-        if (ok) spot = [c, r];
-      }
+      const spot = own.find(([c, r]) => { for (let dr = 0; dr < bh; dr++) for (let dc = 0; dc < bw; dc++)
+        if (!free.has(key(c + dc, r + dr))) return false; return true; });
       if (!spot) continue;
-      for (let dr = 0; dr < bh; dr++) for (let dc = 0; dc < bw; dc++) used.add((spot[1] + dr) * COLS + spot[0] + dc);
+      for (let dr = 0; dr < bh; dr++) for (let dc = 0; dc < bw; dc++) free.delete(key(spot[0] + dc, spot[1] + dr));
       out.push({ b, c: spot[0], r: spot[1], w: bw, h: bh });
     }
     return out;
   }
 
-  function yardGround(g, rect, cells, fenced) {
+  const cellBox = (yd, c, r, w = 1, h = 1) => [yd.ox + c * yd.cw, yd.oy + r * yd.ch, w * yd.cw, h * yd.ch];
+
+  function yardGround(g, yd, cells, fenced) {
     const { R, P, C } = K;
-    const [x, y, w, h] = rect;
-    const n = Math.min(cells, COLS * ROWS);
-    for (let i = 0; i < n; i++) {
-      const [cx, cy, cw, ch] = cellXY(rect, i);
-      R(g, cx, cy, cw, ch, (i + Math.floor(i / COLS)) % 2 ? C.grassL : '#74b852');
+    const own = owned(yd, cells), lawn = yd.gen ? own.filter(([, r]) => r < 0) : own;
+    for (const [c, r] of lawn) R(g, ...cellBox(yd, c, r), (c + r) % 2 ? C.grassL : '#74b852');
+    if (lawn.length) {   // stakes at the corners of the lawn (land bought beyond a generated plot, or owned cells)
+      const xs = lawn.map(([c]) => c), ys = lawn.map(([, r]) => r);
+      const [x0, y0] = cellBox(yd, Math.min(...xs), Math.min(...ys)), [x1, y1, cw, ch] = cellBox(yd, Math.max(...xs), Math.max(...ys));
+      if (fenced && !yd.gen) {
+        for (let xx = x0; xx < x1 + cw; xx++) { P(g, xx, y0 + 1, C.woodD); P(g, xx, y0 + 3, C.woodD); if (xx % 4 === 0) R(g, xx, y0, 1, 5, C.wood); }
+        for (let yy = y0; yy < y1 + ch; yy++) for (const xx of [x0, x1 + cw - 1]) { P(g, xx, yy, C.wood); if (yy % 3 === 0) P(g, xx + (xx === x0 ? 1 : -1), yy, C.woodD); }
+      } else for (const [sx, sy] of [[x0, y0], [x1 + cw - 2, y0]]) { R(g, sx, sy, 2, 4, C.wood); P(g, sx, sy, C.woodL); }
     }
-    // Corner stakes mark the land the family owns; a fence encloses it.
-    const rowsOwned = Math.ceil(n / COLS);
-    const x1 = x + w - 1, y0 = y + h - rowsOwned * (h / ROWS);
-    if (fenced) {
-      for (let xx = x; xx <= x1; xx++) { P(g, xx, y0 + 1, C.woodD); P(g, xx, y0 + 3, C.woodD); if (xx % 4 === 0) R(g, xx, y0, 1, 5, C.wood); }
-      for (let yy = y0; yy < y + h; yy++) { P(g, x, yy, C.wood); P(g, x1, yy, C.wood); if (yy % 3 === 0) { P(g, x + 1, yy, C.woodD); P(g, x1 - 1, yy, C.woodD); } }
-    } else {
-      for (const [sx, sy] of [[x, y0], [x1 - 1, y0]]) { R(g, sx, sy, 2, 4, C.wood); P(g, sx, sy, C.woodL); }
+    if (fenced && yd.gen) {   // a hedge along the generated plot's fence
+      const [x, y, w, h] = yd.rect;
+      for (let xx = x + 2; xx < x + w - 2; xx += 3) { P(g, xx, y + 1, C.leafD); P(g, xx + 1, y + 2, C.leaf); }
+      for (let yy = y + 2; yy < y + h - 2; yy += 3) for (const xx of [x + 1, x + w - 3]) { P(g, xx, yy, C.leafD); P(g, xx + 1, yy + 1, C.leaf); }
     }
   }
 
-  // ---------- buildings (each drawn in its cell box [x, y, w, h]; a cell is 8x11 px) ----------
+  // ---------- buildings (each drawn in its cell box [x, y, w, h]; a cell is 8x11 or 8x16 px) ----------
   function bed(g, [x, y, w, h], b, day) {
     const { R, P, C } = K;
     R(g, x + 1, y + 1, w - 2, h - 2, C.soilD); R(g, x + 1, y + 1, w - 2, h - 3, C.soil);
@@ -150,11 +166,9 @@ const PlotLayer = (() => {
     for (const [home, p] of Object.entries(plots)) {
       const yd = yards[home];
       if (!yd) continue;
-      const fenced = p.buildings.some(b => b.kind === 'fence');
-      yardGround(g, yd.rect, p.cells, fenced);
-      for (const { b, c, r, w, h } of pack(p.buildings, p.cells)) {
-        const [x0, y0] = cellXY(yd.rect, r * COLS + c), cw = yd.rect[2] / COLS, ch = yd.rect[3] / ROWS;
-        const box = [x0, y0 - (h - 1) * ch, w * cw, h * ch];
+      yardGround(g, yd, p.cells, p.buildings.some(b => b.kind === 'fence'));
+      for (const { b, c, r, w, h } of pack(p.buildings, p.cells, yd)) {
+        const box = cellBox(yd, c, r, w, h);
         if (b.kind === 'garden_bed') bed(g, box, b, t.view.day);
         else if (b.kind === 'chicken_coop') coop(g, box, b, sec);
         else if (b.kind === 'cow_pen') cowPen(g, box, b, sec);

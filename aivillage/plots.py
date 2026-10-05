@@ -42,7 +42,10 @@ def setup(world: World, spec: dict, home: str) -> None:
     if not enabled(cfg):
         return
     p = _p(cfg)
-    plot = Plot(owner=spec["name"], home=home, cells=int(spec.get("plot_cells", p["start_cells"])),
+    cells = spec.get("plot_cells")
+    if cells is None:
+        cells = map_cells(cfg, spec["name"])
+    plot = Plot(owner=spec["name"], home=home, cells=int(p["start_cells"] if cells is None else cells),
                 house=max(1, min(p["house_max"], int(spec.get("house_level", 1)))))
     world.plots[home] = plot
     for kind in spec.get("buildings", []):
@@ -51,6 +54,17 @@ def setup(world: World, spec: dict, home: str) -> None:
         _add_building(world, plot, kind, built_day=world.day)
     if used_cells(cfg, plot) > plot.cells:
         raise ValueError(f"agent {spec['name']}: starting buildings need more than {plot.cells} cells")
+
+
+def map_cells(cfg: dict, name: str) -> int | None:
+    """On a generated map (mapgen.py) the fenced yard around the house sets the size: its tiles minus the
+    house's, times `cells_per_yard_tile` (mapgen's unfairness knob makes yards from none to large)."""
+    start = cfg.get("map", {}).get("start", {}).get(name, {})
+    if "plot" not in start:
+        return None
+    _, _, w, h = start["plot"]
+    yard = max(0, w * h - _p(cfg)["house_tiles"])
+    return int(yard * _p(cfg)["cells_per_yard_tile"] + 0.5)
 
 
 def _add_building(world: World, plot: Plot, kind: str, built_day: int) -> dict:

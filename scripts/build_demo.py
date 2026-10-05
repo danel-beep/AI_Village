@@ -2,7 +2,8 @@
 
     python scripts/build_demo.py runs/demo.jsonl out/demo.html [--fragment]
 
-A translation sidecar next to the log (<log>.ru.json, see aivillage/translate.py) is embedded too.
+A translation sidecar next to the log (<log>.ru.json, see aivillage/translate.py) is embedded too, and
+highlights (<log>.highlights.json; picked by rules if missing, see aivillage/highlights.py).
 --fragment drops the <html>/<head>/<body> wrapper (for hosts that add their own).
 """
 import json
@@ -17,6 +18,13 @@ embed = "<script>window.EMBEDDED_LOG = " + json.dumps(log.read_text()).replace("
 tr = log.with_name(log.name.removesuffix(".jsonl") + ".ru.json")
 if tr.exists():
     embed += "<script>window.EMBEDDED_TR = " + tr.read_text().replace("</", "<\\/") + ";</script>\n"
+hl = log.with_name(log.name.removesuffix(".jsonl") + ".highlights.json")
+if not hl.exists():  # no sidecar from a live run: pick highlights by rules (free, no model)
+    sys.path.insert(0, str(viewer.parent))
+    from aivillage import highlights
+    highlights.main([str(log), "--model", "stub"])
+if hl.exists():
+    embed += "<script>window.EMBEDDED_HIGHLIGHTS = " + hl.read_text(encoding="utf-8").replace("</", "<\\/") + ";</script>\n"
 html = re.sub(r'<script src="([\w.]+)"></script>', lambda m: "<script>\n" + (viewer / m[1]).read_text() + "</script>", html)
 html = html.replace("<script>", embed + "<script>", 1)
 if "--fragment" in sys.argv:

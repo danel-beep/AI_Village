@@ -175,3 +175,16 @@ def test_run_config_sets_unequal_start():
     w = engine.new_world(rc.world_override())
     assert (w.plots["home_Anna"].cells, w.plots["home_Anna"].house) == (16, 3)
     assert w.plots["home_Boris"].cells == 2 and w.plots["home_Boris"].buildings == []
+
+
+def test_generated_map_yards_set_plot_size():
+    names = [{"name": n, "profession": p} for n, p in
+             zip("ABCDEFGH", ["farmer", "fisher", "woodcutter", "miner", "smith"] * 2)]
+    fair = engine.new_world({"seed": 4, "agents": names, "map": {"procedural": True, "unfairness": 0}})
+    assert {p.cells for p in fair.plots.values()} == {6}
+    sizes = set()
+    for seed in range(1, 4):
+        w = engine.new_world({"seed": seed, "agents": names, "map": {"procedural": True, "unfairness": 1}})
+        sizes |= {p.cells for p in w.plots.values()}
+        check(w)
+    assert len(sizes) > 2

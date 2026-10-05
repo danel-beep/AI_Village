@@ -11,6 +11,7 @@ import json
 import os
 import random
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -78,10 +79,19 @@ def world_facts(cfg: dict) -> str:
     res = "; ".join(f"{lid}: {', '.join(l['resources'])}" for lid, l in cfg["locations"].items() if l.get("resources"))
     lines.append(f"- Gather with work at: {res}. Your profession gathers its goods {cfg['work_profession_multiplier']}x faster.")
     roads = "; ".join(f"{lid} -> {', '.join(l['neighbors'])}" for lid, l in cfg["locations"].items())
-    lines.append(f"- Map: {roads}; every home_<Name> -> square. move finds the path itself, one step per hour.")
+    links = cfg.get("map", {}).get("homes")
+    homes = ("; ".join(f"home_{n} -> {', '.join(to)}" for n, to in links.items()) if links
+             else "every home_<Name> -> square")
+    lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
-    lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days.")
+    lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days. If you cannot pay, it takes "
+                 f"all your coins and you are locked out of your house for {cfg['eviction_days']} days.")
+    lines.append(f"- Stealing from an awake person works {cfg['steal_awake_target_success']:.0%} of the time "
+                 f"(a sleeping one: always, and they do not see who); each awake bystander notices it with "
+                 f"{cfg['steal_notice_chance']:.0%} chance; at most {cfg['max_steal_qty']} per attempt.")
+    lines.append("- Debts are written on the public board, but nobody forces repayment. "
+                 "Orders on the board pay the whole reward to the first person who delivers.")
     if rep := reputation.fact(cfg):
         lines.append(rep)
     fam = cfg.get("family")
@@ -103,12 +113,15 @@ class Usage:
     cost_usd: float = 0.0
     calls: int = 0
     failures: int = 0
+    by_model: dict = field(default_factory=dict)  # model that actually answered -> calls (fallbacks show here)
 
     def add(self, other: dict) -> None:
         self.prompt_tokens += int(other.get("prompt_tokens", 0))
         self.completion_tokens += int(other.get("completion_tokens", 0))
         self.cost_usd += float(other.get("cost", 0.0) or 0.0)
         self.calls += 1
+        if other.get("model"):
+            self.by_model[other["model"]] = self.by_model.get(other["model"], 0) + 1
 
 
 class Client:
@@ -118,11 +131,67 @@ class Client:
         raise NotImplementedError
 
 
+# Parallel calls allowed per model before callers queue (Luna answers HTTP 429 above ~4).
+DEFAULT_PARALLEL = 4
+
+
+class RateGate:
+    """Queue in front of one model: at most `limit` calls in flight, and after a 429 every caller
+    waits out the same cooldown instead of hammering the provider in lockstep."""
+
+    def __init__(self, limit: int):
+        self.limit = max(1, limit)
+        self.sem = threading.BoundedSemaphore(self.limit)
+        self.lock = threading.Lock()
+        self.until = 0.0
+        self.calls = self.rate_limited = 0
+        self.waited = 0.0  # seconds callers spent queued or cooling down
+
+    def _cooldown(self) -> float:
+        with self.lock:
+            return self.until - time.monotonic()
+
+    def __enter__(self):
+        t0 = time.monotonic()
+        self.sem.acquire()
+        while (left := self._cooldown()) > 0:
+            time.sleep(left)
+        with self.lock:
+            self.calls += 1
+            self.waited += time.monotonic() - t0
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.sem.release()
+
+    def cool(self, seconds: float) -> None:
+        with self.lock:
+            self.rate_limited += 1
+            self.until = max(self.until, time.monotonic() + seconds)
+
+
+_GATES: dict[str, RateGate] = {}
+_GATES_LOCK = threading.Lock()
+
+
+def gate_for(model: str, limit: int | None = None) -> RateGate:
+    """One shared gate per model id. Limit: `limit`, else env AIVILLAGE_MAX_PARALLEL, else DEFAULT_PARALLEL."""
+    with _GATES_LOCK:
+        if model not in _GATES:
+            _GATES[model] = RateGate(limit or int(os.environ.get("AIVILLAGE_MAX_PARALLEL") or DEFAULT_PARALLEL))
+        return _GATES[model]
+
+
+def env_fallbacks() -> list[str]:
+    return [m.strip() for m in os.environ.get("AIVILLAGE_FALLBACK_MODELS", "").split(",") if m.strip()]
+
+
 class OpenRouterClient(Client):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
-    def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 5,
-                 max_tokens: int = 1500, temperature: float = 0.8, reasoning: dict | None = None):
+    def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 6,
+                 max_tokens: int = 1500, temperature: float = 0.8, reasoning: dict | None = None,
+                 fallbacks: list[str] | None = None, parallel: int | None = None):
         self.model, self.temperature = model, temperature
         self.key = api_key or os.environ.get("OPENROUTER_API_KEY")
         if not self.key:
@@ -130,24 +199,44 @@ class OpenRouterClient(Client):
         self.timeout, self.retries, self.max_tokens = timeout, retries, max_tokens
         # Hidden reasoning is billed and slow; keep it short. Models without reasoning ignore this.
         self.reasoning = reasoning if reasoning is not None else {"effort": "low", "exclude": True}
+        # Backup models: OpenRouter tries them itself when the main one is down or rate-limited
+        # (`models` routing), and after repeated 429s the client calls them directly.
+        self.fallbacks = [m for m in (env_fallbacks() if fallbacks is None else fallbacks) if m != model]
+        self.parallel = parallel
+
+    def _post(self, models: list[str], messages: list[dict]) -> tuple[str, dict]:
+        body = {"model": models[0], "messages": messages, "max_tokens": self.max_tokens,
+                "temperature": self.temperature, "usage": {"include": True},
+                "response_format": {"type": "json_object"}, "reasoning": self.reasoning}
+        if len(models) > 1:
+            body["models"] = models
+        req = urllib.request.Request(self.URL, json.dumps(body).encode(),
+                                     {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json"})
+        with gate_for(models[0], self.parallel):
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                data = json.load(r)
+        usage = dict(data.get("usage") or {})
+        usage["model"] = data.get("model") or models[0]
+        return data["choices"][0]["message"]["content"] or "", usage
 
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
-        body = json.dumps({"model": self.model, "messages": messages, "max_tokens": self.max_tokens,
-                           "temperature": self.temperature, "usage": {"include": True},
-                           "response_format": {"type": "json_object"}, "reasoning": self.reasoning}).encode()
-        req = urllib.request.Request(self.URL, body, {"Authorization": f"Bearer {self.key}",
-                                                      "Content-Type": "application/json"})
+        models = [self.model, *self.fallbacks]
         last: Exception | None = None
+        limited = 0
         for attempt in range(self.retries + 1):
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                    data = json.load(r)
-                return data["choices"][0]["message"]["content"] or "", data.get("usage", {})
+                return self._post(models, messages)
             except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
                 last = e
                 wait = 2 ** attempt
-                if isinstance(e, urllib.error.HTTPError) and e.code == 429:  # rate limit: back off harder
-                    wait = min(4 * 2 ** attempt, 40) * (0.5 + random.random())  # jitter breaks lockstep
+                if isinstance(e, urllib.error.HTTPError) and e.code == 429:  # rate limit: whole queue cools down
+                    limited += 1
+                    after = e.headers.get("Retry-After") if e.headers else None
+                    wait = float(after) if after and after.isdigit() else min(4 * 2 ** attempt, 40)
+                    gate_for(models[0], self.parallel).cool(wait)
+                    wait *= 0.5 + random.random()  # jitter breaks lockstep
+                    if limited >= 2 and len(models) > 1:  # main model is saturated: go to the backups
+                        models, limited = models[1:], 0
                 time.sleep(wait)
         raise RuntimeError(f"{self.model}: {last}")
 

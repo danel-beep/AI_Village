@@ -25,6 +25,7 @@ god events ─┐
 | File | Role |
 | --- | --- |
 | `aivillage/config.py` | all tunables, map, items, recipes, professions, agents |
+| `aivillage/population.py` | `population.size` → N villagers (configured ones first, then seeded names, professions by weight); scales resources, project needs, council orders by max(1, N/base_size). Runs at the end of `make_config`, idempotent (`resolved`) so replay does not grow twice |
 | `aivillage/state.py` | dataclasses, `to_dict/from_dict`, `hash()` |
 | `aivillage/ops.py` | `Ctx` (world + rng + `emit`), event delivery to inboxes, ledger-safe item/coin ops |
 | `aivillage/registry.py` | `ACTIONS` / `GOD` registries: args model → prompt line, JSON schema, validation |
@@ -33,13 +34,15 @@ god events ─┐
 | `aivillage/governance.py` | mayor elections, law proposals and votes, treasury, exile (via `ACTIONS.guards`), theft reports; engine hooks `end_of_hour` / `new_day` |
 | `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
 | `aivillage/reputation.py` | reputation (each agent's own tally of deeds it saw: thefts, defaults, repaid debts, fire help, trades, gifts) and rumors (`gossip` action; stored with the teller, never scored). Hooks in via `ops.EVENT_HOOKS`; adds `reputation` / `rumors` to `observe()`; config block `reputation` |
+| `aivillage/mapgen.py` | procedural village for a seed (`map.procedural`): river, landmarks, patches, hamlets, homes with plots, A* roads cut into one-hour hops by waypoints; honest-minimum `check`; `map.unfairness` 0..1 for plots, start coins/goods, resource richness. Run from `engine.new_world` when the config has no `map.layout` yet (replay never re-rolls) |
 | `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
 | `aivillage/family.py` | feelings (directed scores moved by events via `family.on_event`), hang_out/propose/answer_proposal/divorce, marriage (shared house + chests), inheritance; feelings via `ops.EVENT_HOOKS`; engine calls `after_hour` (estates) / `after_night`; `observe()["relations"]`. Unlike reputation (what I saw), feelings are the relationship that drives marriage and inheritance |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
-| `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |
+| `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient`; `RateGate` per model (max parallel calls, shared cooldown after 429, env `AIVILLAGE_MAX_PARALLEL`), fallback models (`AIVILLAGE_FALLBACK_MODELS`, `--fallback`, YAML `fallback_models`) |
 | `aivillage/run.py` | run loop (parallel decisions), JSONL log, `replay`, CLI |
 | `aivillage/runconfig.py` | YAML run config (`--config`): validated up front, resolves to a world override, per-agent brains, god script; `mechanics.disabled` → world `disabled_actions`, enforced in `registry` |
+| `aivillage/modes.py` | economy modes: named world-rule presets (`mode:` in YAML, `--mode`, launcher menu). Partial world config + disabled actions, applied under the run config's `world:`; recorded as `config.economy_mode`. The prompt is the same in every mode, only `world_facts` numbers differ. `scripts/compare_modes.py` runs all modes and compares behaviour |
 | `aivillage/translate.py` | post-processes a finished log into a `<log>.ru.json` sidecar for spectators (never touches the log) |
 | `aivillage/summary.py` | LLM recaps of log stretches for spectators (digest of thoughts/actions/says/events → 3-6 Russian sentences); sidecar `<log>.summary.json` |
 | `aivillage/reports.py` | problem reports: note + log + recaps zipped for the project chat; `show` prints the moment around the reported tick |
@@ -51,6 +54,7 @@ god events ─┐
 | `viewer/pixelmap.js` | Pixel-art map renderer: map layout (viewer-only coordinates), art drawn in code, walking, lighting |
 | `viewer/actors.js` | Villagers: activity per tick from their own events (`work` resource/slots, `plant`, `pour_water`, `craft`, `eat`, `say`...), poses with tools and particles (axe, pick, hoe, rod, bucket, hammer), idle strolls, smoothing of every position jump, speech/thought/whisper bubbles. Wall-clock loops keep villagers busy between ticks. To animate a new event kind add it to `KIND` (+ a pose in `POSES`) |
 | `viewer/camera.js` | Zoom (wheel, +/- buttons, keys `+ - 0`), drag to pan, follows the selected villager. `PixelMap.pick(x, y)` takes canvas pixels and converts through the camera |
+| `viewer/mapgen.js` | `GenMap`: turns `config.map.layout` into pixelmap's layout (landmark art shifted by `off`), paints river/plots/patches/hamlets/signposts, gives maplayer the resource spots of patches and the river |
 | `viewer/maplayer.js` | Map objects layer, drawn from `view.map` / `view.fire_info` / events: trees and stumps, beds by growth stage, bushes, fish, rocks, fire size, water splashes. Hooked into pixelmap via `MapLayer.init/claimTrees/draw/drawTop` |
 
 ## Map objects and fire in the log
