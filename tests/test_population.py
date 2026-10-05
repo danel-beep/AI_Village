@@ -43,8 +43,9 @@ def test_fewer_villagers_keeps_first_ones():
 def test_resources_scale_but_water_does_not():
     cfg = make_config({"population": {"size": 20}})
     assert resource_scale(cfg) == 4.0
-    field = cfg["locations"]["field"]["resources"]["grain"]
-    assert field == {k: v * 4 for k, v in DEFAULT_CONFIG["locations"]["field"]["resources"]["grain"].items()}
+    field, base = cfg["locations"]["field"]["resources"]["grain"], DEFAULT_CONFIG["locations"]["field"]["resources"]["grain"]
+    assert all(field[k] == 4 * base[k] for k in ("start", "max", "regen"))
+    assert field["slots"] == base["slots"]  # same number of beds/trees, each holds more
     assert cfg["locations"]["river"]["resources"]["water"] == DEFAULT_CONFIG["locations"]["river"]["resources"]["water"]
     assert cfg["projects"]["bridge"]["needs"]["wood"] == 4 * DEFAULT_CONFIG["projects"]["bridge"]["needs"]["wood"]
     assert cfg["orders_per_post"] == 4

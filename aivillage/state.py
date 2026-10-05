@@ -34,6 +34,9 @@ class Agent:
     evicted_until_day: int = 0
     last_error: str | None = None
     inbox: list[str] = field(default_factory=list)
+    # reputation.py: own tally of what this agent saw others do, and rumors it heard
+    reputation: dict[str, dict] = field(default_factory=dict)
+    rumors: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -55,6 +58,10 @@ class Location:
     resources: dict[str, int] = field(default_factory=dict)
     ground: dict[str, int] = field(default_factory=dict)
     drought_until_day: int = 0
+    # Finite map objects (see tiles.py): resource -> units left in each tree / bed / bush / rock.
+    slots: dict[str, list[int]] = field(default_factory=dict)
+    # Sown beds: slot index (str) -> {"resource", "by", "ripe_day"}.
+    planted: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -100,8 +107,9 @@ class Project:
 @dataclass
 class Fire:
     location: str
-    ticks_left: int
-    water_needed: int
+    ticks_left: int  # hours until the house burns down
+    water_needed: int  # buckets still needed; grows while nobody fights the fire
+    hours: int = 0  # how long it has been burning
 
 
 @dataclass
@@ -110,6 +118,72 @@ class Letter:
     to: str
     text: str
     deliver_tick: int
+
+
+@dataclass
+class LawProposal:
+    id: str
+    law: str  # tax | theft_fine | mayor_salary | exile | payout | grant
+    proposer: str
+    closes_tick: int
+    value: int | None = None
+    person: str | None = None
+    yes: list[str] = field(default_factory=list)
+    no: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Governance:
+    """Mayor, treasury and laws (aivillage/governance.py). `coins` is the treasury."""
+    mayor: str | None = None
+    coins: int = 0
+    laws: dict[str, int] = field(default_factory=dict)  # law -> value in force (overrides config)
+    candidates: dict[str, str] = field(default_factory=dict)  # name -> campaign pitch
+    votes: dict[str, str] = field(default_factory=dict)  # voter -> candidate (secret ballot)
+    proposals: dict[str, LawProposal] = field(default_factory=dict)  # open law proposals
+    # Witnessed thefts that can still be reported: {"thief", "victim", "day", "known_by": [...]}
+    crimes: list[dict] = field(default_factory=list)
+    exiled: dict[str, int] = field(default_factory=dict)  # name -> exiled until this day
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Governance":
+        d = dict(d)
+        d["proposals"] = {k: LawProposal(**v) for k, v in d.get("proposals", {}).items()}
+        return cls(**d)
+
+
+@dataclass
+class Marriage:
+    id: str
+    spouses: list[str]
+    home: str  # the shared house (the proposer's)
+    since_day: int
+
+
+@dataclass
+class Proposal:
+    id: str
+    sender: str
+    to: str
+    expires_day: int
+
+
+@dataclass
+class Kin:
+    """Relationships (aivillage/family.py): feelings, marriages, proposals."""
+    # feelings[a][b]: what a feels about b, in [-feeling_max, feeling_max]; zeros are dropped
+    feelings: dict[str, dict[str, int]] = field(default_factory=dict)
+    marriages: dict[str, Marriage] = field(default_factory=dict)
+    proposals: dict[str, Proposal] = field(default_factory=dict)
+    hung_out: dict[str, int] = field(default_factory=dict)  # "A|B" (sorted) -> last day
+    settled: list[str] = field(default_factory=list)  # agents whose estate was passed on
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Kin":
+        return cls(feelings=d.get("feelings", {}),
+                   marriages={k: Marriage(**v) for k, v in d.get("marriages", {}).items()},
+                   proposals={k: Proposal(**v) for k, v in d.get("proposals", {}).items()},
+                   hung_out=d.get("hung_out", {}), settled=d.get("settled", []))
 
 
 @dataclass
@@ -127,6 +201,8 @@ class World:
     projects: dict[str, Project] = field(default_factory=dict)
     fires: dict[str, Fire] = field(default_factory=dict)
     mail: list[Letter] = field(default_factory=list)
+    kin: Kin = field(default_factory=Kin)
+    governance: Governance = field(default_factory=Governance)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -157,6 +233,8 @@ class World:
             projects={k: Project(**v) for k, v in d["projects"].items()},
             fires={k: Fire(**v) for k, v in d["fires"].items()},
             mail=[Letter(**v) for v in d["mail"]],
+            kin=Kin.from_dict(d.get("kin", {})),
+            governance=Governance.from_dict(d.get("governance", {})),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

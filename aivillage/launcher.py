@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MODEL = os.environ.get("AIVILLAGE_MODEL", "openai/gpt-6-luna")  # same as llm.DEFAULT_MODEL
 LLM_AGENTS = 5  # default answer to "how many villagers"
 MAX_VILLAGERS = 60  # population.MAX_SIZE
-LLM_DAYS = 10
+LLM_DAYS = 3  # test runs: short and cheap
 BOT_DAYS = 30
 
 
@@ -88,7 +88,8 @@ def live(home: Path, extra: list[str]) -> int:
     print("Остановить: закрыть окно или нажать Ctrl+C.\n")
     open_later(url)
     try:
-        return server.main(["--port", str(port), "--log", str(log), *extra])
+        return server.main(["--port", str(port), "--log", str(log), "--reports", str(home / "reports"),
+                            "--reveal-reports", *extra])
     except KeyboardInterrupt:
         return 0
 
@@ -124,12 +125,31 @@ def ask_villagers(llm: bool) -> int:
         print(f"Нужно число от 2 до {MAX_VILLAGERS}.")
 
 
+def report_last(home: Path) -> int:
+    """Same zip as the viewer's button, for when the browser is closed or a past run is open."""
+    from . import reports
+    runs = sorted((home / "runs").glob("*.jsonl"), reverse=True)
+    if not runs:
+        print("\nПрошлых прогонов пока нет.")
+        return 0
+    print(f"\nОтчёт о последнем прогоне ({runs[0].stem}).")
+    note = input("Что было не так? Опишите одной строкой и нажмите Enter: ").strip()
+    if not note:
+        return 0
+    path = reports.make_report(home / "reports", runs[0], note)
+    reports.reveal(path)
+    print(f"Готово: {path}")
+    print("Папка с файлом открылась. Перетащите этот файл в чат проекта с Claude.")
+    return 0
+
+
 def menu(home: Path) -> int:
     print("\n=== AI Village ===")
     print(f"  1 — Деревня с ИИ-жителями (модель {MODEL}, стоит центы)")
     print("  2 — Деревня с ботами (бесплатно, без ключа)")
     print("  3 — Посмотреть прошлый прогон")
     print("  4 — Сменить ключ OpenRouter")
+    print("  5 — Сообщить о проблеме в последнем прогоне")
     choice = input("Введите цифру и нажмите Enter [1]: ").strip() or "1"
     if choice == "1":
         key = load_key(home) or ask_key(home)
@@ -139,12 +159,17 @@ def menu(home: Path) -> int:
         n = ask_villagers(llm=True)
         return live(home, ["--models", MODEL, "--agents", str(n), "--days", str(LLM_DAYS)])
     if choice == "2":
+        key = load_key(home)  # bots need no key, but with one the recap panel works too
+        if key:
+            os.environ["OPENROUTER_API_KEY"] = key
         return live(home, ["--agents", str(ask_villagers(llm=False)), "--days", str(BOT_DAYS)])
     if choice == "3":
         return watch_old(home)
     if choice == "4":
         ask_key(home)
         return menu(home)
+    if choice == "5":
+        return report_last(home)
     print("Не понял выбор.")
     return menu(home)
 
