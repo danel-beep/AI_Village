@@ -9,7 +9,7 @@ god events ─┐
        ▲                 │
        │ decisions       │ observe(world, name)
        │                 ▼
-  bots.py / llm.py (LLMAgent → Client: OpenRouter | Stub)
+  bots.py / llm.py (LLMAgent → Client: OpenAI direct → OpenRouter fallback | OpenRouter | Stub)
 ```
 
 ## Boundaries (keep them)
@@ -40,7 +40,8 @@ god events ─┐
 | `aivillage/plots.py` | private yards (`world.plots[home]`): build / collect / expand_plot / upgrade_house / steal_from_plot, garden beds via `plant` at home, animals fed from the owner's chest in `after_night`, fire hook, `observe` (`plot`, `here_plot`, `village_plots`), prompt `facts`, log `view`; config block `plots`, start from `config.agents[i]` (`plot_cells`, `house_level`, `buildings`) |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
-| `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient`; `RateGate` per model (max parallel calls, shared cooldown after 429, env `AIVILLAGE_MAX_PARALLEL`), fallback models (`AIVILLAGE_FALLBACK_MODELS`, `--fallback`, YAML `fallback_models`) |
+| `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient`; `RateGate` per model (max parallel calls, shared cooldown after 429, env `AIVILLAGE_MAX_PARALLEL`), fallback models (`AIVILLAGE_FALLBACK_MODELS`, `--fallback`, YAML `fallback_models`); `OpenAIClient` + `FallbackClient`; build clients only with `make_client(model)` (provider from keys.py) |
+| `aivillage/keys.py` | keys, provider, model, parallel limit in `<home>/settings.json` on the player's computer (file wins over env); `public()` = masked view for the viewer |
 | `aivillage/run.py` | run loop (parallel decisions), JSONL log, `replay`, CLI |
 | `aivillage/runconfig.py` | YAML run config (`--config`): validated up front, resolves to a world override, per-agent brains, god script; `mechanics.disabled` → world `disabled_actions`, enforced in `registry` |
 | `aivillage/modes.py` | economy modes: named world-rule presets (`mode:` in YAML, `--mode`, launcher menu). Partial world config + disabled actions, applied under the run config's `world:`; recorded as `config.economy_mode`. The prompt is the same in every mode, only `world_facts` numbers differ. `scripts/compare_modes.py` runs all modes and compares behaviour |

@@ -124,8 +124,8 @@ class StubSummaryClient(StubClient):
 def make_client(model: str) -> Client:
     if model == "stub":
         return StubSummaryClient()
-    from .llm import OpenRouterClient
-    return OpenRouterClient(DEFAULT_MODEL if model == "default" else model, max_tokens=600, temperature=0.5)
+    from .llm import make_client
+    return make_client(model, max_tokens=600, temperature=0.5)
 
 
 def by_day(ticks: list[dict], cfg: dict | None = None) -> list[list[dict]]:

@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Iterable
 
-from .llm import Client, OpenRouterClient, Usage
+from .llm import Client, Usage, make_client
 
 DEFAULT_MODEL = "openai/gpt-6-luna"
 LANG_NAMES = {"ru": "Russian"}
@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cache", default="runs/.cache/translate.{lang}.json")
     p.add_argument("--stub", action="store_true", help="no network, fake translations")
     a = p.parse_args(argv)
-    client = StubTranslateClient(a.lang) if a.stub else OpenRouterClient(a.model, temperature=0.2, max_tokens=4000)
+    client = StubTranslateClient(a.lang) if a.stub else make_client(a.model, temperature=0.2, max_tokens=4000)
     tr = Translator(client, a.lang, None if a.stub else a.cache.format(lang=a.lang))
     out = translate_log(a.log, tr, a.out)
     print(f"{out}: {len(json.loads(out.read_text())['texts'])} texts, model {client.model}, "
