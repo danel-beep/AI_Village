@@ -182,6 +182,14 @@ def create_app(sim: LiveSim) -> FastAPI:
     def god_js() -> FileResponse:
         return FileResponse(VIEWER / "god.js", media_type="text/javascript")
 
+    @app.get("/{name}.js")
+    def viewer_js(name: str) -> FileResponse:
+        # Any other viewer script (dossier.js, ...) that index.html loads by relative path.
+        path = VIEWER / f"{name}.js"
+        if not name.replace("_", "").isalnum() or not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="text/javascript")
+
     @app.get("/api/meta")
     def meta() -> dict:
         return sim.meta()
