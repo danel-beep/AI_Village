@@ -187,6 +187,18 @@ class Kin:
 
 
 @dataclass
+class Plot:
+    """A house's private yard (aivillage/plots.py). Buildings: {"id", "kind", "built_day", "items",
+    and for garden beds "crop" / "ripe_day"}; `items` is what lies ready to collect (or steal)."""
+    owner: str
+    home: str
+    cells: int
+    house: int = 1
+    expansions: int = 0
+    buildings: list[dict] = field(default_factory=list)
+
+
+@dataclass
 class World:
     config: dict[str, Any]
     tick: int = 0
@@ -203,6 +215,7 @@ class World:
     mail: list[Letter] = field(default_factory=list)
     kin: Kin = field(default_factory=Kin)
     governance: Governance = field(default_factory=Governance)
+    plots: dict[str, Plot] = field(default_factory=dict)  # home location id -> plot
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -235,6 +248,7 @@ class World:
             mail=[Letter(**v) for v in d["mail"]],
             kin=Kin.from_dict(d.get("kin", {})),
             governance=Governance.from_dict(d.get("governance", {})),
+            plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

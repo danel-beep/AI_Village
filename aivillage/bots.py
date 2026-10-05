@@ -3,10 +3,13 @@ and answer with the same decision format, so they exercise the real interface fo
 
 - RandomBot: fuzzer. Random actions with random (often invalid) arguments.
 - WorkerBot: honest villager. Eats, works, crafts, sells, fights fires, fulfills orders.
-- ThiefBot: a WorkerBot that steals whenever it sees a chance.
+- ThiefBot: a WorkerBot that steals whenever it sees a chance (people, chests, yards).
+- HomesteadBot: a TraderBot that builds up its own plot in the evening (plots.py).
 """
 
 from __future__ import annotations
+
+from collections import Counter
 
 import random
 
@@ -71,6 +74,10 @@ class RandomBot(Bot):
         elif name == "answer_proposal":
             props = [p["from"] for p in obs["relations"]["proposals_to_you"]] or people
             args = {"person": r.choice(props), "accept": r.random() < 0.7}
+        elif name == "build":
+            args = {"kind": r.choice(["garden_bed", "chicken_coop", "cow_pen", "beehive", "fence", "castle"])}
+        elif name == "steal_from_plot":
+            args = {"item": r.choice(["egg", "milk", "honey", "grain", "coins"]), "qty": r.randint(1, 5)}
         elif name == "steal":
             args = {"target": r.choice(people + ["chest"]), "item": r.choice(items + ["coins"]), "qty": 2}
         elif name == "contribute":
@@ -186,6 +193,10 @@ class WorkerBot(Bot):
 class ThiefBot(WorkerBot):
     def decide(self, obs: dict) -> dict:
         me, here = obs["you"], obs["here"]
+        yard = obs.get("here_plot")
+        if yard and yard["ready"] and self.rng.random() < 0.7:
+            item = max(yard["ready"], key=lambda k: yard["ready"][k])
+            return decision("steal_from_plot", {"item": item, "qty": 4}, f"{yard['owner']}'s yard is full")
         for c in here["chests"]:
             if c["owner"] != me["name"] and not c["locked"] and self.rng.random() < 0.7:
                 return decision("steal", {"target": "chest", "item": self.rng.choice(FOODS + ["coins"]), "qty": 3},
@@ -313,4 +324,54 @@ class LonerBot(TraderBot):
     TRADES = False
 
 
-BOT_TYPES = {"random": RandomBot, "worker": WorkerBot, "thief": ThiefBot, "trader": TraderBot, "loner": LonerBot}
+class HomesteadBot(TraderBot):
+    """A TraderBot that builds up its own plot in the evening: collects, sows, feeds animals,
+    builds (coop and beds for farmers, hives otherwise), buys land when the yard is full."""
+
+    PLOT_FOODS = ["egg", "milk", "honey"]
+    wood_trip = False
+    COSTS = {"chicken_coop": (15, 4, 2), "garden_bed": (0, 1, 1), "beehive": (10, 2, 1), "fence": (0, 6, 0)}
+
+    def decide(self, obs: dict) -> dict:
+        me, t, plot = obs["you"], obs["time"], obs.get("plot")
+        inv = me["inventory"]
+        if me["satiety"] < 45:
+            food = next((f for f in self.PLOT_FOODS if inv.get(f)), None)
+            if food:
+                return decision("eat", {"item": food}, "eat from my yard")
+        if plot and self.wood_trip and not obs["fires"] and me["satiety"] >= 45:
+            if me["location"] == "forest":
+                self.wood_trip = False
+                return decision("work", {"resource": "wood", "hours": 2}, "wood for my yard")
+            return decision("move", {"to": "forest"}, "fetch wood for my yard")
+        chores = t["hour"] < 9 or t["hour"] >= t["day_ends_at"] - 3
+        if not plot or me["location"] != plot["home"] or obs["fires"] or not chores:
+            return super().decide(obs)
+        acts = set(obs["available_actions"])
+        reserve = t["tax"] + 5
+        if "collect" in acts:
+            return decision("collect", None, "collect the yard")
+        if "plant" in acts and inv.get("grain", 0) >= 1:
+            return decision("plant", None, "sow my garden bed")
+        animals = sum(1 for b in plot["buildings"] if b["kind"] in ("chicken_coop", "cow_pen"))
+        chest = me["your_chest"]["items"].get("grain", 0)
+        if animals and chest < 2 * animals and inv.get("grain", 0) > 1:
+            return decision("store", {"items": {"grain": min(inv["grain"] - 1, 2 * animals - chest)}}, "feed")
+        have = Counter(b["kind"] for b in plot["buildings"])
+        plan = ([("chicken_coop", 1), ("garden_bed", 3)] if me["profession"] == "farmer"
+                else [("beehive", 2), ("garden_bed", 1)]) + [("fence", 1)]
+        for kind, limit in plan:
+            coins, wood, cells = self.COSTS[kind]
+            if have[kind] >= limit or me["coins"] - coins < reserve or plot["free_cells"] < cells:
+                continue
+            if inv.get("wood", 0) >= wood:
+                return decision("build", {"kind": kind}, f"build a {kind}")
+            self.wood_trip = True
+            break
+        if plot["free_cells"] == 0 and plot["expand_price"] and me["coins"] - plot["expand_price"] >= 3 * reserve:
+            return decision("expand_plot", None, "more land")
+        return super().decide(obs)
+
+
+BOT_TYPES = {"random": RandomBot, "worker": WorkerBot, "thief": ThiefBot, "trader": TraderBot, "loner": LonerBot,
+             "homestead": HomesteadBot}

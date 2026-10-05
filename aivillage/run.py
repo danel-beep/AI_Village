@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine, tiles
+from . import engine, plots, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -104,6 +104,7 @@ def view(world: World) -> dict:
             # reputation.py: each villager's own tally of others and the rumors they heard (non-empty only)
             "social": {a.name: {"reputation": a.reputation, "rumors": a.rumors}
                        for a in world.agents.values() if a.reputation or a.rumors},
+            "plots": plots.view(world),
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}

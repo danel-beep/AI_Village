@@ -68,6 +68,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fish_soup": {"value": 7, "food": 45},
         "tool": {"value": 20},
         "lock": {"value": 15},
+        # made on private plots (aivillage/plots.py)
+        "egg": {"value": 2, "food": 10},
+        "milk": {"value": 4, "food": 20},
+        "honey": {"value": 6, "food": 25},
     },
     # Recipes: where they can be made and by whom (None = anyone).
     "recipes": {
@@ -187,6 +191,36 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "lend": 1,
             "trade": 1,           # completed a trade with you
             "contribute": 1,      # gave to a village project (public)
+        },
+    },
+    # Private plots (aivillage/plots.py): each house has a yard of `cells` where its family builds.
+    # An agent spec may set its own start: "plot_cells", "house_level", "buildings" (a list of kinds, free).
+    # Building costs: "coins" (to the treasury) + "items" (from the inventory). Animals eat "feed" of
+    # "feed_item" from the owner's chest each night, else make nothing; stock stops at "cap".
+    "plots": {
+        "enabled": True,
+        "start_cells": 6,
+        "max_cells": 24,          # expand_plot stops here (house upgrades still add cells)
+        "expand_cells": 2,
+        "expand_price": 25,       # first purchase; each next one costs expand_price_step more
+        "expand_price_step": 15,
+        "house_max": 3,
+        "house_upgrade": {"2": {"coins": 60, "items": {"wood": 8, "stone": 6}},
+                          "3": {"coins": 150, "items": {"wood": 12, "stone": 12}}},
+        "house_bonus_cells": 2,   # per upgrade
+        "house_bonus_health": 5,  # extra night health at home per level above 1
+        "steal_max": 4,           # units per steal_from_plot
+        "fence_success": 0.5,     # a fence multiplies a thief's chance by this
+        "buildings": {
+            "garden_bed": {"cells": 1, "coins": 0, "items": {"wood": 1},
+                           "crop": "grain", "seed": 1, "yield": 6, "days": 2},
+            "chicken_coop": {"cells": 2, "coins": 15, "items": {"wood": 4},
+                             "makes": "egg", "per_day": 3, "cap": 9, "feed": 1, "feed_item": "grain"},
+            "cow_pen": {"cells": 4, "coins": 40, "items": {"wood": 6, "stone": 2},
+                        "makes": "milk", "per_day": 3, "cap": 9, "feed": 2, "feed_item": "grain"},
+            "beehive": {"cells": 1, "coins": 10, "items": {"wood": 2},
+                        "makes": "honey", "per_day": 1, "every_days": 2, "cap": 4, "idle_seasons": ["winter"]},
+            "fence": {"cells": 0, "coins": 0, "items": {"wood": 6}, "max": 1},
         },
     },
     "agents": [

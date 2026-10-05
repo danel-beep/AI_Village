@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .plots import holdings as plot_holdings, used_cells
 from .state import World
 
 
@@ -22,6 +23,7 @@ def holdings(world: World) -> Counter:
     for loc in world.locations.values():
         total.update(loc.ground)
     total["coins"] += world.governance.coins
+    total.update(plot_holdings(world))
     return total
 
 
@@ -43,6 +45,11 @@ def check(world: World) -> None:
             if k not in cfg["items"]:
                 errors.append(f"{where}: unknown item {k}")
 
+    for h, p in world.plots.items():
+        for b in p.buildings:
+            bag(f"plot {h} {b['id']}", b["items"])
+        if used_cells(cfg, p) > p.cells or h not in world.locations:
+            errors.append(f"plot {h}: {used_cells(cfg, p)} cells used of {p.cells}")
     for a in world.agents.values():
         bag(f"agent {a.name}", a.inventory)
         if a.coins < 0:

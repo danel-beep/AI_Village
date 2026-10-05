@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import family, governance, ops, reputation, seasons, tiles
+from . import family, governance, ops, plots, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -42,6 +42,7 @@ def new_world(config: dict | None = None) -> World:
         w.agents[name] = a
         ops.mint_coins(w, a, cfg["start_coins"])
         w.chests[f"chest_{name}"] = Chest(f"chest_{name}", name, home)
+        plots.setup(w, spec, home)
     for pid, spec in cfg["projects"].items():
         w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]))
     return w
@@ -118,6 +119,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "available_actions": ACTIONS.available(ctx, a) if ops.can_act(a) else [],
     }
     obs.update(reputation.observe(world, name))
+    obs.update(plots.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -347,7 +349,7 @@ def night(ctx: Ctx) -> None:
             a.health = max(0, a.health - cfg["starving_health_loss_night"])
         elif (a.location == a.home and w.day >= a.evicted_until_day
               and a.satiety >= cfg["health_regen_min_satiety"]):
-            a.health = min(cfg["health_max"], a.health + cfg["health_regen_night_at_home"])
+            a.health = min(cfg["health_max"], a.health + cfg["health_regen_night_at_home"] + plots.health_bonus(w, a))
     check_health(ctx)
 
     w.day += 1
@@ -406,5 +408,6 @@ def night(ctx: Ctx) -> None:
         w.orders[o.id] = o
         ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
                  f"until day {o.expires_day}.", visibility="public")
+    plots.after_night(ctx)
     family.after_night(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")
