@@ -63,8 +63,11 @@ class RandomBot(Bot):
             args = {"offer_id": r.choice(offers)}
         elif name in ("store", "take"):
             args = {"items": {pick_item(): 1}, "coins": r.randint(0, 2)}
-        elif name in ("share_chest", "unshare_chest"):
+        elif name in ("share_chest", "unshare_chest", "hang_out", "propose"):
             args = {"person": r.choice(people)}
+        elif name == "answer_proposal":
+            props = [p["from"] for p in obs["relations"]["proposals_to_you"]] or people
+            args = {"person": r.choice(props), "accept": r.random() < 0.7}
         elif name == "steal":
             args = {"target": r.choice(people + ["chest"]), "item": r.choice(items + ["coins"]), "qty": 2}
         elif name == "contribute":

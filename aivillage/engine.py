@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import ops, seasons
+from . import family, ops, seasons
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -110,6 +110,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
                           for o in world.agents.values()],
         },
+        "relations": family.observe(world, name),
         "last_error": a.last_error,
         "available_actions": ACTIONS.available(ctx, a) if ops.can_act(a) else [],
     }
@@ -214,6 +215,8 @@ WAKE_RULES: dict[str, str] = {
     "give": "direct", "lend": "direct", "gift": "direct",
     "steal_attempt": "direct", "witness": "direct", "robbed": "direct", "take_shared": "direct",
     "fire": "heard",
+    "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
+    "inheritance": "direct",
     "say": "mention",
 }
 
@@ -261,6 +264,7 @@ def end_of_hour(ctx: Ctx) -> None:
         if o.expires_tick <= w.tick:
             del w.offers[o.id]
     check_health(ctx)
+    family.after_hour(ctx)
 
 
 def burn_house(ctx: Ctx, home: str) -> None:
@@ -344,7 +348,7 @@ def night(ctx: Ctx) -> None:
         if d.status == "open" and w.day > d.due_day:
             d.status = "defaulted"
             ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({d.coins_owed} coins, "
-                     f"{d.id}).", visibility="public")
+                     f"{d.id}).", actor=d.borrower, visibility="public", lender=d.lender, debt=d.id)
     # Orders
     for o in w.orders.values():
         if o.status == "open" and w.day > o.expires_day:
@@ -355,4 +359,5 @@ def night(ctx: Ctx) -> None:
         w.orders[o.id] = o
         ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
                  f"until day {o.expires_day}.", visibility="public")
+    family.after_night(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")

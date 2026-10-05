@@ -122,6 +122,29 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
         },
     },
+    # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
+    # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.
+    "family": {
+        "feeling_max": 100,
+        "friend_at": 30,      # label "friend" at or above, "enemy" at or below -friend_at
+        "decay_per_night": 1,  # every feeling drifts 1 point toward 0 each night
+        "hang_out_gain": 4,    # both sides, once per pair per day
+        "propose_min": 25,     # proposer's and accepter's own feeling needed
+        "proposal_ttl_days": 2,
+        "wedding_cost": 0,     # coins the proposer pays (burned) when the proposal is accepted
+        "wedding_boost": 20,   # both feelings raised to at least propose_min + this
+        "spouse_night_gain": 1,
+        "divorce_hurt": 40,    # the left spouse's feeling drops by this
+        "estate_statuses": ["dead", "exiled", "banished"],  # property passes on in these states
+        # event kind -> [who, delta]: "to" = addressees about the actor, "both" = both ways,
+        # "lender"/"victim"/"owner" = that person about the actor
+        "on_event": {
+            "give": ["to", 5], "lend": ["to", 4], "repay": ["lender", 4], "trade": ["both", 2],
+            "whisper": ["both", 1], "letter": ["to", 1], "decline": ["to", -1],
+            "steal_attempt": ["to", -20], "witness": ["to", -10], "default": ["lender", -15],
+            "fire_out": ["owner", 10], "extinguish": ["owner", 4],
+        },
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

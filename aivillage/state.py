@@ -113,6 +113,40 @@ class Letter:
 
 
 @dataclass
+class Marriage:
+    id: str
+    spouses: list[str]
+    home: str  # the shared house (the proposer's)
+    since_day: int
+
+
+@dataclass
+class Proposal:
+    id: str
+    sender: str
+    to: str
+    expires_day: int
+
+
+@dataclass
+class Kin:
+    """Relationships (aivillage/family.py): feelings, marriages, proposals."""
+    # feelings[a][b]: what a feels about b, in [-feeling_max, feeling_max]; zeros are dropped
+    feelings: dict[str, dict[str, int]] = field(default_factory=dict)
+    marriages: dict[str, Marriage] = field(default_factory=dict)
+    proposals: dict[str, Proposal] = field(default_factory=dict)
+    hung_out: dict[str, int] = field(default_factory=dict)  # "A|B" (sorted) -> last day
+    settled: list[str] = field(default_factory=list)  # agents whose estate was passed on
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Kin":
+        return cls(feelings=d.get("feelings", {}),
+                   marriages={k: Marriage(**v) for k, v in d.get("marriages", {}).items()},
+                   proposals={k: Proposal(**v) for k, v in d.get("proposals", {}).items()},
+                   hung_out=d.get("hung_out", {}), settled=d.get("settled", []))
+
+
+@dataclass
 class World:
     config: dict[str, Any]
     tick: int = 0
@@ -127,6 +161,7 @@ class World:
     projects: dict[str, Project] = field(default_factory=dict)
     fires: dict[str, Fire] = field(default_factory=dict)
     mail: list[Letter] = field(default_factory=list)
+    kin: Kin = field(default_factory=Kin)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -157,6 +192,7 @@ class World:
             projects={k: Project(**v) for k, v in d["projects"].items()},
             fires={k: Fire(**v) for k, v in d["fires"].items()},
             mail=[Letter(**v) for v in d["mail"]],
+            kin=Kin.from_dict(d.get("kin", {})),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

@@ -31,6 +31,7 @@ god events ─┐
 | `aivillage/actions.py` | agent actions |
 | `aivillage/god.py` | experimenter interventions |
 | `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
+| `aivillage/family.py` | feelings (directed scores moved by events via `family.on_event`), hang_out/propose/answer_proposal/divorce, marriage (shared house + chests), inheritance; engine calls `after_hour` / `after_night`, `observe()["relations"]` |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |
