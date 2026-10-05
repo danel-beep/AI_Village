@@ -58,3 +58,13 @@ def test_model_picks_by_id_and_bad_reply_falls_back(tmp_path):
 
 def test_quiet_day_has_no_highlights():
     assert highlights.Highlighter(None).pick([{"tick": 0, "events": [], "decisions": {}}]) is None
+
+
+def test_second_person_events_name_who_and_stay_apart():
+    ev = lambda to: {"kind": "starving", "text": "You are starving and losing health! Eat something.",
+                     "actor": None, "visibility": "private", "to": [to]}
+    ticks = [{"tick": 3, "decisions": {}, "events": [ev("Boris"), ev("Clara")]},
+             {"tick": 4, "decisions": {}, "events": [ev("Boris")]}]
+    c = highlights.candidates(ticks)
+    assert [(x["event"].split(":")[0], x["times"], x["who"]) for x in c] == [("Boris", 2, ["Boris"]),
+                                                                             ("Clara", 1, ["Clara"])]
