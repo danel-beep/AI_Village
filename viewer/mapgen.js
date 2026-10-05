@@ -51,7 +51,9 @@ const GenMap = (() => {
       if (ty > 0 && !wet(tx, ty - 1)) d = Math.min(d, y); if (ty < lay.rows - 1 && !wet(tx, ty + 1)) d = Math.min(d, T - 1 - y);
       return d;
     };
-    return { gen: lay, cols: lay.cols, W: lay.cols * T, H: lay.rows * T, kind, anchors, box, routes, houses, off, labels, bank, rows: 0 };
+    const plots = {};  // yard of every house in pixels, for viewer/plotlayer.js
+    houses.forEach(h => { plots['home_' + h.name] = h.plot; });
+    return { gen: lay, plots, cols: lay.cols, W: lay.cols * T, H: lay.rows * T, kind, anchors, box, routes, houses, off, labels, bank, rows: 0 };
   }
 
   // Pixel spots of resource objects (MapLayer format) for places pixelmap has no hand-made art for.
