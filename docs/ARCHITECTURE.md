@@ -31,6 +31,7 @@ god events ─┐
 | `aivillage/actions.py` | agent actions |
 | `aivillage/god.py` | experimenter interventions |
 | `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
+| `aivillage/reputation.py` | reputation (each agent's own tally of deeds it saw: thefts, defaults, repaid debts, fire help, trades, gifts) and rumors (`gossip` action; stored with the teller, never scored). Hooks in via `ops.EVENT_HOOKS`; adds `reputation` / `rumors` to `observe()`; config block `reputation` |
 | `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
@@ -84,8 +85,9 @@ as `fire_night_hours`. `extinguish` pours all the water the agent carries (up to
 1. Numbers → `config.py`.
 2. State, if needed → a field in `state.py` (and `from_dict`).
 3. Action → `@ACTIONS.action("name", "one-line description for the model", ArgsModel, available=...)` in `actions.py`. Validate everything first, raise `ActionError` with a message the agent can act on, then mutate. Use `ops` for items/coins and `ctx.emit` for what others see (`visibility`: public / location / private).
-4. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
-5. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
-6. `python -m pytest -q` must stay green.
+4. Reacting to events (social modules) → append `hook(ctx, event, recipients)` to `ops.EVENT_HOOKS`; it runs after every `emit`, recipients are who actually saw it. Extra observation fields → `obs.update(module.observe(world, name))` in `engine.observe`. Per-agent state → a defaulted field on `Agent` (old logs still load).
+5. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
+6. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
+7. `python -m pytest -q` must stay green.
 
 A god event is the same, with `@GOD.action` in `god.py`.

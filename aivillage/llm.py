@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .bots import WorkerBot
+from . import reputation
 from .registry import ACTIONS
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
@@ -80,6 +81,8 @@ def world_facts(cfg: dict) -> str:
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
     lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days.")
+    if rep := reputation.fact(cfg):
+        lines.append(rep)
     return "\n".join(lines)
 
 
