@@ -66,6 +66,12 @@ def check(world: World) -> None:
         for r, v in loc.resources.items():
             if v < 0:
                 errors.append(f"location {loc.id}: {r}={v}")
+        for r, row in loc.slots.items():
+            if min(row, default=0) < 0 or sum(row) != loc.resources.get(r):
+                errors.append(f"location {loc.id}: {r} objects {row} do not sum to {loc.resources.get(r)}")
+        for k, p in loc.planted.items():
+            if loc.slots.get(p["resource"], [])[int(k)] != 0:
+                errors.append(f"location {loc.id}: sown bed {k} is not empty")
         for n in loc.neighbors:
             if n not in world.locations or loc.id not in world.locations[n].neighbors:
                 errors.append(f"road {loc.id}->{n} is not two-way")

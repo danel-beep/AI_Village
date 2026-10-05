@@ -26,7 +26,7 @@ from . import ops
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
-from .state import Agent, Proposal, World
+from .state import Agent, LawProposal, World
 
 NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary")
 LAWS = NUMBER_LAWS + ("exile", "payout", "grant")
@@ -90,7 +90,7 @@ def tick_time(cfg: dict, tick: int) -> str:
     return f"day {1 + tick // per_day} {cfg['day_start_hour'] + tick % per_day:02d}:00"
 
 
-def describe_law(p: Proposal) -> str:
+def describe_law(p: LawProposal) -> str:
     if p.law in NUMBER_LAWS:
         unit = {"tax": "coins per villager every tax day", "theft_fine": "coins per reported theft",
                 "mayor_salary": "coins per day for the mayor"}[p.law]
@@ -218,7 +218,7 @@ def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
         if target.status == "dead":
             raise ActionError(f"{target.name} is dead")
         person = target.name
-    p = Proposal(w.new_id("law"), args.law, a.name, w.tick + gc["law_vote_hours"], value, person, yes=[a.name])
+    p = LawProposal(w.new_id("law"), args.law, a.name, w.tick + gc["law_vote_hours"], value, person, yes=[a.name])
     g.proposals[p.id] = p
     ctx.emit("law_proposed", f"Mayor {a.name} proposes a law ({p.id}): {describe_law(p)}. Vote with vote_law "
              f"until {tick_time(ctx.cfg, p.closes_tick)}.", actor=a.name, visibility="public", law=p.id)
@@ -292,7 +292,7 @@ def _record_crimes(ctx: Ctx) -> None:
         crime["known_by"] += [n for n in seen if n not in crime["known_by"] and n != thief]
 
 
-def _maybe_resolve(ctx: Ctx, p: Proposal, closing: bool = False) -> None:
+def _maybe_resolve(ctx: Ctx, p: LawProposal, closing: bool = False) -> None:
     w = ctx.world
     g = w.governance
     eligible = set(voters(w))
@@ -310,7 +310,7 @@ def _maybe_resolve(ctx: Ctx, p: Proposal, closing: bool = False) -> None:
              law=p.id, law_kind=p.law, value=p.value, person=p.person)
 
 
-def _apply_law(ctx: Ctx, p: Proposal) -> str:
+def _apply_law(ctx: Ctx, p: LawProposal) -> str:
     w = ctx.world
     g = w.governance
     if p.law in NUMBER_LAWS:

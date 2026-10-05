@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine
+from . import engine, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -100,8 +100,16 @@ def view(world: World) -> dict:
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
                                 "profession": a.profession, "inventory": a.inventory}
                        for a in world.agents.values()},
+            "kin": {"feelings": world.kin.feelings, "couples": [m.spouses for m in world.kin.marriages.values()]},
+            # reputation.py: each villager's own tally of others and the rumors they heard (non-empty only)
+            "social": {a.name: {"reputation": a.reputation, "rumors": a.rumors}
+                       for a in world.agents.values() if a.reputation or a.rumors},
+            "mayor": world.governance.mayor, "treasury": world.governance.coins,
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
-            "mayor": world.governance.mayor, "treasury": world.governance.coins}
+            "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
+                          for f in world.fires.values()},
+            "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
+                    for l in world.locations.values() if l.slots}}
 
 
 def read_log(path: str | Path) -> Iterable[dict]:

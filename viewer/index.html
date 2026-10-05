@@ -54,7 +54,10 @@
   <p><b>AI Village</b>: открой лог прогона (<code>runs/*.jsonl</code>) или передай <code>?log=путь</code>.</p>
   <input type="file" id="file" accept=".jsonl,.json" multiple>
 </div></div>
+<script src="maplayer.js"></script>
 <script src="pixelmap.js"></script>
+<script src="actors.js"></script>
+<script src="camera.js"></script>
 <script src="dossier.js"></script>
 <script>
 const COLORS = ['#f2c14e','#e4572e','#76b041','#17bebb','#c47ac0','#ff9f1c','#2ec4b6','#e71d36','#a3c4f3','#ffbf69'];
@@ -166,10 +169,15 @@ function panel() {
 }
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
+let seenLen = 0, gap = 0, lastArrive = 0;
 function loop(ts) {
   const speed = +document.getElementById('speed').value, dt = (ts - last) / 1000; last = ts;
+  // Live: when showing the newest tick, stretch the hour to the usual gap between ticks, so villagers keep moving
+  // until the next one arrives instead of rushing for half a second and freezing.
+  if (ticks.length === seenLen + 1) { const now = ts / 1000; if (lastArrive) gap = gap ? gap * .7 + (now - lastArrive) * .3 : now - lastArrive; lastArrive = now; }
+  seenLen = ticks.length;
   if (playing && ticks.length) {
-    frac += dt * speed / 2;
+    frac += dt / Math.max(2 / speed, i >= ticks.length - 1 && gap ? Math.min(gap, 30) : 0);
     if (frac >= 1) { if (i < ticks.length - 1) { i++; frac = 0; } else { frac = 1; playing = false; } }
   }
   render(); panel();
