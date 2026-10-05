@@ -6,6 +6,7 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 
 - Step 1: deterministic engine, 25 actions, god mode (fire, treasure, rumor, drought, sickness, gift), scripted bots, invariants, replay, 46 tests.
 - Step 2 (PR #1): LLM agents via OpenRouter + stub, parallel turns, per-agent token/cost accounting, 2D log viewer, `build_demo.py`.
+- Translation for viewers (backlog 8): `python -m aivillage.translate runs/x.jsonl` writes sidecar `runs/x.ru.json` (thoughts, says, event texts, diaries; batched, cached in `runs/.cache/`, model `google/gemini-2.5-flash-lite`, ~$0.0002 per 3-agent day). Viewer has an RU/EN button; `build_demo.py` embeds the sidecar. The model transliterates names (Boris → Борис) despite the prompt.
 - Backlog 5: metrics script `python -m aivillage.metrics run.jsonl --json m.json --md m.md` (interaction graph, trades, debts repaid/late/defaulted/open, thefts seen/unseen, coin Gini by day, fire responders).
 - Seasons (#10): `aivillage/seasons.py`, config block `seasons` (7-day spring/summer/autumn/winter, regrowth multipliers; winter: field grain withers and does not regrow, berries 0, fish x0.5). Agents see `season`, `season_days_left`, `next_season` in `observe()["time"]`; public `season` event at each change. `seasons.enabled: false` turns it off.
 - Backlog 2 (branch `claude/project-thread-iswb8u`): night diary + memory about people. Each LLM agent keeps a day log of its turns; after night `reflect()` writes a ≤150-word diary and updates `people` notes (fed into every next prompt). `run(on_night=...)` logs `{"type": "diary"}` records; replay skips them. Agents with no turns that day make no call.
@@ -25,7 +26,6 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 5. ~~Metrics script~~ — done (`aivillage/metrics.py`).
 6. ~~Live viewer~~ — done (see above).
 7. **Pixel-art viewer.** Replace canvas shapes with a free top-down tileset and character sprites (same log format).
-8. **Translation layer for viewers.** Agents speak English; viewer shows Russian translations of thoughts/says (batched, cached).
 9. **Run config in YAML.** `--config runs/x.yaml`: agents, models, mechanics on/off, god script.
 10. ~~**Seasons.**~~ Done, see above.
 11. **CI.** GitHub Actions running pytest on PRs.
