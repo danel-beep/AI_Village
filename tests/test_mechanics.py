@@ -286,3 +286,29 @@ def test_treasure_hint_and_pick_up(w):
     put(w, "Anna", "mine")
     act(w, "Anna", "pick_up", item="ore", qty=4)
     assert w.agents["Anna"].inventory["ore"] == 4
+
+
+def test_winter_field_yields_nothing_until_spring():
+    w = engine.new_world({"seed": 1, "seasons": {"length_days": 2}})
+    assert engine.observe(w, "Anna", consume_inbox=False)["time"]["season"] == "spring"
+    while w.day < 7:  # day 7 = first day of winter
+        engine.step(w, {})
+    check(w)
+    obs = engine.observe(w, "Anna", consume_inbox=False)
+    assert obs["time"]["season"] == "winter" and obs["time"]["next_season"] == "spring"
+    assert any("Winter has come" in n for n in obs["news"])
+    assert w.locations["field"].resources["grain"] == 0
+    put(w, "Anna", "field")
+    act(w, "Anna", "work")
+    assert w.agents["Anna"].inventory.get("grain", 0) == 0
+    while w.day < 9:  # spring again: the field regrows
+        engine.step(w, {})
+    assert w.locations["field"].resources["grain"] == 10
+
+
+def test_seasons_can_be_disabled():
+    w = engine.new_world({"seed": 1, "seasons": {"enabled": False, "length_days": 1}})
+    while w.day < 5:
+        engine.step(w, {})
+    assert w.locations["field"].resources["grain"] == 40
+    assert "season" not in engine.observe(w, "Anna", consume_inbox=False)["time"]

@@ -11,7 +11,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import ops
+from . import ops, seasons
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -76,7 +76,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     every = cfg["tax_every_days"]
     obs = {
         "time": {"day": world.day, "hour": world.hour, "day_ends_at": cfg["day_end_hour"],
-                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": cfg["tax_amount"]},
+                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": cfg["tax_amount"],
+                 **seasons.time_info(cfg, world.day)},
         "you": {
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
             "satiety": a.satiety, "health": a.health, "coins": a.coins, "inventory": dict(a.inventory),
@@ -276,12 +277,13 @@ def night(ctx: Ctx) -> None:
 
     w.day += 1
     w.hour = cfg["day_start_hour"]
+    seasons.new_day(ctx)
     for loc in w.locations.values():
         spec = cfg["locations"].get(loc.id, {}).get("resources", {})
         if w.day < loc.drought_until_day:
             continue
         for r, s in spec.items():
-            loc.resources[r] = min(s["max"], loc.resources.get(r, 0) + s["regen"])
+            loc.resources[r] = min(s["max"], loc.resources.get(r, 0) + seasons.regen(cfg, w.day, r, s["regen"]))
     for a in w.agents.values():
         a.asleep, a.task = False, None
         if a.status == "hospital" and w.day >= a.status_until_day:
