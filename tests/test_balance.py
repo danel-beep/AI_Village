@@ -4,6 +4,8 @@ The same village plays twice: LonerBots trade only with the NPC market, TraderBo
 with each other at the middle of the NPC prices. Solo must be survivable for every profession;
 trade must be clearly better for the village and leave no profession worse off.
 If you change numbers in config.py and this fails, the economy got out of balance.
+This measures the base economy, so world crises are off here; tests/test_crises.py checks that
+loners still survive a year with them.
 """
 
 from collections import Counter
@@ -27,7 +29,7 @@ def play(kind: str) -> tuple[dict, Counter, int]:
     """Mean wealth per profession after a year, failures (hospital/eviction), trades."""
     total, failures, trades = Counter(), Counter(), 0
     for seed in SEEDS:
-        w = engine.new_world({"seed": seed})
+        w = engine.new_world({"seed": seed, "crises": {"enabled": False}})
         days = w.config["seasons"]["length_days"] * len(w.config["seasons"]["order"])
         stats = run(w, bots_decider(w, [kind], seed), days=days, check_every_tick=False)
         failures.update({k: stats.get(k, 0) for k in ("hospital", "evicted")})
