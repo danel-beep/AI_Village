@@ -101,8 +101,10 @@
     for (const form of panel.querySelectorAll('form')) form.onsubmit = ev => {
       ev.preventDefault();
       const msg = form.querySelector('.msg');
-      post('/api/god', { name: form.dataset.name, args: read(form) })
-        .then(() => { msg.style.color = '#76b041'; msg.textContent = 'Готово: сработает на следующем ходу.'; })
+      const g = { name: form.dataset.name, args: read(form) };
+      post('/api/god', g)
+        .then(() => { msg.style.color = '#76b041'; msg.textContent = 'Готово: уже начинается, на карте видно где.';
+          window.dispatchEvent(new CustomEvent('god-pending', { detail: g })); })
         .catch(e => { msg.style.color = '#e4572e'; msg.textContent = 'Не вышло: ' + e.message; });
     };
   }

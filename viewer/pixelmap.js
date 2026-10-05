@@ -523,6 +523,7 @@ const PixelMap = (() => {
     shown.sort((p, q) => p.y - q.y);
     lastPos = {};
     for (const a of shown) { lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8]; Actors.paint(b, sheets[a.n], a, sec, a.n === selected); }
+    if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
     // night
     const h0 = prev.view.hour, h1 = t.view.hour, hour = h1 === h0 + 1 ? h0 + e : h0, dark = darkness(hour);
     if (dark > 0) {
