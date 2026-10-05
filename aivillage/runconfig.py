@@ -51,7 +51,7 @@ class GodEvent(Strict):
 
 
 class RunConfig(Strict):
-    days: int = Field(default=10, ge=1)
+    days: int = Field(default=3, ge=1)
     seed: int = 1
     log: str | None = None
     # Default brain for agents that name none: a model id ("stub" works offline) or a bot kind.

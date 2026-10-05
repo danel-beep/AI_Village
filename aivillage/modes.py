@@ -87,13 +87,13 @@ MODES: dict[str, dict[str, Any]] = {
     "lawless": {
         "title": "Беззаконие",
         "about": "Кража удаётся почти всегда, свидетели замечают её редко, за раз можно унести "
-                 "10 вещей, замков нет.",
+                 "10 вещей, замков нет, жаловаться на воров некому.",
         "world": {
             "steal_notice_chance": 0.05,
             "steal_awake_target_success": 0.9,
             "max_steal_qty": 10,
         },
-        "disabled": ["install_lock"],
+        "disabled": ["install_lock", "report_theft"],
     },
 }
 
