@@ -15,7 +15,7 @@ python -m pytest -q
 
 ```bash
 export OPENROUTER_API_KEY=...   # ключ openrouter.ai
-python -m aivillage.run --days 2 --agents 3 --models google/gemini-2.5-flash-lite --log runs/llm.jsonl
+python -m aivillage.run --days 2 --agents 3 --models default --log runs/llm.jsonl
 python -m aivillage.run --days 2 --models stub --log runs/stub.jsonl   # без ключа: «модель» отвечает как бот
 python -m http.server 8000      # затем открыть http://localhost:8000/viewer/?log=/runs/llm.jsonl
 ```
@@ -37,7 +37,7 @@ python -m aivillage.run --config configs/example.yaml
 ```bash
 pip install -e .[live]
 python -m aivillage.server --days 30                                   # боты
-python -m aivillage.server --agents 3 --models google/gemini-2.5-flash-lite   # LLM
+python -m aivillage.server --agents 3 --models default   # LLM
 # открыть http://localhost:8000
 ```
 

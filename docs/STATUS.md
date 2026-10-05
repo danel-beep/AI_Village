@@ -14,16 +14,19 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 - Backlog 3 (branch `claude/project-thread-0orll2`): wake-on-event rules. `engine.WAKE_RULES` decides which events stop a busy agent: only events addressed to it (whisper, letter, offer, trade/decline, give, lend, theft, chest taken), `say` only when it names the agent, fire wakes everyone, hunger wakes once when satiety hits 0. Bystanders seeing a give/lend/say are no longer woken. `scripts/wake_stats.py` measures calls: tasks save ~35% vs asking every hour; new rules save 2–4% more than the old ones with chatty bots (more with real chatty LLMs in one place).
 - Live viewer (#6): `pip install -e .[live]`, `python -m aivillage.server`, open http://localhost:8000. Ticks stream over WebSocket; god panel (fire, treasure, rumor, drought, sickness, gift) + pause/speed; god events are logged, replay stays exact. `viewer/live.js` + `viewer/god.js` are injected by the server.
 - Backlog 7 (branch `claude/project-thread-qzs03i`): pixel-art viewer. Free tilesets were unreachable from the sandbox, so all art is drawn in code in `viewer/pixelmap.js` (no third-party license): tiled map (river+dock, fenced field, market stalls, cobbled square with well, forest, mine, smithy, one coloured house per villager, up to 6 per street row), 12x16 villagers with walk cycles walking along paths, chimney smoke, fire, evening lighting. Click a villager (map or card) to follow them and read their night diaries. Data-source entry point for a live server: `Viewer.start(header)` + `Viewer.push(row)`. `build_demo.py` inlines local scripts.
-- Demo replay published: https://claude.ai/artifact/Ftf7M9UrQnRYXxohReXqYy
+- Backlog 1 (branch `claude/project-thread-ifc3d6`): first real-model run, report `docs/runs/first-llm-run.md`. Default model `llm.DEFAULT_MODEL = "openai/gpt-6-luna"` (newest ultra-cheap, $0.10/$0.50 per 1M; `--models default`), also the translate default. 5 agents × 5 days: $0.0027 per agent-day, 0% invalid actions (Gemini 2.5 Flash Lite: 10–19%, agents starved). Prompt now has a rules cheat sheet from config (`world_facts`), last 3 own actions, JSON mode, retry on unparseable reply, low reasoning effort; client backs off on HTTP 429 (Luna allows ~4 parallel calls).
+- Demo replay published (now the first LLM run): https://claude.ai/artifact/Ftf7M9UrQnRYXxohReXqYy
 - Backlog 4 (branch `claude/project-thread-sl1k6b`): economy balance. `satiety_loss_per_hour` 3→2 (about one meal a day), forest wood 80/regen 40, mine stone 60/regen 30, ore 30/regen 10 (before: woodcutter, miner, smith were evicted or hospitalised even solo). New bots `TraderBot` (evening market at the square, sells meals/tools/wood/ore at the NPC mid price) and `LonerBot` (same, NPC only). `tests/test_balance.py`, a full year with winter, 3 seeds: loners never hit hospital or eviction; traders end with about +30% village wealth and no profession below 90% of its solo result. Not covered: food regen is fixed per map, so 20 agents will need bigger field/river numbers.
 
 ## Blocked
 
-- First real-model run: needs `OPENROUTER_API_KEY` in the project's cloud environment and network access to `openrouter.ai`.
+- Nothing. `OPENROUTER_API_KEY` works in the cloud environment ($10 limit on the key).
 
 ## Backlog (independent)
 
-1. **First LLM run + report.** 3–5 agents on one cheap model, 5 days; record cost per agent-day, invalid-action rate, interesting episodes; tune the prompt. (Needs the key.)
+1. ~~First LLM run + report~~ — done (see above).
+12. **Request queue for 20 agents.** Cap parallel model calls per provider and queue the rest instead of hitting 429.
+13. **Model comparison run.** Same seed, one model per agent (gpt-6-luna, deepseek-v4.1-flash, ...); compare survival, trades, deceit.
 2. ~~Night reflection / diary~~ — done (see above). Viewer shows diaries on villager click.
 5. ~~Metrics script~~ — done (`aivillage/metrics.py`).
 6. ~~Live viewer~~ — done (see above).
