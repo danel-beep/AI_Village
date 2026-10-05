@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops
+from . import ops, tiles
 from .actions import ItemMap, _agent
 from .ops import Ctx, fmt_items
 from .registry import GOD, ActionError
@@ -23,7 +23,8 @@ def fire(ctx: Ctx, _god: Agent | None, args: PersonArgs) -> None:
         raise ActionError("already burning")
     ctx.world.fires[victim.home] = Fire(victim.home, ctx.cfg["fire_ticks"], ctx.cfg["fire_water_needed"])
     ctx.emit("fire", f"Smoke! {victim.name}'s house is on fire! It needs {ctx.cfg['fire_water_needed']} buckets "
-             f"of water (fetch water at the river).", visibility="public", victim=victim.name)
+             f"of water (fetch water at the river) and grows if nobody fights it; it burns down in "
+             f"{ctx.cfg['fire_ticks']} hours.", visibility="public", victim=victim.name, house=victim.home)
 
 
 class TreasureArgs(BaseModel):
@@ -70,8 +71,8 @@ def drought(ctx: Ctx, _god, args: DroughtArgs) -> None:
     loc = ctx.world.locations.get(args.location)
     if loc is None or not loc.resources:
         raise ActionError(f"{args.location} has no resources")
-    for r in loc.resources:
-        loc.resources[r] //= 2
+    for r in list(loc.resources):
+        tiles.scale(loc, r, 0.5)
     loc.drought_until_day = ctx.world.day + args.days
     ctx.emit("drought", f"A blight hits the {loc.name}. Little will grow there for {args.days} days.",
              visibility="public")
