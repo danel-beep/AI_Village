@@ -117,6 +117,25 @@ def generate(cfg: dict) -> dict:
     raise MapError(f"no fair map for seed {seed}")
 
 
+def for_run(override: dict, fixed_map: bool = False, unfairness: float | None = None) -> dict:
+    """World override for a real run (CLI, live server): procedural map on unless the run config already
+    says otherwise or --fixed-map; --unfairness sets the knob."""
+    m = dict(override.get("map") or {})
+    if fixed_map:
+        m["procedural"] = False
+    m.setdefault("procedural", True)
+    if unfairness is not None:
+        m["unfairness"] = unfairness
+    return {**override, "map": m}
+
+
+def add_args(p) -> None:
+    """--fixed-map / --unfairness for argparse."""
+    p.add_argument("--fixed-map", action="store_true", help="use the hand-made map instead of a generated one")
+    p.add_argument("--unfairness", type=float, default=None,
+                   help="0 = everyone starts equal ... 1 = random, unfair plots, money and places (default 0.3)")
+
+
 # ---------- grid ----------
 
 class Grid:
@@ -365,7 +384,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             spec = PATCHES[pl["kind"]]
             src = base[spec["from"]].get("resources", {})
             f = spec["share"] * rng.uniform(lo, hi)
-            res = {r: dict(s) if r == "water" else _scale(s, f) for r, s in src.items()}
+            res = {r: dict(s) if r == "water" else _scale(s, f, spec["share"]) for r, s in src.items()}
             nm = spec["name"] if pid == pl["kind"] else f"{spec['name']} {pid[len(pl['kind']):]}"
             locations[pid] = {"name": nm, "neighbors": neighbors[pid], "resources": res}
         else:
@@ -488,13 +507,14 @@ def _solid(kind: str, x: int, y: int, w: int, h: int) -> list[tuple[int, int]]:
     return tiles
 
 
-def _scale(spec: dict, f: float) -> dict:
+def _scale(spec: dict, f: float, objects: float = 1.0) -> dict:
+    """Scale amounts by f and the number of map objects (trees, beds, rocks) by `objects`."""
     out = dict(spec)
     for k in ("start", "max", "regen"):
         if k in out:
             out[k] = max(1, round(out[k] * f))
     if "slots" in out:
-        out["slots"] = max(1, min(out["slots"], out["max"]))
+        out["slots"] = max(1, min(round(out["slots"] * objects), out["max"]))
     out["start"] = min(out.get("start", 0), out.get("max", out.get("start", 0)))
     return out
 

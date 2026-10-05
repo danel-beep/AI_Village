@@ -78,7 +78,10 @@ def world_facts(cfg: dict) -> str:
     res = "; ".join(f"{lid}: {', '.join(l['resources'])}" for lid, l in cfg["locations"].items() if l.get("resources"))
     lines.append(f"- Gather with work at: {res}. Your profession gathers its goods {cfg['work_profession_multiplier']}x faster.")
     roads = "; ".join(f"{lid} -> {', '.join(l['neighbors'])}" for lid, l in cfg["locations"].items())
-    lines.append(f"- Map: {roads}; every home_<Name> -> square. move finds the path itself, one step per hour.")
+    links = cfg.get("map", {}).get("homes")
+    homes = ("; ".join(f"home_{n} -> {', '.join(to)}" for n, to in links.items()) if links
+             else "every home_<Name> -> square")
+    lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
     lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days. If you cannot pay, it takes "

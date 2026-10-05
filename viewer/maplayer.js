@@ -4,7 +4,8 @@
 // Fires grow with view.fire_info[house].water_needed; pour_water / fire_out events splash water on the house.
 // pixelmap.js calls init() before painting the background, draw() under the villagers and drawTop() over them.
 const MapLayer = (() => {
-  let K, spots = {};
+  let K, spots = {}, claimed = [];
+  const shift = (pts, [dx, dy] = [0, 0]) => pts.map(p => [p[0] + dx, p[1] + dy, ...p.slice(2)]);
   const STUMP = ['#a8743f', '#8a5a35', '#6b4226'];
 
   function init(kit) {
@@ -16,15 +17,18 @@ const MapLayer = (() => {
     for (let k = 0; k < 5; k++) bushes.push([21 * T + 2 + k * 26 + (k > 1 ? 16 : 0), 7 * T - 2]);
     for (let k = 0; k < 6; k++) fish.push([10 + (k % 2) * 14, 2 * T + k * 30 + (k % 2) * 12]);
     for (const y of [12 * T + 2, 13 * T + 2, 14 * T]) for (const x of [25 * T - 2, 26 * T + 10, 28 * T + 4, 29 * T]) rocks.push([x, y]);
-    spots = { field: { grain: field }, forest: { wood: spots.trees || [], berries: bushes }, river: { fish },
-              mine: { stone: rocks.slice(0, 6), ore: rocks.slice(6) } };
+    // On a generated map (viewer/mapgen.js) the landmarks moved by layout.off; the river and patches are new.
+    const off = K.layout.off || {};
+    spots = { field: { grain: shift(field, off.field) }, forest: { wood: claimed, berries: shift(bushes, off.forest) },
+              river: { fish }, mine: { stone: shift(rocks.slice(0, 6), off.mine), ore: shift(rocks.slice(6), off.mine) } };
+    if (K.layout.gen && window.GenMap) Object.assign(spots, GenMap.spots(K.layout.gen, T));
   }
 
   // The background forest hands over the trees nearest the clearing; those become choppable.
   function claimTrees(list, cx, cy, n = 8) {
     const near = list.slice().sort((a, b) => Math.hypot(a[0] + 16 - cx, a[1] + 28 - cy) - Math.hypot(b[0] + 16 - cx, b[1] + 28 - cy))
       .slice(0, n).sort((a, b) => a[0] - b[0]);
-    spots.trees = near; if (spots.forest) spots.forest.wood = near;
+    claimed = shift(near, (K.layout.off || {}).forest); if (spots.forest) spots.forest.wood = claimed;
     return new Set(near);
   }
 
@@ -65,34 +69,39 @@ const MapLayer = (() => {
   }
 
   function draw(g, t, e, sec) {
-    const { R, P, blob, C, bush, rock } = K;
+    const { R, P, blob, C } = K;
     if (!t.view.map) return;
+    const locs = r => Object.keys(spots).filter(l => (spots[l][r] || []).length);
     // field beds
-    const sown = new Set(Object.keys(t.view.map.field?.planted || {}).map(Number));
-    amounts(t, 'field', 'grain').forEach((v, i) => spots.field.grain[i] && bed(g, spots.field.grain[i], v, capOf(t, 'field', 'grain'), sown.has(i), sec));
+    for (const loc of locs('grain')) {
+      const sown = new Set(Object.keys(t.view.map[loc]?.planted || {}).map(Number));
+      amounts(t, loc, 'grain').forEach((v, i) => spots[loc].grain[i] && bed(g, spots[loc].grain[i], v, capOf(t, loc, 'grain'), sown.has(i), sec));
+    }
     // berry bushes: red dots = berries left
-    amounts(t, 'forest', 'berries').forEach((v, i) => { const s = spots.forest.berries[i]; if (!s) return;
+    for (const loc of locs('berries')) amounts(t, loc, 'berries').forEach((v, i) => { const s = spots[loc].berries[i]; if (!s) return;
       const [x, y] = s; blob(g, x + 8, y + 10, 7, 5, v ? [C.leafL, C.leaf, C.leafD] : ['#8a9a5a', '#6f7f48', '#566238']);
       for (let k = 0; k < v; k++) P(g, x + 4 + (k * 5) % 10, y + 8 + (k % 2) * 3, '#e4572e'); });
     // fish shoals: little fish circling, one per unit left
-    amounts(t, 'river', 'fish').forEach((v, i) => { const s = spots.river.fish[i]; if (!s) return;
+    for (const loc of locs('fish')) amounts(t, loc, 'fish').forEach((v, i) => { const s = spots[loc].fish[i]; if (!s) return;
       for (let k = 0; k < v; k++) { const a = sec * .9 + k * 1.3 + i, fx = s[0] + Math.cos(a) * 5, fy = s[1] + Math.sin(a) * 3;
         R(g, fx, fy, 3, 1, '#dfe9f2'); P(g, fx + (Math.cos(a + 1.6) > 0 ? 3 : -1), fy, '#9fb4c6'); } });
     // rocks shrink as they are mined; empty = pebbles
-    for (const [r, ore] of [['stone', null], ['ore', '#d4a83a']]) amounts(t, 'mine', r).forEach((v, i) => {
-      const s = spots.mine[r][i]; if (!s) return; const f = v / capOf(t, 'mine', r);
+    for (const [r, ore] of [['stone', null], ['ore', '#d4a83a']]) for (const loc of locs(r)) amounts(t, loc, r).forEach((v, i) => {
+      const s = spots[loc][r][i]; if (!s) return; const f = v / capOf(t, loc, r);
       if (!v) { P(g, s[0] + 5, s[1] + 12, C.stoneD); P(g, s[0] + 9, s[1] + 13, C.stone); P(g, s[0] + 11, s[1] + 11, C.stoneD); return; }
       blob(g, s[0] + 8, s[1] + 14 - 4 * f, 2 + 4 * f, 1.5 + 3.5 * f, [C.stoneL, C.stone, C.stoneD]);
       if (ore) { P(g, s[0] + 7, s[1] + 13 - 4 * f, ore); if (f > .5) P(g, s[0] + 9, s[1] + 11 - 4 * f, ore); } });
     // trees: full, growing sapling, or stump; a tree felled this hour topples
-    const down = felled(t, 'forest', 'wood'), cap = capOf(t, 'forest', 'wood');
-    const order = amounts(t, 'forest', 'wood').map((v, i) => [v, i]).filter(([, i]) => spots.forest.wood[i])
-      .sort((a, b) => spots.forest.wood[a[1]][1] - spots.forest.wood[b[1]][1]);
-    for (const [v, i] of order) {
-      const s = spots.forest.wood[i], [x, y, pine] = s;
-      if (v === 0) { stump(g, x, y); if (down.has(i) && e < 1) fallingTree(g, s, e); }
-      else if (v * 2 < cap) sapling(g, x, y, v / cap * 2);
-      else K.tree(g, x, y, pine);
+    for (const loc of locs('wood')) {
+      const down = felled(t, loc, 'wood'), cap = capOf(t, loc, 'wood');
+      const order = amounts(t, loc, 'wood').map((v, i) => [v, i]).filter(([, i]) => spots[loc].wood[i])
+        .sort((a, b) => spots[loc].wood[a[1]][1] - spots[loc].wood[b[1]][1]);
+      for (const [v, i] of order) {
+        const s = spots[loc].wood[i], [x, y, pine] = s;
+        if (v === 0) { stump(g, x, y); if (down.has(i) && e < 1) fallingTree(g, s, e); }
+        else if (v * 2 < cap) sapling(g, x, y, v / cap * 2);
+        else K.tree(g, x, y, pine);
+      }
     }
   }
 

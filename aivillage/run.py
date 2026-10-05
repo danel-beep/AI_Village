@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine, modes, tiles
+from . import engine, mapgen, modes, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -172,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
     p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
                                                 "standard, peaceful, scarcity, debt, gold_rush, lawless")
+    mapgen.add_args(p)
     a = p.parse_args(argv)
 
     if a.replay:
@@ -194,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.agents:
         from .config import DEFAULT_CONFIG
         override["agents"] = (override.get("agents") or DEFAULT_CONFIG["agents"])[: a.agents]
-    world = engine.new_world(override)
+    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     names = sorted(world.agents)
     brains = rc.brains(names)
     # Old-style flags cycle over agents and override the file.
