@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from .llm import DEFAULT_MODEL, Client, parse_json_object
@@ -57,6 +58,8 @@ villagers' private thoughts, actions and speech. Choose the 3-5 most dramatic, s
 moments for a human spectator: betrayal, theft, lies (thought differs from what was said), fires, debts,
 alliances, quarrels, generosity, someone in trouble. Prefer different stories over repeats of one.
 For each write in Russian a title (at most 6 words) and one or two sentences with concrete names.
+Write only what the candidate and the digest show: an intention or a failed action did not happen, and
+the text must be about the moment of its own id (not another hour).
 Answer ONLY a JSON object: {"highlights": [{"id": 3, "title": "...", "text": "..."}]}"""
 
 
@@ -72,11 +75,14 @@ def candidates(ticks: list[dict], cfg: dict | None = None) -> list[dict]:
             if not score or not e.get("text"):
                 continue
             text = " ".join(str(e["text"]).split())
-            key = (e["kind"], e.get("actor"), text)
+            to = list(e.get("to") or [])
+            if to and re.match(r"(you|your)\b", text, re.I):  # "You are starving": say who "you" is
+                text = f"{', '.join(to)}: {text}"
+            key = (e["kind"], e.get("actor"), tuple(to), text)
             if key in first:
                 first[key]["times"] += 1
                 continue
-            who = [n for n in [e.get("actor"), *(e.get("to") or [])] if n]
+            who = [n for n in [e.get("actor"), *to] if n]
             who += sorted(n for n in names if n in text and n not in who)  # "Anna's house is on fire"
             first[key] = {"tick": rec["tick"], "day": day, "hour": hour, "kind": e["kind"], "score": score,
                           "who": list(dict.fromkeys(who)), "event": text, "times": 1}
