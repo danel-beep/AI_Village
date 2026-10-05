@@ -63,7 +63,8 @@ def main() -> int:
         os.environ["AIVILLAGE_MAX_PARALLEL"] = str(a.parallel)
     model = llm.DEFAULT_MODEL if a.model == "default" else a.model
     fallbacks = a.fallback.split(",") if a.fallback else []
-    print(f"model {model}, max {os.environ.get('AIVILLAGE_MAX_PARALLEL') or llm.DEFAULT_PARALLEL} parallel, "
+    print(f"model {model}, max {os.environ.get('AIVILLAGE_MAX_PARALLEL') or f'{llm.OPENAI_PARALLEL} (OpenAI) / {llm.DEFAULT_PARALLEL} (OpenRouter)'} "
+          "parallel, "
           f"fallback {fallbacks or 'none'}\n")
     print("| villagers | days | hour avg, s | hour max, s | whole run, s | model calls | 429s | failed | "
           "cost | per villager-day |")

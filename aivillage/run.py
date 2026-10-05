@@ -232,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     from .llm import _GATES
     for model, g in _GATES.items():
         print(f"  queue {model}: {g.calls} calls, max {g.limit} at once, {g.rate_limited} rate-limited, "
-              f"{g.waited:.0f}s waiting")
+              f"{g.paced} paused before the limit, {g.waited:.0f}s waiting")
     return 0
 
 
