@@ -45,13 +45,21 @@ class JsonlLog:
 def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] | None = None,
         log_path: str | Path | None = None, check_every_tick: bool = True,
         on_tick: Callable[[World, list], None] | None = None,
-        on_night: Callable[[World, int], dict] | None = None) -> dict:
+        on_night: Callable[[World, int], dict] | None = None,
+        on_record: Callable[[dict], None] | None = None) -> dict:
     """Drive the world for `days` days. Returns summary stats.
 
     `on_night(world, day)` runs after each day ends; whatever it returns is logged as a `diary` record
-    (outside the engine, so replay ignores it)."""
+    (outside the engine, so replay ignores it). `on_record` sees every log record as it is written
+    (the live server streams them)."""
     log = JsonlLog(log_path)
-    log.write({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash()})
+
+    def emit(rec: dict) -> None:
+        log.write(rec)
+        if on_record:
+            on_record(rec)
+
+    emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash()})
     stats: Counter = Counter()
     end_day = world.day + days
     try:
@@ -70,14 +78,14 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
             for ev in events:
                 stats[ev.kind] += 1
             stats["llm_calls"] += len(asked)
-            log.write({"type": "tick", "tick": tick, "asked": asked, "decisions": decisions, "god": god,
+            emit({"type": "tick", "tick": tick, "asked": asked, "decisions": decisions, "god": god,
                        "events": [asdict(e) for e in events], "hash": world.hash(), "view": view(world)})
             if on_tick:
                 on_tick(world, events)
             if on_night and world.day != day:
                 entries = on_night(world, day)
                 if entries:
-                    log.write({"type": "diary", "day": day, "entries": entries})
+                    emit({"type": "diary", "day": day, "entries": entries})
     finally:
         log.close()
     return dict(stats)
