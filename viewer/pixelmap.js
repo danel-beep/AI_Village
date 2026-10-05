@@ -35,7 +35,7 @@ const PixelMap = (() => {
             ['...k7777k...', '...k8888k...', '....kkkk....']],
   };
 
-  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {};
+  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null;
 
   function rnd(x, y, s = 0) {
     let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
@@ -359,8 +359,10 @@ const PixelMap = (() => {
   // Position along the walking route between the previous and the current location.
   function agentAt(prev, t, name, e) {
     const a = prev.view.agents[name].location, bLoc = t.view.agents[name].location;
-    const p0 = spot(a, here(prev.view, name)), p1 = spot(bLoc, here(t.view, name));
-    const pts = [p0, ...(a === bLoc ? [] : route(a, bLoc)), p1];
+    const p1 = spot(bLoc, here(t.view, name));
+    if (a === bLoc) return { x: p1[0], y: p1[1], moving: false, dir: 'down' };   // a shifted spot is smoothed, not walked
+    const p0 = spot(a, here(prev.view, name));
+    const pts = [p0, ...route(a, bLoc), p1];
     const seg = pts.slice(1).map((p, j) => Math.hypot(p[0] - pts[j][0], p[1] - pts[j][1]));
     let d = seg.reduce((s, v) => s + v, 0) * e;
     for (let j = 0; j < seg.length; j++) {
@@ -396,24 +398,7 @@ const PixelMap = (() => {
       b.globalAlpha = .5 * (1 - p); blob(b, sx, sy, r, r, ['#e8e8ee', '#d0d0d8', '#b8b8c4'], null); b.globalAlpha = 1; } };
     smoke(...layout.smithyChimney, .3);
     layout.houses.forEach((h, k) => { if (homeNow.has(h.name)) smoke(...h.chimney, k * .37); });
-    // agents, back to front
-    const shown = names.filter(n => t.view.agents[n].status === 'active')
-      .map(n => ({ n, ...agentAt(prev, t, n, e) }))
-      .filter(a => !(t.view.agents[a.n].asleep && t.view.agents[a.n].location === 'home_' + a.n && !a.moving));
-    shown.sort((p, q) => p.y - q.y);
-    lastPos = {};
-    for (const a of shown) {
-      const x = Math.round(a.x), y = Math.round(a.y);
-      lastPos[a.n] = [x, y - 8];
-      blob(b, x, y + 7, 5, 2, ['rgba(0,0,0,.25)', 'rgba(0,0,0,.25)', 'rgba(0,0,0,.25)'], null);
-      if (a.n === selected) { b.fillStyle = '#f2c14e'; for (const [dx, dy] of [[-7, 7], [6, 7], [-6, 8], [5, 8]]) b.fillRect(x + dx, y + dy, 2, 1); }
-      const row = a.dir === 'up' ? 1 : a.dir === 'down' ? 0 : 2, f = a.moving ? 1 + (Math.floor(sec * 7) % 2) : 0;
-      b.save();
-      if (a.dir === 'left') { b.translate(x, 0); b.scale(-1, 1); b.translate(-x, 0); }
-      b.drawImage(sheets[a.n], f * 12, row * 16, 12, 16, x - 6, y - 8, 12, 16);
-      b.restore();
-    }
-    // fire
+    // fire (before villagers, so buckets of water land on top of it)
     for (const id of fires) {
       const bx = layout.box[id]; if (!bx) continue;
       const [x0, y0, w, h] = bx;
@@ -425,6 +410,31 @@ const PixelMap = (() => {
       for (let i = 0; i < 4; i++) { const p = (sec * .6 + i / 4) % 1;
         b.globalAlpha = .45 * (1 - p); blob(b, x0 + w / 2 + Math.sin(p * 8 + i) * 6, y0 - p * 26, 3 + p * 5, 3 + p * 5, ['#555', '#444', '#333'], null); b.globalAlpha = 1; }
     }
+    // villagers, back to front (poses, tools, idle strolls and bubbles live in viewer/actors.js)
+    const dt = lastTime === null ? 0 : Math.min(.1, Math.max(0, (time - lastTime) / 1000)); lastTime = time;
+    const acts = Actors.activities(t), prevPos = lastPos, shown = [];
+    names.forEach((n, idx) => {
+      const v = t.view.agents[n]; if (v.status !== 'active') return;
+      const r = agentAt(prev, t, n, e), info = v.asleep ? { act: 'sleep', text: '' } : acts[n] || { act: 'idle', text: '' };
+      if (v.asleep && v.location === 'home_' + n && !r.moving) return;
+      const k = here(t.view, n), a = { n, k: idx, loc: v.location, text: info.text, act: r.moving ? 'walk' : info.act,
+        dir: r.dir, moving: r.moving, carry: r.moving && fires.size > 0 && (v.inventory.water || 0) > 0 };
+      let tx = r.x, ty = r.y;
+      if (!r.moving) {
+        const ws = Actors.workSpot(a.act, v.location, k, layout);
+        if (ws) [tx, ty, a.dir] = ws;
+        else if (a.act === 'idle') { const w = Actors.wander(idx + 1, sec); tx += w.dx; ty += w.dy; a.dir = w.dir; a.moving = w.moving; }
+        const other = info.to && prevPos[info.to];
+        if (a.act === 'talk' && other && Math.abs(other[0] - tx) > 2) a.dir = other[0] > tx ? 'right' : 'left';
+        if (a.act === 'pour' && layout.box[v.location]) { const [x0, y0, w, h] = layout.box[v.location]; a.target = [x0 + w / 2 + (k % 3 - 1) * 10, y0 + h * .45]; }
+      }
+      const p = Actors.place(n, t.tick, { x: tx, y: ty }, r.moving, dt);
+      if (p.sliding && !a.moving) { a.moving = true; a.dir = p.sdir; }
+      shown.push(Object.assign(a, { x: p.x, y: p.y }));
+    });
+    shown.sort((p, q) => p.y - q.y);
+    lastPos = {};
+    for (const a of shown) { lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8]; Actors.paint(b, sheets[a.n], a, sec, a.n === selected); }
     // night
     const h0 = prev.view.hour, h1 = t.view.hour, hour = h1 === h0 + 1 ? h0 + e : h0, dark = darkness(hour);
     if (dark > 0) {
@@ -439,60 +449,58 @@ const PixelMap = (() => {
       b.globalCompositeOperation = 'source-over';
       layout.houses.forEach(h => { if (homeNow.has(h.name)) h.windows.forEach(([x, y]) => R(b, x + 1, y + 1, 7, 6, C.lit)); });
     }
+    Camera.attach(ctx.canvas, W, H, S);
+    Camera.update(dt, selected, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8]);
+    const cam = Camera.view();
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(buf, 0, 0, W * S, H * S);
-    labels(ctx, t, shown, selected, sec, tr || String);
+    ctx.drawImage(buf, cam.x0, cam.y0, W / cam.z, H / cam.z, 0, 0, W * S, H * S);
+    labels(ctx, t, shown, selected, sec);
+    Actors.noteTick(t, frac, dt);
+    Actors.bubbles(ctx, shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y - 8); return { n: a.n, sx, sy }; }),
+                   selected, tr || String, W * S);
   }
 
-  // ---------- full-resolution text ----------
+  // ---------- full-resolution text (placed through the camera, constant size at any zoom) ----------
   function plaque(ctx, x, y, text) {
     ctx.font = '600 12px system-ui, sans-serif'; const w = ctx.measureText(text).width + 12;
     ctx.fillStyle = '#3a2416'; ctx.fillRect(x - w / 2 - 2, y - 10, w + 4, 20);
     ctx.fillStyle = '#8a5a35'; ctx.fillRect(x - w / 2, y - 8, w, 16);
     ctx.fillStyle = '#fbefd5'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y + 1);
   }
-  function bubble(ctx, x, y, text) {
-    text = text.length > 64 ? text.slice(0, 61) + '…' : text;
-    ctx.font = '12px system-ui, sans-serif'; const w = Math.min(280, ctx.measureText(text).width + 16), h = 22;
-    const bx = Math.max(4, Math.min(W * S - w - 4, x - w / 2)), by = y - h - 8;
-    ctx.fillStyle = '#1b1b24'; ctx.fillRect(bx - 2, by, w + 4, h); ctx.fillRect(bx, by - 2, w, h + 4);
-    ctx.fillStyle = '#fffbe8'; ctx.fillRect(bx, by, w, h);
-    ctx.fillStyle = '#1b1b24'; ctx.fillRect(x - 4, by + h, 8, 4); ctx.fillStyle = '#fffbe8'; ctx.fillRect(x - 2, by + h, 4, 3);
-    ctx.fillStyle = '#222'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, bx + w / 2, by + h / 2 + 1, w - 10);
-  }
-  function labels(ctx, t, shown, selected, sec, tr) {
+  function labels(ctx, t, shown, selected, sec) {
+    const at = Camera.toScreen, z = Camera.view().z;
     const top = { market: -34, field: -44, river: -40, square: -38, forest: -26, mine: -58, smithy: -82 };
     for (const [id, dy] of Object.entries(top)) {
-      const [x, y] = layout.anchors[id]; plaque(ctx, x * S, (y + dy) * S, t.view.locations[id] || id);
+      const [x, y] = layout.anchors[id]; plaque(ctx, ...at(x, y + dy), t.view.locations[id] || id);
     }
     for (const h of layout.houses) {
-      const z = t.view.agents[h.name], asleepHome = z.asleep && z.location === 'home_' + h.name && !shown.some(a => a.n === h.name);
-      if (asleepHome) { ctx.font = '700 14px system-ui'; ctx.fillStyle = '#e8efe9'; ctx.textAlign = 'center';
-        const p = (sec * .7) % 1; ctx.globalAlpha = 1 - p; ctx.fillText('z', (h.x + 24) * S + p * 10, (h.y + 8) * S - p * 20);
-        ctx.fillText('Z', (h.x + 30) * S + p * 12, (h.y + 2) * S - p * 24); ctx.globalAlpha = 1; }
+      const v = t.view.agents[h.name], asleepHome = v.asleep && v.location === 'home_' + h.name && !shown.some(a => a.n === h.name);
+      if (asleepHome) { ctx.font = `700 ${Math.round(14 * Math.sqrt(z))}px system-ui`; ctx.fillStyle = '#e8efe9'; ctx.textAlign = 'center';
+        const p = (sec * .7) % 1, [zx, zy] = at(h.x + 24, h.y + 8), [Zx, Zy] = at(h.x + 30, h.y + 2); ctx.globalAlpha = 1 - p;
+        ctx.fillText('z', zx + p * 10, zy - p * 20); ctx.fillText('Z', Zx + p * 12, Zy - p * 24); ctx.globalAlpha = 1; }
+      const [nx, ny] = at(h.x + 24, h.y + 50);
       ctx.font = '600 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(20,16,12,.75)'; const w = ctx.measureText(h.name).width + 10;
-      ctx.fillRect((h.x + 24) * S - w / 2, (h.y + 50) * S - 1, w, 16); ctx.fillStyle = color[h.name];
-      ctx.fillText(h.name, (h.x + 24) * S, (h.y + 50) * S + 7);
+      ctx.fillRect(nx - w / 2, ny - 1, w, 16); ctx.fillStyle = color[h.name]; ctx.fillText(h.name, nx, ny + 7);
     }
     for (const a of shown) {
-      const x = a.x * S, y = a.y * S, v = t.view.agents[a.n];
+      const [x, y] = at(a.x, a.y + 8);
       ctx.font = '600 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const w = ctx.measureText(a.n).width + 8;
-      ctx.fillStyle = a.n === selected ? 'rgba(242,193,78,.95)' : 'rgba(20,16,12,.7)'; ctx.fillRect(x - w / 2, y + 18, w, 14);
-      ctx.fillStyle = a.n === selected ? '#1b1b24' : '#fff'; ctx.fillText(a.n, x, y + 25);
-      if (v.asleep) { ctx.fillStyle = '#e8efe9'; ctx.fillText('z z', x + 16, y - 22); continue; }
-      const said = (t.decisions[a.n] || {}).say;
-      if (said && !a.moving) bubble(ctx, x, y - 16, tr(String(said)));
+      ctx.fillStyle = a.n === selected ? 'rgba(242,193,78,.95)' : 'rgba(20,16,12,.7)'; ctx.fillRect(x - w / 2, y + 2, w, 14);
+      ctx.fillStyle = a.n === selected ? '#1b1b24' : '#fff'; ctx.fillText(a.n, x, y + 9);
+      if (a.act === 'sleep') { ctx.fillStyle = '#e8efe9'; ctx.fillText('z z', x + 16, y - 46); }
     }
   }
 
   // Name of the villager under a point in canvas pixels, or null.
   function pick(cx, cy) {
-    let best = null, bd = 14;
-    for (const [n, [x, y]] of Object.entries(lastPos)) { const d = Math.hypot(cx / S - x, cy / S - y); if (d < bd) { bd = d; best = n; } }
+    const [wx, wy] = Camera.toWorld(cx, cy);
+    let best = null, bd = 12;
+    for (const [n, [x, y]] of Object.entries(lastPos)) { const d = Math.hypot(wx - x, wy - y); if (d < bd) { bd = d; best = n; } }
     return best;
   }
 
-  return { init, draw, pick };
+  const gfx = { C, R, P, blob, rnd };
+  return { init, draw, pick, gfx };
 })();

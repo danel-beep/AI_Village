@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import threading
 import time
 from collections import deque
@@ -170,17 +171,13 @@ def create_app(sim: LiveSim) -> FastAPI:
         inject = '<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
         return html.replace("</body>", inject + "</body>", 1)
 
-    @app.get("/pixelmap.js")
-    def pixelmap_js() -> FileResponse:
-        return FileResponse(VIEWER / "pixelmap.js", media_type="text/javascript")
-
-    @app.get("/live.js")
-    def live_js() -> FileResponse:
-        return FileResponse(VIEWER / "live.js", media_type="text/javascript")
-
-    @app.get("/god.js")
-    def god_js() -> FileResponse:
-        return FileResponse(VIEWER / "god.js", media_type="text/javascript")
+    @app.get("/{name}.js")
+    def viewer_js(name: str) -> FileResponse:
+        # Any viewer script by bare name (pixelmap.js, actors.js, camera.js, live.js, god.js, ...).
+        path = VIEWER / f"{name}.js"
+        if not re.fullmatch(r"[\w-]+", name) or not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="text/javascript")
 
     @app.get("/api/meta")
     def meta() -> dict:
