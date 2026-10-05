@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import governance, keys, plots
+from . import clock, governance, keys, plots
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -34,8 +34,8 @@ Nobody tells you what is right. You may cooperate, trade, lend, promise, lie, st
 Coins only enter the village when someone sells to the trader at the market, who pays little and charges a lot,
 so trading directly with neighbours is usually better.
 
-Each hour you get a JSON observation and answer with ONE JSON object and nothing else:
-{{"thought": "short private reasoning, nobody else sees it",
+Whenever you are free to act you get a JSON observation and answer with ONE JSON object and nothing else:
+{{"thought": "optional private thought, under 15 words; \"\" when nothing new is on your mind",
   "action": {{"name": "<action>", "args": {{...}}}},
   "say": "optional words spoken out loud to people here, or null",
   "notes": "optional: your updated private notes about people and plans (replaces old notes)"}}
@@ -54,7 +54,7 @@ Rules of thumb:
 - Hungry with no food? Anyone can gather berries in the forest or buy bread at the market; or ask a neighbour.
 - Plan a few hours ahead: travel takes hours, and work/craft only pay off if you finish them.
 
-Item maps look like {{"bread": 2, "coins": 5}}. Keep "thought" under 40 words."""
+Item maps look like {{"bread": 2, "coins": 5}}. A thought is optional: most turns need none."""
 
 REFLECT = """You are {name}, a villager ({profession}). The day is over and you are alone with your thoughts.
 Below is what you did, said and noticed today. Answer with ONE JSON object and nothing else:
@@ -85,6 +85,11 @@ def world_facts(cfg: dict) -> str:
     homes = ("; ".join(f"home_{n} -> {', '.join(to)}" for n, to in links.items()) if links
              else "every home_<Name> -> square")
     lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
+    if clock.tick_minutes(cfg) < 60:
+        quick = ", ".join(n for n in clock.quick_actions(cfg) if n != "error")
+        lines.append(f"- Time runs in {clock.tick_minutes(cfg)}-minute steps. Quick actions take a quarter of an "
+                     f"hour: {quick}. Everything else (work, craft, each step of a walk, plant, build, hang_out, "
+                     "wait) takes an hour. You are asked again as soon as your action is done.")
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
     lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days. If you cannot pay, it takes "
@@ -586,11 +591,12 @@ class LLMAgent:
     def remember_turn(self, obs: dict, dec: dict) -> None:
         self.villagers |= {v["name"] for v in obs.get("board", {}).get("villagers", [])} - {self.name}
         t = obs.get("time", {})
-        lines = [f"{t.get('hour', '?')}:00 news: {n}" for n in obs.get("news", [])]
+        hm = f"{t.get('hour', '?')}:{t.get('minute', 0):02d}"
+        lines = [f"{hm} news: {n}" for n in obs.get("news", [])]
         if obs.get("last_error"):
-            lines.append(f"{t.get('hour', '?')}:00 failed: {obs['last_error']}")
+            lines.append(f"{hm} failed: {obs['last_error']}")
         act = dec.get("action") or {}
-        line = f"{t.get('hour', '?')}:00 at {obs.get('you', {}).get('location', '?')}: I did {act.get('name')}"
+        line = f"{hm} at {obs.get('you', {}).get('location', '?')}: I did {act.get('name')}"
         if act.get("args"):
             line += " " + json.dumps(act["args"])
         if dec.get("say"):
@@ -616,7 +622,8 @@ class LLMAgent:
             except Exception:
                 pass
         act = dec.get("action") if isinstance(dec.get("action"), dict) else {}
-        self.recent = (self.recent + [f"h{obs.get('time', {}).get('hour', '?')} {act.get('name')} {json.dumps(act.get('args') or {})}"])[-3:]
+        t = obs.get("time", {})
+        self.recent = (self.recent + [f"{t.get('hour', '?')}:{t.get('minute', 0):02d} {act.get('name')} {json.dumps(act.get('args') or {})}"])[-3:]
         if isinstance(dec.get("notes"), str):
             self.notes = dec["notes"][:1000]
         self.remember_turn(obs, dec)

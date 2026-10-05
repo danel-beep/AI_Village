@@ -27,6 +27,7 @@ class Event:
     visibility: str = "private"
     to: list[str] = field(default_factory=list)
     data: dict = field(default_factory=dict)
+    minute: int = 0
 
 
 # Called as hook(ctx, event, recipients) after every emit. Social modules register here.
@@ -45,7 +46,7 @@ class Ctx:
     def emit(self, kind: str, text: str, *, actor: str | None = None, location: str | None = None,
              visibility: str = "private", to: list[str] | None = None, **data) -> Event:
         w = self.world
-        ev = Event(w.tick, w.day, w.hour, kind, text, actor, location, visibility, list(to or []), data)
+        ev = Event(w.tick, w.day, w.hour, kind, text, actor, location, visibility, list(to or []), data, w.minute)
         self.events.append(ev)
         names = deliver(w, ev)
         for hook in EVENT_HOOKS:

@@ -149,10 +149,10 @@ class RunConfig(Strict):
 
     def god_script(self, world_config: dict) -> dict[int, list]:
         """{tick: [event, ...]}; tick 0 is day 1 at day_start_hour."""
-        start, end = world_config["day_start_hour"], world_config["day_end_hour"]
+        from .clock import tick_of
         script: dict[int, list] = {}
         for g in self.god:
-            tick = (g.day - 1) * (end - start) + (g.hour - start)
+            tick = tick_of(world_config, g.day, g.hour)
             script.setdefault(tick, []).append({"name": g.name, "args": g.args})
         return script
 

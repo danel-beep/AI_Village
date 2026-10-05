@@ -26,13 +26,14 @@ god events ─┐
 | --- | --- |
 | `aivillage/config.py` | all tunables, map, items, recipes, professions, agents |
 | `aivillage/population.py` | `population.size` → N villagers (configured ones first, then seeded names, professions by weight); scales resources, project needs, council orders by max(1, N/base_size). Runs at the end of `make_config`, idempotent (`resolved`) so replay does not grow twice |
+| `aivillage/clock.py` | game time: `tick_minutes` (15 in runs, 60 = hourly), tick <-> (day, hour, minute), `action_ticks` from `action_minutes` |
 | `aivillage/state.py` | dataclasses, `to_dict/from_dict`, `hash()` |
 | `aivillage/ops.py` | `Ctx` (world + rng + `emit`), event delivery to inboxes, ledger-safe item/coin ops |
 | `aivillage/registry.py` | `ACTIONS` / `GOD` registries: args model → prompt line, JSON schema, validation |
 | `aivillage/actions.py` | agent actions |
 | `aivillage/god.py` | experimenter interventions |
 | `aivillage/governance.py` | mayor elections, law proposals and votes, treasury, exile (via `ACTIONS.guards`), theft reports; engine hooks `end_of_hour` / `new_day` |
-| `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
+| `aivillage/engine.py` | `new_world`, `observe`, `step` (one tick; agents busy until `busy_until`, staggered wake-up), tasks, end of hour (last tick of the hour), night (tax, debts, orders, regrowth) |
 | `aivillage/reputation.py` | reputation (each agent's own tally of deeds it saw: thefts, defaults, repaid debts, fire help, trades, gifts) and rumors (`gossip` action; stored with the teller, never scored). Hooks in via `ops.EVENT_HOOKS`; adds `reputation` / `rumors` to `observe()`; config block `reputation` |
 | `aivillage/mapgen.py` | procedural village for a seed (`map.procedural`): river, landmarks, patches, hamlets, homes with plots, A* roads cut into one-hour hops by waypoints; honest-minimum `check`; `map.unfairness` 0..1 for plots, start coins/goods, resource richness. Run from `engine.new_world` when the config has no `map.layout` yet (replay never re-rolls) |
 | `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
@@ -99,6 +100,8 @@ as `fire_night_hours`. `extinguish` pours all the water the agent carries (up to
 3. Action → `@ACTIONS.action("name", "one-line description for the model", ArgsModel, available=...)` in `actions.py`. Validate everything first, raise `ActionError` with a message the agent can act on, then mutate. Use `ops` for items/coins and `ctx.emit` for what others see (`visibility`: public / location / private).
    To forbid an action under some rule without editing it, append a guard to `ACTIONS.guards` (see `governance._exile_guard`).
 4. Reacting to events (social modules) → append `hook(ctx, event, recipients)` to `ops.EVENT_HOOKS`; it runs after every `emit`, recipients are who actually saw it. Extra observation fields → `obs.update(module.observe(world, name))` in `engine.observe`. Per-agent state → a defaulted field on `Agent` (old logs still load).
+   How long it keeps the agent busy: `config.action_minutes[name]` (not listed = 60 min). Anything measured in hours
+   or ticks goes through `clock.hours(cfg, n)` / `clock.tick_of`, never `tick + n`.
 5. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
 6. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
 7. `python -m pytest -q` must stay green.

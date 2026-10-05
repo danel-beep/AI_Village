@@ -11,9 +11,24 @@ from typing import Any
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "seed": 1,
-    # Time: one tick = one in-game hour. Agents act from day_start to day_end, then night runs.
+    # Time: one tick = tick_minutes game minutes (clock.py). Agents act from day_start to day_end, then
+    # night runs. 60 is the old hourly mode the engine tests use; the CLI, live server and launcher run 15.
     "day_start_hour": 6,
     "day_end_hour": 22,
+    "tick_minutes": 60,
+    # How long an action keeps a villager busy (game minutes, rounded up to whole ticks; not listed = 60).
+    # Talking, trading, eating and other quick deeds take a quarter hour; work, craft, a walk between two
+    # places, planting, building, hanging out and stealing (thieves keep the old hourly pace) take an hour.
+    # Busy villagers are not asked (no model call).
+    "action_minutes": {
+        **{a: 15 for a in (
+            "say", "whisper", "letter", "give", "lend", "repay", "offer", "accept", "decline", "eat",
+            "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
+            "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
+            "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
+            "propose_law", "vote_law", "report_theft", "gossip")},
+        "error": 15,  # a failed action only costs a quarter hour
+    },
     # Survival
     "satiety_max": 100,
     "satiety_start": 80,

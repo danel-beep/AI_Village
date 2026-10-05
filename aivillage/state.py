@@ -27,6 +27,7 @@ class Agent:
     # Multi-tick task the engine continues without asking the agent:
     # {"kind": "move", "path": [...]} or {"kind": "work", "hours_left": n, "resource": r}
     task: dict | None = None
+    busy_until: int = 0  # tick at which the current action (or task step) is over; not asked before it
     tool_wear: int = 0
     status: str = "active"  # active | hospital | dead
     status_until_day: int = 0
@@ -204,6 +205,7 @@ class World:
     tick: int = 0
     day: int = 1
     hour: int = 6
+    minute: int = 0
     agents: dict[str, Agent] = field(default_factory=dict)
     chests: dict[str, Chest] = field(default_factory=dict)
     locations: dict[str, Location] = field(default_factory=dict)
@@ -237,6 +239,7 @@ class World:
             tick=d["tick"],
             day=d["day"],
             hour=d["hour"],
+            minute=d.get("minute", 0),
             agents={k: Agent(**v) for k, v in d["agents"].items()},
             chests={k: Chest(**v) for k, v in d["chests"].items()},
             locations={k: Location(**v) for k, v in d["locations"].items()},

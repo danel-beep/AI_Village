@@ -26,11 +26,11 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import engine, keys, llm, mapgen, modes, reports
+from . import clock, engine, keys, llm, mapgen, modes, reports
 from .highlights import Highlighter, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
 from .registry import GOD, ActionError
-from .run import bots_decider, llm_agents, night_reflection, run
+from .run import bots_decider, llm_agents, night_reflection, run, with_tick_minutes
 from .state import World
 
 VIEWER = Path(__file__).resolve().parent.parent / "viewer"
@@ -125,12 +125,13 @@ class LiveSim:
             self._wait()
 
     def _wait(self) -> None:
-        """Pace the sim so people can watch; block while paused."""
-        deadline = time.monotonic() + self.pace
+        """Pace the sim so people can watch; block while paused. `pace` is seconds per game hour."""
+        per_tick = self.pace / clock.per_hour(self.world.config)
+        deadline = time.monotonic() + per_tick
         while not self.stopping:
             if not self.running.is_set():
                 self.running.wait(0.2)
-                deadline = time.monotonic() + self.pace
+                deadline = time.monotonic() + per_tick
                 continue
             left = deadline - time.monotonic()
             if left <= 0:
@@ -390,7 +391,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mode", default=modes.DEFAULT_MODE, choices=list(modes.MODES),
                    help="economy mode (aivillage/modes.py)")
     p.add_argument("--log", default="runs/live.jsonl", help="also write the replayable log here")
-    p.add_argument("--pace", type=float, default=1.0, help="seconds between ticks (min wait)")
+    p.add_argument("--pace", type=float, default=1.0, help="seconds per game hour (min wait; split over its ticks)")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--summary-model", default=None,
@@ -398,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: llm.DEFAULT_MODEL when OPENROUTER_API_KEY is set, else off)")
     p.add_argument("--reports", default=None, help="where problem reports go (default: <log dir>/reports)")
     p.add_argument("--reveal-reports", action="store_true", help="open the file manager on a new report")
+    p.add_argument("--tick-minutes", type=int, default=None, choices=clock.ALLOWED,
+                   help=f"game minutes per tick (default {clock.RUN_DEFAULT}; 60 = the old hourly turns)")
     mapgen.add_args(p)
     a = p.parse_args(argv)
     if a.seed is None:
@@ -410,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         override["disabled_actions"] = modes.disabled(a.mode)
     if a.agents:
         override["population"] = {"size": a.agents}
+    with_tick_minutes(override, a.tick_minutes)
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     print(f"Village seed {a.seed} (run again with --seed {a.seed} to get the same map)")
     on_night = None
