@@ -2,17 +2,19 @@
 // little later on screen. Instead of nothing happening, an omen starts right away where it will strike (smoke and
 // sparks on the house about to burn, a glint where treasure will lie, sparkles around a villager...) and grows
 // until the tick that carries the god event (row.god) is on screen; then the real effect takes over.
-// viewer/god.js fires `god-pending` {name, args}; PixelMap.draw calls Omens.draw every frame.
+// viewer/god.js fires `village-god-pending` {name, args, tick}; PixelMap.draw calls Omens.draw every frame.
 const Omens = (() => {
   const list = [];
-  window.addEventListener('god-pending', e => list.push({ ...e.detail, born: performance.now() / 1000 }));
+  // The server announces each queued god event (`god_pending`: name, args, landing tick); god.js re-sends it.
+  window.addEventListener('village-god-pending', e => list.push({ ...e.detail, born: performance.now() / 1000 }));
   const key = o => o.name + '|' + ((o.args || {}).person || (o.args || {}).location || (o.args || {}).to || '');
   // Person target -> sparkle colours.
   const TINT = { gift: ['#ffd23f', '#fff6b0'], sickness: ['#9bd65a', '#5e8c31'], rumor: ['#e8e8f0', '#c4c4cc'] };
 
   function draw(b, t, L, posOf, sec) {
     const { R, P, blob, rnd } = PixelMap.gfx, done = new Set((t.god || []).map(key));
-    for (let k = list.length - 1; k >= 0; k--) if (done.has(key(list[k])) || sec - list[k].born > 120) list.splice(k, 1);
+    for (let k = list.length - 1; k >= 0; k--) { const o = list[k];
+      if (done.has(key(o)) || (o.tick != null && t.tick > o.tick) || sec - o.born > 120) list.splice(k, 1); }
     for (const o of list) {
       const a = sec - o.born, u = Math.min(1, a / 8), args = o.args || {};
       if (o.name === 'fire') {

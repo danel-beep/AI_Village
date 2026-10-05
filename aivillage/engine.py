@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import crises, family, governance, mapgen, ops, plots, reputation, seasons, tiles
+from . import clock, crises, family, governance, mapgen, ops, plots, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -27,6 +27,8 @@ GodEvent = dict[str, Any]  # {"name": str, "args": {...}}
 
 def new_world(config: dict | None = None) -> World:
     cfg = make_config(config)
+    if clock.tick_minutes(cfg) not in clock.ALLOWED:
+        raise ValueError(f"tick_minutes must be one of {clock.ALLOWED}, got {cfg.get('tick_minutes')}")
     if cfg["map"].get("procedural") and "layout" not in cfg["map"]:
         cfg = mapgen.generate(cfg)  # a replayed log already carries its map, so it is never re-rolled
     w = World(config=cfg, hour=cfg["day_start_hour"])
@@ -52,6 +54,8 @@ def new_world(config: dict | None = None) -> World:
         plots.setup(w, spec, home)
     for pid, spec in cfg["projects"].items():
         w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]))
+    for a in w.agents.values():
+        a.busy_until = w.tick + wake_offset(w, a.name)
     return w
 
 
@@ -59,9 +63,16 @@ def rng_for(world: World, salt: str = "") -> random.Random:
     return random.Random(f"{world.config['seed']}:{world.tick}:{salt}")
 
 
+def wake_offset(world: World, name: str) -> int:
+    """Ticks a villager sleeps in after dawn, so the village does not think in one chorus.
+    0 in the hourly mode; its own rng stream, so it never shifts any other random draw."""
+    q = clock.per_hour(world.config)
+    return rng_for(world, f"wake:{name}").randrange(q) if q > 1 else 0
+
+
 def needs_decision(world: World, name: str) -> bool:
     a = world.agents[name]
-    return ops.can_act(a) and a.task is None
+    return ops.can_act(a) and a.task is None and world.tick >= a.busy_until
 
 
 def waiting_agents(world: World) -> list[str]:
@@ -86,7 +97,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     every = cfg["tax_every_days"]
     beds = plant_info(world, loc)
     obs = {
-        "time": {"day": world.day, "hour": world.hour, "day_ends_at": cfg["day_end_hour"],
+        "time": {"day": world.day, "hour": world.hour, "minute": world.minute, "day_ends_at": cfg["day_end_hour"],
                  "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": governance.tax_amount(world),
                  **seasons.time_info(cfg, world.day)},
         "you": {
@@ -153,7 +164,11 @@ def plant_info(world: World, loc) -> dict:
 # ---------- step ----------
 
 def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent] | None = None) -> list[Event]:
-    """Advance the world by one hour. Mutates `world` in place and returns the events."""
+    """Advance the world by one tick (`tick_minutes`). Mutates `world` in place and returns the events.
+
+    Each action keeps its agent busy for `action_minutes` (clock.action_ticks); a running task makes one
+    step (a walk hop, an hour of work) whenever the agent is free again. Hourly upkeep (hunger, fire,
+    offers, laws, estates) runs in the last tick of every hour, the night in the last tick of the day."""
     ctx = Ctx(world, rng_for(world))
     for g in god_events or []:
         try:
@@ -173,11 +188,20 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
         if dec is not None:
             a.task = None  # a fresh decision interrupts any running task
             run_decision(ctx, a, dec)
-        elif a.task is not None:
+        elif a.task is not None and world.tick >= a.busy_until:
             continue_task(ctx, a)
+            a.busy_until = world.tick + clock.per_hour(world.config)
 
-    end_of_hour(ctx)
+    wake_busy_agents(ctx)
+    minutes = clock.tick_minutes(world.config)
+    hour_over = world.minute + minutes >= 60
+    if hour_over:
+        end_of_hour(ctx)
     world.tick += 1
+    if not hour_over:
+        world.minute += minutes
+        return ctx.events
+    world.minute = 0
     world.hour += 1
     if world.hour >= world.config["day_end_hour"]:
         night(ctx)
@@ -194,13 +218,18 @@ def run_decision(ctx: Ctx, a: Agent, dec: Decision) -> None:
     act = dec.get("action") or {"name": "wait"}
     if not isinstance(act, dict):
         act = {"name": "wait"}
+    name = str(act.get("name", "wait"))
     try:
-        ACTIONS.run(ctx, a, str(act.get("name", "wait")), act.get("args") if isinstance(act.get("args"), dict) else {})
+        ACTIONS.run(ctx, a, name, act.get("args") if isinstance(act.get("args"), dict) else {})
     except ActionError as e:
         a.last_error = f"{act.get('name')}: {e}"
         a.task = None
+        name = "error"
         ctx.emit("error", f"Your action failed: {a.last_error}", actor=a.name, to=[a.name],
                  action=act, invalid=True)
+    if name == "wait" and say:  # only talking: as quick as `say`, so the answer can come soon
+        name = "say"
+    a.busy_until = ctx.world.tick + clock.action_ticks(ctx.cfg, name)
 
 
 def continue_task(ctx: Ctx, a: Agent) -> None:
@@ -274,7 +303,6 @@ def wake_busy_agents(ctx: Ctx) -> None:
 
 def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
-    wake_busy_agents(ctx)
     governance.end_of_hour(ctx)
     for a in w.agents.values():
         if a.status != "active":
@@ -386,6 +414,7 @@ def night(ctx: Ctx) -> None:
                      location=loc.id, resource=p["resource"], slot=slot, by=p["by"])
     for a in w.agents.values():
         a.asleep, a.task = False, None
+        a.busy_until = w.tick + wake_offset(w, a.name)
         if a.status == "hospital" and w.day >= a.status_until_day:
             a.status, a.location = "active", a.home
             a.health, a.satiety = 60, 60

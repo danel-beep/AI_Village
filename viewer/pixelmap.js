@@ -525,7 +525,8 @@ const PixelMap = (() => {
     for (const a of shown) { lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8]; Actors.paint(b, sheets[a.n], a, sec, a.n === selected); }
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
     // night
-    const h0 = prev.view.hour, h1 = t.view.hour, hour = h1 === h0 + 1 ? h0 + e : h0, dark = darkness(hour);
+    const h0 = prev.view.hour + (prev.view.minute || 0) / 60, h1 = t.view.hour + (t.view.minute || 0) / 60;
+    const hour = h1 > h0 && h1 - h0 <= 1 ? h0 + e * (h1 - h0) : h0, dark = darkness(hour);
     if (dark > 0) {
       b.fillStyle = `rgba(16,20,56,${dark})`; b.fillRect(0, 0, W, H);
       b.globalCompositeOperation = 'lighter';

@@ -76,7 +76,7 @@
   function render(meta) {
     const controls = `<h4>Время</h4><div class="row">
         <button id="god-pause">${meta.paused ? '▶ Продолжить' : '⏸ Пауза'}</button>
-        <label style="margin:0">сек/тик <input id="god-pace" type="number" min="0" max="60" step="0.5"
+        <label style="margin:0">сек/час <input id="god-pace" type="number" min="0" max="60" step="0.5"
           value="${meta.pace}" style="width:70px"></label></div>`;
     const forms = Object.entries(meta.god).map(([name, spec]) => {
       const [title, help] = LABELS[name] || [name, spec.description];
@@ -101,13 +101,21 @@
     for (const form of panel.querySelectorAll('form')) form.onsubmit = ev => {
       ev.preventDefault();
       const msg = form.querySelector('.msg');
-      const g = { name: form.dataset.name, args: read(form) };
-      post('/api/god', g)
-        .then(() => { msg.style.color = '#76b041'; msg.textContent = 'Готово: уже начинается, на карте видно где.';
-          window.dispatchEvent(new CustomEvent('god-pending', { detail: g })); })
+      // shown_tick: the moment on screen. The server lands the event a little after it (the buffer the
+      // picture trails the sim by) and broadcasts `god_pending`, re-sent below as 'village-god-pending'
+      // so the map can play a lead-in (a spark before the fire) until the picture reaches that tick.
+      const shown = typeof ticks !== 'undefined' && ticks.length ? ticks[Math.min(i, ticks.length - 1)].tick : null;
+      post('/api/god', { name: form.dataset.name, args: read(form), shown_tick: shown })
+        .then(r => { msg.style.color = '#76b041';
+          msg.textContent = `Готово: сработает в ${r.at.replace('day', 'день')}` +
+            (r.lead_minutes ? ` (через ${r.lead_minutes} игровых минут)` : '') + '.'; })
         .catch(e => { msg.style.color = '#e4572e'; msg.textContent = 'Не вышло: ' + e.message; });
     };
   }
+
+  window.addEventListener('village-live', e => {
+    if (e.detail.type === 'god_pending') window.dispatchEvent(new CustomEvent('village-god-pending', { detail: e.detail }));
+  });
 
   // A god event that fails inside the world (e.g. house already burning) comes back as a god_error event.
   window.addEventListener('village-live', e => {

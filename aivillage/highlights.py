@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 from .llm import DEFAULT_MODEL, Client, parse_json_object
-from .summary import StubSummaryClient, by_day, digest, make_client, ticks_of, when
+from .summary import StubSummaryClient, by_day, clock_of, digest, make_client, ticks_of, when
 
 MAX_PICKS, MIN_PICKS = 5, 3
 MAX_CANDIDATES = 60
@@ -72,7 +72,7 @@ def candidates(ticks: list[dict], cfg: dict | None = None) -> list[dict]:
     names = {n for rec in ticks for n in (rec.get("decisions") or {})}
     out, first = [], {}
     for rec in ticks:
-        day, hour = when(rec, cfg)
+        day, hour, minute = clock_of(rec, cfg)
         for e in rec.get("events") or []:
             score = DRAMA.get(e.get("kind"), 0)
             if not score or not e.get("text"):
@@ -87,7 +87,7 @@ def candidates(ticks: list[dict], cfg: dict | None = None) -> list[dict]:
                 continue
             who = [n for n in [e.get("actor"), *to] if n]
             who += sorted(n for n in names if n in text and n not in who)  # "Anna's house is on fire"
-            first[key] = {"tick": rec["tick"], "day": day, "hour": hour, "kind": e["kind"], "score": score,
+            first[key] = {"tick": rec["tick"], "day": day, "hour": hour, "minute": minute, "kind": e["kind"], "score": score,
                           "who": list(dict.fromkeys(who)), "event": text, "times": 1}
             out.append(first[key])
     if len(out) > MAX_CANDIDATES:
@@ -115,7 +115,7 @@ def by_rules(cands: list[dict], n: int = MAX_PICKS) -> list[int]:
 
 
 def _item(c: dict, title: str | None = None, text: str | None = None) -> dict:
-    return {"tick": c["tick"], "day": c["day"], "hour": c["hour"], "time": f"день {c['day']}, {c['hour']:02d}:00",
+    return {"tick": c["tick"], "day": c["day"], "hour": c["hour"], "time": f"день {c['day']}, {c['hour']:02d}:{c.get('minute', 0):02d}",
             "kind": c["kind"], "who": c["who"], "title": title or TITLES.get(c["kind"], c["kind"]),
             "text": text or c["event"] + (f" (×{c['times']} за день)" if c["times"] > 1 else ""),
             "event": c["event"], "times": c["times"]}
@@ -143,7 +143,7 @@ class Highlighter:
                 "items": items, "cost_usd": cost}
 
     def _ask(self, ticks: list[dict], cands: list[dict]) -> tuple[list[dict], float, str]:
-        listing = "\n".join(f"#{k} D{c['day']} {c['hour']:02d}:00 [{c['kind']}] {c['event'][:200]}"
+        listing = "\n".join(f"#{k} D{c['day']} {c['hour']:02d}:{c.get('minute', 0):02d} [{c['kind']}] {c['event'][:200]}"
                             + (f" (x{c['times']} that day)" if c["times"] > 1 else "")
                             for k, c in enumerate(cands))
         text = f"Candidates:\n{listing}\n\nDigest:\n{digest(ticks, CONTEXT_LINES, self.cfg)}"

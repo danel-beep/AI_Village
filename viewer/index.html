@@ -161,8 +161,10 @@ function render() {
   PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr, hourSec });
   document.getElementById('scrub').value = i;
   // Minutes run with the animation, so the clock keeps ticking while the next hour is being computed.
-  const mm = t.view.hour === prev.view.hour + 1 ? Math.min(59, Math.floor(frac * 60)) : 0;
-  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  // A tick is view.tick_minutes (15, or 60 in old logs); view.minute is absent in old logs.
+  const m0 = prev.view.hour * 60 + (prev.view.minute || 0), m1 = t.view.hour * 60 + (t.view.minute || 0);
+  const now = Math.floor(m1 > m0 && m1 - m0 <= 60 ? m0 + Math.min(0.99, frac) * (m1 - m0) : m0);
+  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}`;
 }
 
 function panel() {
@@ -183,7 +185,7 @@ function panel() {
   for (let k = i; k >= 0 && feed.length < 40; k--) for (const e of ticks[k].events.slice().reverse()) {
     const mine = selected && (e.actor === selected || e.to.includes(selected));
     if ((selected ? mine : e.visibility !== 'private') && feed.length < 40)
-      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:00</span> ${esc(tr(e.text))}</div>`);
+      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:${String(e.minute || 0).padStart(2, '0')}</span> ${esc(tr(e.text))}</div>`);
   }
   document.getElementById('feed').innerHTML = feed.join('');
 }

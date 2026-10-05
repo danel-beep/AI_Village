@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from . import clock
 from .llm import DEFAULT_MODEL, Client, StubClient, parse_json_object
 
 MAX_LINES = 220  # digest lines sent to the model; one game day of 5 agents is ~100-150
@@ -36,10 +37,13 @@ def _clip(s: str, n: int = MAX_CHARS) -> str:
 
 def when(rec: dict, cfg: dict | None = None) -> tuple[int, int]:
     """Game day and hour when the tick was played (its `view` is the time after it)."""
+    return clock_of(rec, cfg)[:2]
+
+
+def clock_of(rec: dict, cfg: dict | None = None) -> tuple[int, int, int]:
+    """Game day, hour and minute when the tick was played."""
     from .config import DEFAULT_CONFIG
-    cfg = cfg or DEFAULT_CONFIG
-    start, hours = cfg["day_start_hour"], cfg["day_end_hour"] - cfg["day_start_hour"]
-    return rec["tick"] // hours + 1, start + rec["tick"] % hours
+    return clock.time_of(cfg or DEFAULT_CONFIG, rec["tick"])
 
 
 def ticks_of(records: Iterable[dict]) -> list[dict]:
@@ -55,8 +59,8 @@ def digest(ticks: list[dict], max_lines: int = MAX_LINES, cfg: dict | None = Non
         for e in rec.get("events") or []:
             if e.get("kind") in ("error",) or not e.get("text"):
                 continue
-            lines.append((True, f"D{e.get('day')} {e.get('hour', 0):02d}:00 event: {_clip(e['text'])}"))
-        day, hour = when(rec, cfg)
+            lines.append((True, f"D{e.get('day')} {e.get('hour', 0):02d}:{e.get('minute', 0):02d} event: {_clip(e['text'])}"))
+        day, hour, minute = clock_of(rec, cfg)
         for name, d in sorted((rec.get("decisions") or {}).items()):
             if not isinstance(d, dict):
                 continue
@@ -72,7 +76,7 @@ def digest(ticks: list[dict], max_lines: int = MAX_LINES, cfg: dict | None = Non
             if (d.get("say") or "").strip():
                 parts.append(f"say: {_clip(d['say'])}")
             if parts:
-                lines.append((False, f"D{day} {hour:02d}:00 {name} " + " | ".join(parts)))
+                lines.append((False, f"D{day} {hour:02d}:{minute:02d} {name} " + " | ".join(parts)))
     if len(lines) > max_lines:
         events = [i for i, (ev, _) in enumerate(lines) if ev]
         rest = [i for i, (ev, _) in enumerate(lines) if not ev]
@@ -102,9 +106,9 @@ class Summarizer:
         if not isinstance(out, str) or not out.strip():
             out = reply.strip()
         self.cost_usd += float(usage.get("cost") or 0)
-        (d0, h0), (d1, h1) = when(ticks[0], self.cfg), when(ticks[-1], self.cfg)
+        (d0, h0, m0), (d1, h1, m1) = clock_of(ticks[0], self.cfg), clock_of(ticks[-1], self.cfg)
         return {"from_tick": ticks[0]["tick"], "to_tick": ticks[-1]["tick"],
-                "from": f"день {d0}, {h0:02d}:00", "to": f"день {d1}, {h1:02d}:00",
+                "from": f"день {d0}, {h0:02d}:{m0:02d}", "to": f"день {d1}, {h1:02d}:{m1:02d}",
                 "text": out.strip(), "cost_usd": float(usage.get("cost") or 0)}
 
 
