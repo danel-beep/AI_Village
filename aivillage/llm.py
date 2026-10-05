@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import governance, keys
+from . import governance, keys, plots
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -103,6 +103,8 @@ def world_facts(cfg: dict) -> str:
                      f"share a house and chests; a spouse (else your best friend) inherits if you die.")
     if governance.enabled(cfg):
         lines.append(governance.facts(cfg))
+    if plots.enabled(cfg):
+        lines.append(plots.facts(cfg))
     return "\n".join(lines)
 
 

@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import ops, seasons, tiles
+from . import ops, plots, seasons, tiles
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer
@@ -725,9 +725,11 @@ def _sowable(ctx: Ctx, loc) -> dict:
 
 
 @ACTIONS.action("plant", "Sow a seed in a free bed here (takes 1 hour). It ripens after some nights; then work here "
-                "to harvest. Anyone can harvest a ripe bed.", PlantArgs,
-                available=lambda c, a: bool(_sowable(c, _here(c, a))))
+                "to harvest. Anyone can harvest a ripe bed. At home it sows your own garden_bed (only your family harvests it).",
+                PlantArgs, available=lambda c, a: bool(_sowable(c, _here(c, a))) or plots.can_sow(c, a))
 def plant(ctx: Ctx, a: Agent, args: PlantArgs) -> None:
+    if plots.own_plot_here(ctx.world, a) is not None:
+        return plots.sow(ctx, a, args.crop)
     loc = _here(ctx, a)
     sowable = _sowable(ctx, loc)
     if not sowable:

@@ -3,7 +3,7 @@
 // The world is painted on a low-res buffer (16 px tiles), upscaled 2x with no smoothing; text goes on top at full res.
 // Positions are viewer-only: the engine has no coordinates, only a graph of locations.
 const PixelMap = (() => {
-  const T = 16, S = 2, COLS = 30, PER_ROW = 6, LOTS = [3, 7, 11, 17, 21, 25];
+  const T = 16, S = 2, COLS = 30, PER_ROW = 6, LOTS = [3, 7, 11, 17, 21, 25], ROW_H = 7;
   const C = {
     k: '#1b1b24', grass: '#5a9a3c', grassL: '#6cb04a', grassD: '#4b8a35', grassDD: '#3d7530',
     dirt: '#c8a26a', dirtD: '#b48c55', dirtL: '#d9b880', water: '#3f7fbf', waterD: '#2f6299', waterL: '#a8d4f0',
@@ -67,7 +67,7 @@ const PixelMap = (() => {
     }
     cols = COLS;
     const rows = Math.max(1, Math.ceil(names.length / PER_ROW));
-    W = COLS * T; H = (16 + 4 * rows) * T;
+    W = COLS * T; H = (19 + ROW_H * rows) * T;
     const kind = {}, set = (x, y, k) => { kind[x + ',' + y] = k; };
     const area = (x0, y0, x1, y1, k) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, k); };
     const anchors = { river: px(4, 9), field: px(8, 6), market: px(15, 4), square: px(15, 9), forest: px(24, 5),
@@ -82,11 +82,12 @@ const PixelMap = (() => {
                      'forest|mine': [px(24, 5), px(24, 12), px(27, 12)] };
     const houses = [];
     names.forEach((n, k) => {
-      const r = Math.floor(k / PER_ROW), x0 = LOTS[k % PER_ROW], y0 = 15 + 4 * r, id = 'home_' + n;
+      // Each house has a yard (private plot, viewer/plotlayer.js) of 3x3 tiles behind it.
+      const r = Math.floor(k / PER_ROW), x0 = LOTS[k % PER_ROW], y0 = 18 + ROW_H * r, id = 'home_' + n;
       houses.push({ name: n, x: x0 * T, y: y0 * T, roof: ROOFS[k % ROOFS.length] });
       anchors[id] = px(x0 + 1, y0 + 3); box[id] = [x0 * T, y0 * T, 3 * T, 3 * T];
       routes[id + '|square'] = [px(x0 + 1, y0 + 3), px(15, y0 + 3), px(15, 9)];
-      area(x0, y0, x0 + 2, y0 + 2, 'block');
+      area(x0, y0 - 3, x0 + 2, y0 + 2, 'block');
     });
     area(0, 0, 2, H / T, 'water');
     area(12, 7, 18, 11, 'cobble');
@@ -101,7 +102,7 @@ const PixelMap = (() => {
       }
     };
     Object.values(routes).forEach(carve);
-    for (let r = 0; r < rows; r++) carve([px(4, 18 + 4 * r), px(26, 18 + 4 * r)]);
+    for (let r = 0; r < rows; r++) carve([px(4, 21 + ROW_H * r), px(26, 21 + ROW_H * r)]);
     set(3, 9, 'dock'); set(2, 9, 'dock'); set(1, 9, 'dock');
     for (let y = 5; y <= 9; y++) set(8, y, 'path');
     layout = { kind, anchors, box, routes, houses, rows };
@@ -357,6 +358,7 @@ const PixelMap = (() => {
   function init(header, colors) {
     names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
     if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
+    if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence });
     paintBackground();
     buf = document.createElement('canvas'); buf.width = W; buf.height = H; b = buf.getContext('2d');
     sheets = {}; names.forEach((n, k) => sheets[n] = sheetFor(n, k));
@@ -414,6 +416,7 @@ const PixelMap = (() => {
       R(b, x + (ph * 3 | 0), y, 3, 1, C.waterL);
     }
     if (window.MapLayer) MapLayer.draw(b, t, e, sec);
+    if (window.PlotLayer) PlotLayer.draw(b, t, e, sec);
     const fires = new Set(t.view.fires || []);
     const homeNow = new Set(names.filter(n => t.view.agents[n].location === 'home_' + n && t.view.agents[n].status === 'active'));
     // chimney smoke

@@ -31,6 +31,10 @@ class AgentSpec(Strict):
     profession: str
     model: str | None = None  # OpenRouter model id, or "stub"
     bot: str | None = None  # scripted bot kind
+    # Private plot at start (aivillage/plots.py); None = config "plots" defaults
+    plot_cells: int | None = Field(default=None, ge=0)
+    house_level: int | None = Field(default=None, ge=1)
+    buildings: list[str] | None = None  # built for free at the start
 
     @model_validator(mode="after")
     def one_brain(self):
@@ -117,7 +121,9 @@ class RunConfig(Strict):
         out = modes.world_override(self.mode, self.world)
         out["seed"] = self.seed
         if self.agents is not None:
-            out["agents"] = [{"name": a.name, "profession": a.profession} for a in self.agents]
+            out["agents"] = [{"name": a.name, "profession": a.profession,
+                              **a.model_dump(include={"plot_cells", "house_level", "buildings"}, exclude_none=True)}
+                             for a in self.agents]
         if self.villagers:
             out["population"] = {**(out.get("population") or {}), "size": self.villagers}
         off = set(self.mechanics.disabled) | set(modes.disabled(self.mode))
