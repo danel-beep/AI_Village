@@ -47,8 +47,13 @@ class ActionSpec:
 
 
 class Registry:
-    def __init__(self) -> None:
+    def __init__(self, disabled_key: str | None = None) -> None:
         self.specs: dict[str, ActionSpec] = {}
+        # World-config key listing actions switched off for a run (run config "mechanics.disabled").
+        self.disabled_key = disabled_key
+
+    def disabled(self, cfg: dict) -> frozenset[str]:
+        return frozenset(cfg.get(self.disabled_key) or ()) if self.disabled_key else frozenset()
 
     def action(self, name: str, description: str, args: type[BaseModel] = NoArgs,
                available: AvailFn | None = None):
@@ -70,18 +75,21 @@ class Registry:
         return spec, args
 
     def run(self, ctx: Ctx, actor: Agent, name: str, raw_args: dict | None) -> None:
+        if name in self.disabled(ctx.cfg):
+            raise ActionError(f"'{name}' is not possible in this village")
         spec, args = self.parse(name, raw_args)
         spec.apply(ctx, actor, args)
 
     def available(self, ctx: Ctx, actor: Agent) -> list[str]:
-        return [n for n, s in self.specs.items() if s.available(ctx, actor)]
+        off = self.disabled(ctx.cfg)
+        return [n for n, s in self.specs.items() if n not in off and s.available(ctx, actor)]
 
-    def describe(self) -> str:
-        return "\n".join(s.prompt_line() for s in self.specs.values())
+    def describe(self, disabled: frozenset[str] | set[str] = frozenset()) -> str:
+        return "\n".join(s.prompt_line() for n, s in self.specs.items() if n not in disabled)
 
     def schemas(self) -> dict[str, dict]:
         return {n: s.schema() for n, s in self.specs.items()}
 
 
-ACTIONS = Registry()
+ACTIONS = Registry(disabled_key="disabled_actions")
 GOD = Registry()

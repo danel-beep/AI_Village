@@ -191,9 +191,10 @@ class LLMAgent:
     diary: list[dict] = field(default_factory=list)  # [{"day", "text"}], one per night
     day_log: list[str] = field(default_factory=list)  # today's turns, consumed by reflect()
     villagers: set[str] = field(default_factory=set)
+    disabled_actions: frozenset[str] = frozenset()
 
     def messages(self, obs: dict) -> list[dict]:
-        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe())
+        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe(self.disabled_actions))
         memory = {"notes": self.notes or "none"}
         if self.people:
             memory["people"] = self.people
