@@ -1,0 +1,498 @@
+// Pixel-art map renderer for the AI Village viewer.
+// All art is drawn in code (no image files): every pixel is ours, so there is no third-party license to track.
+// The world is painted on a low-res buffer (16 px tiles), upscaled 2x with no smoothing; text goes on top at full res.
+// Positions are viewer-only: the engine has no coordinates, only a graph of locations.
+const PixelMap = (() => {
+  const T = 16, S = 2, COLS = 30, PER_ROW = 6, LOTS = [3, 7, 11, 17, 21, 25];
+  const C = {
+    k: '#1b1b24', grass: '#5a9a3c', grassL: '#6cb04a', grassD: '#4b8a35', grassDD: '#3d7530',
+    dirt: '#c8a26a', dirtD: '#b48c55', dirtL: '#d9b880', water: '#3f7fbf', waterD: '#2f6299', waterL: '#a8d4f0',
+    wood: '#8a5a35', woodD: '#6b4226', woodL: '#a8743f', stone: '#9a9aa2', stoneD: '#6f6f78', stoneL: '#c4c4cc',
+    leaf: '#2f7a3a', leafD: '#22582c', leafL: '#4a9a48', soil: '#7a5532', soilD: '#5e3f24', wheat: '#e0c040',
+    wheatD: '#b8962c', sprout: '#7ab648', plaster: '#e8d4a8', plasterD: '#cbb488', glass: '#6fb3d9', lit: '#ffd36b',
+  };
+  const ROOFS = [['#b8483a', '#8f3328', '#d46a4f'], ['#3f6fa8', '#2d5280', '#5a8cc4'], ['#5c8a3a', '#43692a', '#7aa852'],
+                 ['#8a5aa8', '#684382', '#a77cc4'], ['#c47a2c', '#9a5c1c', '#de9a4a'], ['#5d5d6b', '#44444f', '#7c7c8c']];
+  const HAIR = ['#3b2a20', '#e8c060', '#a0452a', '#1d1d24', '#7a5030', '#d8d8d8', '#c96b9a', '#5a3a8a'];
+  const SKIN = [['#f2c9a0', '#d9a77e'], ['#d9a066', '#b98049'], ['#a8724a', '#865633'], ['#ffd9b8', '#e8b48e']];
+  const PANTS = ['#3e4a6b', '#5a4632', '#2f3a2f', '#4a3a5a'];
+
+  // Character templates, 12x16. 1 skin, 2 skin shade, 3 hair, 4 hair shade, 5 shirt, 6 shirt shade, 7 pants, 8 shoes.
+  const HEAD = {
+    down: ['...kkkkkk...', '..k333333k..', '.k33333333k.', '.k33333333k.', '.k31111113k.', '.k1k1111k1k.',
+           '.k11111111k.', '..k112211k..', '...kk11kk...'],
+    up:   ['...kkkkkk...', '..k333333k..', '.k33333333k.', '.k33333333k.', '.k33333333k.', '.k33333333k.',
+           '.k43333334k.', '..k444444k..', '...kk11kk...'],
+    side: ['...kkkkkk...', '..k333333k..', '.k33333333k.', '.k33333311k.', '.k33331111k.', '.k3331111kk.',
+           '..k3111111k.', '...k11111k..', '....k11k....'],
+  };
+  const BODY = { front: ['..k555555k..', '.k15555551k.', '.k15555551k.', '..k666666k..'],
+                 side:  ['...k5555k...', '...k5515k...', '...k5515k...', '...k6666k...'] };
+  const LEGS = {
+    front: [['..k77kk77k..', '..k88kk88k..', '...kk..kk...'], ['..k77kk77k..', '..k88k.kk...', '...kk.......'],
+            ['..k77kk77k..', '...kk.k88k..', '.......kk...']],
+    side:  [['...k7777k...', '...k8888k...', '....kkkk....'], ['..k77kk77k..', '.k88k..k88k.', '..kk....kk..'],
+            ['...k7777k...', '...k8888k...', '....kkkk....']],
+  };
+
+  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {};
+
+  function rnd(x, y, s = 0) {
+    let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
+    h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.max(0, Math.min(255, Math.round(v * f))));
+    return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+  }
+  const R = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, w, h); };
+  const P = (g, x, y, c) => R(g, x, y, 1, 1, c);
+
+  // Filled ellipse with top-left light, bottom-right shade and a dark outline.
+  function blob(g, cx, cy, rx, ry, [light, mid, dark], outline = C.k) {
+    const inside = (x, y) => ((x + .5 - cx) / rx) ** 2 + ((y + .5 - cy) / ry) ** 2 <= 1;
+    for (let y = Math.floor(cy - ry); y <= cy + ry; y++) for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
+      if (!inside(x, y)) continue;
+      const edge = !inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1);
+      const l = (x - cx) / rx + (y - cy) / ry;
+      P(g, x, y, edge && outline ? outline : l < -.7 || (l < -.4 && (x + y) % 2) ? light : l > .6 || (l > .3 && (x + y) % 2) ? dark : mid);
+    }
+  }
+
+  // ---------- layout: where every location sits, and the walkable paths between them (pixels) ----------
+  const px = (tx, ty) => [tx * T + 8, ty * T + 8];
+  function buildLayout() {
+    const rows = Math.max(1, Math.ceil(names.length / PER_ROW));
+    W = COLS * T; H = (16 + 4 * rows) * T;
+    const kind = {}, set = (x, y, k) => { kind[x + ',' + y] = k; };
+    const area = (x0, y0, x1, y1, k) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, k); };
+    const anchors = { river: px(4, 9), field: px(8, 6), market: px(15, 4), square: px(15, 9), forest: px(24, 5),
+                      mine: px(27, 12), smithy: px(21, 12) };
+    const box = { river: [0, 7 * T, 4 * T, 4 * T], field: [5 * T, 2 * T, 6 * T, 6 * T], market: [12 * T, T, 7 * T, 3 * T],
+                  square: [12 * T, 7 * T, 7 * T, 5 * T], forest: [21 * T, 0, 9 * T, 8 * T], mine: [25 * T, 8 * T, 5 * T, 4 * T],
+                  smithy: [20 * T, 8 * T, 4 * T, 4 * T] };
+    const routes = { 'square|market': [px(15, 9), px(15, 4)], 'square|field': [px(15, 9), px(8, 9), px(8, 6)],
+                     'square|river': [px(15, 9), px(4, 9)], 'field|river': [px(8, 6), px(8, 9), px(4, 9)],
+                     'square|forest': [px(15, 9), px(19, 9), px(19, 5), px(24, 5)],
+                     'square|smithy': [px(15, 9), px(15, 12), px(21, 12)],
+                     'forest|mine': [px(24, 5), px(24, 12), px(27, 12)] };
+    const houses = [];
+    names.forEach((n, k) => {
+      const r = Math.floor(k / PER_ROW), x0 = LOTS[k % PER_ROW], y0 = 15 + 4 * r, id = 'home_' + n;
+      houses.push({ name: n, x: x0 * T, y: y0 * T, roof: ROOFS[k % ROOFS.length] });
+      anchors[id] = px(x0 + 1, y0 + 3); box[id] = [x0 * T, y0 * T, 3 * T, 3 * T];
+      routes[id + '|square'] = [px(x0 + 1, y0 + 3), px(15, y0 + 3), px(15, 9)];
+      area(x0, y0, x0 + 2, y0 + 2, 'block');
+    });
+    area(0, 0, 2, H / T, 'water');
+    area(12, 7, 18, 11, 'cobble');
+    area(5, 2, 10, 7, 'soil');
+    area(12, 1, 18, 3, 'block'); area(20, 8, 23, 11, 'block'); area(25, 8, 29, 11, 'block'); area(21, 0, 29, 7, 'forest');
+    // Carve paths along every route (tile by tile), then a street in front of each row of houses.
+    const carve = pts => {
+      for (let j = 1; j < pts.length; j++) {
+        let [x, y] = pts[j - 1].map(v => (v - 8) / T); const [x1, y1] = pts[j].map(v => (v - 8) / T);
+        for (;;) { if (kind[x + ',' + y] !== 'cobble' && kind[x + ',' + y] !== 'water') set(x, y, 'path');
+                   if (x === x1 && y === y1) break; x += Math.sign(x1 - x); y += Math.sign(y1 - y); }
+      }
+    };
+    Object.values(routes).forEach(carve);
+    for (let r = 0; r < rows; r++) carve([px(4, 18 + 4 * r), px(26, 18 + 4 * r)]);
+    set(3, 9, 'dock'); set(2, 9, 'dock'); set(1, 9, 'dock');
+    for (let y = 5; y <= 9; y++) set(8, y, 'path');
+    layout = { kind, anchors, box, routes, houses, rows };
+  }
+  const kindAt = (x, y) => layout.kind[x + ',' + y] || 'grass';
+
+  // ---------- static background ----------
+  function paintGround(g) {
+    for (let ty = 0; ty < H / T; ty++) for (let tx = 0; tx < COLS; tx++) {
+      const k = kindAt(tx, ty), x0 = tx * T, y0 = ty * T;
+      for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+        const X = x0 + x, Y = y0 + y, r = rnd(X, Y);
+        let c;
+        if (k === 'water' || k === 'dock') {
+          const bank = 3 * T - X; c = bank < 2 + rnd(0, Y >> 2) * 3 ? C.waterL : X < T * 1.5 ? C.waterD : C.water;
+          if (r < .02) c = C.waterL;
+        } else if (k === 'path') c = r < .12 ? C.dirtD : r < .2 ? C.dirtL : C.dirt;
+        else if (k === 'cobble') {
+          const sx = (X + ((Y >> 2) % 2) * 3) % 6, sy = Y % 4;
+          c = sx === 0 || sy === 0 ? C.stoneD : rnd(X / 6 | 0, Y >> 2, 7) < .5 ? C.stone : C.stoneL;
+        } else if (k === 'soil') c = Y % 4 === 3 ? C.soilD : r < .1 ? C.soilD : C.soil;
+        else c = r < .07 ? C.grassL : r < .14 ? C.grassD : C.grass;
+        P(g, X, Y, c);
+      }
+      // Soften path edges with grass tufts; sprinkle grass detail.
+      if (k === 'path') for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (kindAt(tx + dx, ty + dy) !== 'grass') continue;
+        for (let s = 0; s < T; s++) if (rnd(tx * 31 + s, ty * 17 + dx * 3 + dy) < .55) {
+          const x = dx ? (dx > 0 ? T - 1 : 0) : s, y = dy ? (dy > 0 ? T - 1 : 0) : s;
+          P(g, x0 + x, y0 + y, C.grass);
+        }
+      }
+      if (k === 'grass') {
+        if (rnd(tx, ty, 1) < .35) { const x = x0 + 3 + (rnd(tx, ty, 2) * 9 | 0), y = y0 + 4 + (rnd(tx, ty, 3) * 8 | 0);
+          P(g, x, y, C.grassDD); P(g, x + 2, y, C.grassDD); P(g, x + 1, y - 1, C.grassDD); }
+        if (rnd(tx, ty, 4) < .08) { const x = x0 + 4 + (rnd(tx, ty, 5) * 8 | 0), y = y0 + 4 + (rnd(tx, ty, 6) * 8 | 0),
+          f = ['#f06a8a', '#f7e26b', '#f4f4f4', '#9ad0f0'][rnd(tx, ty, 8) * 4 | 0];
+          P(g, x, y, f); P(g, x + 3, y + 2, f); P(g, x - 2, y + 3, f); }
+      }
+    }
+  }
+
+  function tree(g, x, y, pine) {
+    blob(g, x + 16, y + 30, 11, 3, ['rgba(0,0,0,.18)', 'rgba(0,0,0,.18)', 'rgba(0,0,0,.18)'], null);
+    R(g, x + 13, y + 20, 6, 10, C.k); R(g, x + 14, y + 20, 4, 9, C.wood); R(g, x + 14, y + 20, 1, 9, C.woodL);
+    if (pine) {
+      for (let layer = 0; layer < 3; layer++) for (let i = 0; i < 11; i++) {
+        const yy = y + 2 + layer * 7 + i, half = 3 + i + layer * 2;
+        if (yy > y + 24) break;
+        for (let xx = -half; xx <= half; xx++) {
+          const edge = Math.abs(xx) === half || i === 10;
+          P(g, x + 16 + xx, yy, edge ? C.k : xx < -half / 3 ? C.leafL : xx > half / 2 ? C.leafD : C.leaf);
+        }
+      }
+    } else {
+      const pal = [C.leafL, C.leaf, C.leafD];
+      blob(g, x + 16, y + 13, 13, 11, pal); blob(g, x + 10, y + 12, 7, 7, pal, null); blob(g, x + 20, y + 9, 7, 6, pal, null);
+      for (let i = 0; i < 6; i++) P(g, x + 8 + rnd(x, y, i) * 16, y + 6 + rnd(y, x, i) * 12, C.leafL);
+    }
+  }
+  function bush(g, x, y) { blob(g, x + 8, y + 10, 7, 5, [C.leafL, C.leaf, C.leafD]);
+    if (rnd(x, y) < .4) { P(g, x + 5, y + 8, '#e4572e'); P(g, x + 10, y + 10, '#e4572e'); } }
+  function rock(g, x, y, ore) { blob(g, x + 8, y + 10, 6, 5, [C.stoneL, C.stone, C.stoneD]);
+    if (ore) { P(g, x + 6, y + 9, ore); P(g, x + 9, y + 11, ore); P(g, x + 10, y + 8, ore); } }
+  function fence(g, x0, y0, x1, y1, gapX) {
+    for (let x = x0; x <= x1; x++) for (const y of [y0, y1]) if (!(y === y1 && Math.abs(x - gapX) < 9)) {
+      P(g, x, y + 2, C.woodD); P(g, x, y + 5, C.woodD); if (x % 8 === 0) R(g, x, y, 2, 8, C.wood); }
+    for (let y = y0; y <= y1; y += 8) for (const x of [x0, x1]) R(g, x, y, 2, 8, C.wood);
+  }
+
+  function house(g, h) {
+    const { x, y, roof: [rm, rd, rl] } = h;
+    R(g, x + 4, y + 46, 44, 2, 'rgba(0,0,0,.2)');
+    // walls
+    R(g, x + 2, y + 24, 44, 22, C.k); R(g, x + 3, y + 24, 42, 21, C.plaster);
+    for (let yy = y + 28; yy < y + 45; yy += 4) R(g, x + 3, yy, 42, 1, C.plasterD);
+    R(g, x + 3, y + 43, 42, 2, C.plasterD);
+    // door and windows
+    R(g, x + 19, y + 31, 10, 15, C.k); R(g, x + 20, y + 32, 8, 14, C.wood); R(g, x + 20, y + 32, 1, 14, C.woodL);
+    P(g, x + 26, y + 39, C.wheat);
+    h.windows = [[x + 7, y + 31], [x + 33, y + 31]];
+    for (const [wx, wy] of h.windows) { R(g, wx, wy, 9, 8, C.k); R(g, wx + 1, wy + 1, 7, 6, C.glass);
+      R(g, wx + 4, wy + 1, 1, 6, C.k); R(g, wx + 1, wy + 4, 7, 1, C.k); P(g, wx + 2, wy + 2, '#d8f0ff'); R(g, wx - 1, wy + 8, 11, 2, C.woodD); }
+    // chimney
+    R(g, x + 34, y + 1, 8, 12, C.k); R(g, x + 35, y + 2, 6, 11, C.stoneD); R(g, x + 35, y + 2, 6, 2, C.stone);
+    h.chimney = [x + 38, y];
+    // roof: trapezoid with shingle rows
+    for (let i = 0; i < 26; i++) {
+      const inset = Math.round(8 - i * 10 / 25), yy = y + 2 + i;
+      R(g, x + inset - 1, yy, 50 - 2 * inset, 1, C.k);
+      if (i === 0 || i === 25) continue;
+      R(g, x + inset, yy, 48 - 2 * inset, 1, i % 5 === 0 ? rd : i < 4 ? rl : rm);
+      if (i % 5 !== 0) for (let xx = x + inset + ((i / 5 | 0) % 2) * 3; xx < x + 48 - inset; xx += 6) P(g, xx, yy, rd);
+    }
+  }
+
+  function market(g) {
+    const awn = [['#c93c3c', '#f2ead8'], ['#3f6fa8', '#f2ead8'], ['#d9a020', '#f2ead8']];
+    const goods = [['#e4572e', '#ff9f1c'], ['#76b041', '#f7e26b'], ['#c47ac0', '#e4572e']];
+    for (let s = 0; s < 3; s++) {
+      const x = 12 * T + 4 + s * 36, y = T + 2;
+      R(g, x + 2, y + 6, 2, 26, C.woodD); R(g, x + 28, y + 6, 2, 26, C.woodD);
+      R(g, x, y + 22, 32, 12, C.k); R(g, x + 1, y + 22, 30, 11, C.wood); R(g, x + 1, y + 22, 30, 2, C.woodL);
+      for (let i = 0; i < 10; i++) { const gx = x + 3 + i * 3, c = goods[s][i % 2]; P(g, gx, y + 20, c); P(g, gx + 1, y + 20, c); P(g, gx, y + 19, c); }
+      for (let i = 0; i < 12; i++) for (let xx = 0; xx < 34; xx++) {
+        const c = i === 0 || i === 11 ? C.k : awn[s][(xx >> 2) % 2];
+        if (i === 11 && (xx >> 2) % 2) continue;
+        P(g, x - 1 + xx, y + i, c);
+      }
+    }
+    for (const [cx, cy] of [[12 * T - 4, 3 * T], [19 * T - 6, 2 * T + 6]]) {
+      R(g, cx, cy, 12, 11, C.k); R(g, cx + 1, cy + 1, 10, 9, C.woodL); R(g, cx + 1, cy + 5, 10, 1, C.woodD); }
+  }
+
+  function square(g) {
+    // well
+    const x = 12 * T + 10, y = 7 * T + 4;
+    blob(g, x + 10, y + 19, 10, 6, [C.stoneL, C.stone, C.stoneD]); blob(g, x + 10, y + 18, 6, 3, ['#1d3550', '#1d3550', '#1d3550'], null);
+    R(g, x + 2, y + 3, 2, 16, C.woodD); R(g, x + 16, y + 3, 2, 16, C.woodD);
+    for (let i = 0; i < 6; i++) R(g, x - 1 + i, y + 3 - i, 22 - 2 * i, 1, i ? '#8f3328' : C.k);
+    R(g, x - 1, y + 3, 22, 1, C.k); R(g, x + 9, y + 8, 2, 7, C.wood);
+    // benches and lamps
+    for (const bx of [16 * T + 2, 13 * T + 6]) { R(g, bx, 10 * T + 6, 22, 4, C.k); R(g, bx + 1, 10 * T + 6, 20, 3, C.woodL); R(g, bx + 2, 10 * T + 10, 2, 3, C.k); R(g, bx + 18, 10 * T + 10, 2, 3, C.k); }
+    layout.lamps = [[12 * T + 2, 11 * T + 2], [18 * T + 12, 7 * T + 2]];
+    for (const [lx, ly] of layout.lamps) { R(g, lx, ly - 14, 2, 16, C.k); R(g, lx - 2, ly - 18, 6, 5, C.k); R(g, lx - 1, ly - 17, 4, 3, '#f7e26b'); }
+  }
+
+  function field(g) {
+    for (let y = 2 * T + 3; y < 8 * T - 4; y += 4) for (let x = 5 * T + 3; x < 11 * T - 3; x += 4) {
+      if (Math.abs(x - (8 * T + 8)) < 9) continue;
+      const ripe = rnd(x, y, 9) < .7;
+      P(g, x, y, ripe ? C.wheatD : C.sprout); P(g, x, y - 1, ripe ? C.wheat : C.sprout); P(g, x + 1, y - 2, ripe ? C.wheat : '#9ad060');
+      P(g, x - 1, y - 2, ripe ? C.wheat : C.sprout); if (ripe) P(g, x, y - 3, C.wheat);
+    }
+    fence(g, 5 * T - 2, 2 * T - 6, 11 * T, 8 * T - 4, 8 * T + 8);
+    // scarecrow
+    const x = 6 * T + 4, y = 5 * T - 2; R(g, x + 3, y + 4, 1, 12, C.woodD); R(g, x, y + 6, 8, 1, C.woodD);
+    R(g, x + 1, y + 6, 6, 5, '#c47a2c'); blob(g, x + 3.5, y + 3, 3, 3, ['#f2d38a', '#e8c060', '#c9a040']); R(g, x, y, 8, 1, '#5a3a2a');
+  }
+
+  function river(g) {
+    // dock planks
+    for (let x = 1 * T; x < 4 * T; x++) for (let y = 9 * T + 3; y < 10 * T - 2; y++)
+      P(g, x, y, y === 9 * T + 3 || y === 10 * T - 3 ? C.k : x % 5 === 0 ? C.woodD : C.woodL);
+    for (const x of [T + 2, 2 * T + 6]) R(g, x, 10 * T - 2, 2, 4, C.woodD);
+    for (let y = 0; y < H; y += 9) if (rnd(3, y) < .45 && Math.abs(y - 9 * T) > 20) {
+      const x = 3 * T - 2 + (rnd(y, 3) * 3 | 0); R(g, x, y, 1, 5, C.leafD); R(g, x + 2, y + 1, 1, 4, C.leaf); P(g, x, y - 1, '#7a5030'); }
+    rock(g, 2 * T + 2, 13 * T, null); rock(g, 2 * T + 6, 4 * T, null);
+  }
+
+  function smithy(g) {
+    const x = 20 * T, y = 8 * T;
+    R(g, x + 2, y + 62, 60, 2, 'rgba(0,0,0,.2)');
+    R(g, x + 2, y + 26, 60, 36, C.k);
+    for (let yy = y + 27; yy < y + 61; yy++) for (let xx = x + 3; xx < x + 61; xx++)
+      P(g, xx, yy, (yy - y) % 5 === 0 || (xx + ((yy - y) / 5 | 0) * 4) % 8 === 0 ? C.stoneD : rnd(xx >> 3, yy / 5 | 0) < .5 ? C.stone : C.stoneL);
+    R(g, x + 22, y + 40, 20, 22, C.k); R(g, x + 23, y + 41, 18, 21, '#2a1a14');
+    R(g, x + 26, y + 52, 12, 6, '#ff7b1c'); R(g, x + 28, y + 50, 8, 3, '#ffd23f'); layout.forge = [x + 32, y + 52];
+    R(g, x + 6, y + 36, 9, 8, C.k); R(g, x + 7, y + 37, 7, 6, '#ff9f4c');
+    R(g, x + 48, y - 2, 10, 20, C.k); R(g, x + 49, y - 1, 8, 19, C.stoneD); R(g, x + 49, y - 1, 8, 2, C.stoneL); layout.smithyChimney = [x + 53, y - 3];
+    for (let i = 0; i < 26; i++) { const inset = Math.round(10 - i * 12 / 25);
+      R(g, x + inset - 1, y + 2 + i, 66 - 2 * inset, 1, C.k);
+      if (i && i < 25) R(g, x + inset, y + 2 + i, 64 - 2 * inset, 1, i % 4 === 0 ? '#3a3a48' : i < 4 ? '#6a6a7c' : '#4e4e5e'); }
+    // anvil
+    const ax = 23 * T, ay = 12 * T + 2;
+    R(g, ax, ay, 12, 4, C.k); R(g, ax + 1, ay + 1, 10, 2, '#5d5d6b'); R(g, ax + 4, ay + 4, 4, 5, C.k); R(g, ax + 2, ay + 8, 8, 3, C.k);
+  }
+
+  function mine(g) {
+    const x0 = 25 * T, y0 = 8 * T;
+    const pal = [C.stoneL, C.stone, C.stoneD];
+    for (let i = 0; i < 14; i++) blob(g, x0 + 6 + rnd(i, 1) * 68, y0 + 6 + rnd(i, 2) * 40, 10 + rnd(i, 3) * 8, 8 + rnd(i, 4) * 6, pal);
+    blob(g, x0 + 40, y0 + 30, 30, 22, pal);
+    // entrance
+    const ex = 27 * T - 4, ey = 10 * T - 4;
+    blob(g, ex + 12, ey + 14, 11, 14, ['#14141a', '#14141a', '#14141a'], C.k); R(g, ex, ey + 14, 25, 22, C.stone);
+    R(g, ex + 2, ey + 6, 20, 30, '#14141a');
+    R(g, ex, ey + 4, 3, 32, C.wood); R(g, ex + 21, ey + 4, 3, 32, C.wood); R(g, ex - 1, ey + 2, 26, 4, C.woodD);
+    for (let y = ey + 30; y < 12 * T + 14; y += 3) { R(g, ex + 6, y, 12, 1, C.woodD); }
+    R(g, ex + 7, ey + 30, 1, 12 * T + 14 - ey - 30, '#8a8a92'); R(g, ex + 16, ey + 30, 1, 12 * T + 14 - ey - 30, '#8a8a92');
+    rock(g, 29 * T - 4, 12 * T, '#d4a83a'); rock(g, 25 * T + 2, 12 * T + 2, '#7ad0e0'); rock(g, 28 * T, 13 * T + 4, null);
+  }
+
+  function forest(g) {
+    const [cx, cy] = layout.anchors.forest, list = [];
+    for (let ty = -1; ty < 6; ty += 2) for (let tx = 21; tx < 30; tx += 2) {
+      const x = tx * T + (rnd(tx, ty, 11) * 10 | 0) - 6, y = ty * T + (rnd(tx, ty, 12) * 8 | 0) - 4;
+      if (Math.hypot(x + 16 - cx, y + 28 - cy) < 30) continue;
+      if (Math.abs(x + 16 - layout.anchors.forest[0]) < 14 && y + 24 > cy) continue;
+      list.push([x, y, rnd(tx, ty, 13) < .5]);
+    }
+    list.sort((a, b) => a[1] - b[1]).forEach(([x, y, pine]) => tree(g, x, y, pine));
+    R(g, cx - 18, cy + 4, 10, 6, C.k); R(g, cx - 17, cy + 5, 8, 4, C.wood); R(g, cx - 16, cy + 5, 6, 1, '#e8c090');
+    P(g, cx + 12, cy - 6, '#e4572e'); P(g, cx + 13, cy - 6, '#e4572e'); P(g, cx + 12, cy - 5, '#f4f4f4');
+  }
+
+  function decor(g) {
+    const items = [];
+    for (let ty = 0; ty < H / T; ty++) for (let tx = 3; tx < COLS; tx++) {
+      let free = true;
+      for (let dy = -1; dy <= 2 && free; dy++) for (let dx = -1; dx <= 2; dx++) if (kindAt(tx + dx, ty + dy) !== 'grass') { free = false; break; }
+      if (!free) continue;
+      const r = rnd(tx, ty, 21);
+      if (r < .12) items.push([tx * T, ty * T - 8, 'tree']); else if (r < .2) items.push([tx * T, ty * T, 'bush']);
+      else if (r < .23) items.push([tx * T, ty * T, 'rock']);
+    }
+    items.sort((a, b) => a[1] - b[1]).forEach(([x, y, k]) => k === 'tree' ? tree(g, x, y, rnd(x, y) < .3) : k === 'bush' ? bush(g, x, y) : rock(g, x, y));
+  }
+
+  function paintBackground() {
+    bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+    const g = bg.getContext('2d');
+    paintGround(g); river(g); field(g); square(g); market(g); smithy(g); mine(g); decor(g);
+    layout.houses.forEach(h => house(g, h)); forest(g);
+  }
+
+  // ---------- characters ----------
+  function sheetFor(name, k) {
+    const shirt = color[name], skin = SKIN[k % SKIN.length], hair = HAIR[(k * 3 + 1) % HAIR.length];
+    const map = { k: C.k, 1: skin[0], 2: skin[1], 3: hair, 4: shade(hair, .75), 5: shirt, 6: shade(shirt, .75),
+                  7: PANTS[k % PANTS.length], 8: '#3a2a20' };
+    const c = document.createElement('canvas'); c.width = 12 * 3; c.height = 16 * 3;
+    const g = c.getContext('2d');
+    ['down', 'up', 'side'].forEach((dir, d) => [0, 1, 2].forEach(f => {
+      const rows = [...HEAD[dir], ...BODY[dir === 'side' ? 'side' : 'front'], ...LEGS[dir === 'side' ? 'side' : 'front'][f]];
+      const bob = f ? 1 : 0;
+      rows.forEach((row, y) => [...row].forEach((ch, x) => {
+        if (ch === '.') return;
+        const yy = y < 13 ? y + bob : y;   // body bobs while walking, feet stay
+        if (yy < 16) P(g, f * 12 + x, d * 16 + yy, map[ch]);
+      }));
+    }));
+    return c;
+  }
+
+  function init(header, colors) {
+    names = header.config.agents.map(a => a.name); color = colors; buildLayout(); paintBackground();
+    buf = document.createElement('canvas'); buf.width = W; buf.height = H; b = buf.getContext('2d');
+    sheets = {}; names.forEach((n, k) => sheets[n] = sheetFor(n, k));
+    return { width: W * S, height: H * S };
+  }
+
+  // Standing spots around a location so several villagers don't overlap.
+  function spot(loc, k) {
+    const ring = [[0, 0], [-13, 3], [13, 3], [-7, -9], [7, -9], [0, 11], [-20, -4], [20, -4], [-14, 13], [14, 13],
+                  [-24, 8], [24, 8], [0, -16], [-28, -10], [28, -10], [-20, 18], [20, 18], [0, 22], [-30, 2], [30, 2]];
+    const [x, y] = layout.anchors[loc] || layout.anchors.square, [dx, dy] = ring[k % ring.length];
+    return [x + Math.round(dx * 1.8), y + Math.round(dy * 1.2)];
+  }
+  function here(view, name) {
+    const loc = view.agents[name].location;
+    return names.filter(n => view.agents[n].location === loc && view.agents[n].status === 'active').indexOf(name);
+  }
+  function route(a, b) {
+    if (layout.routes[a + '|' + b]) return layout.routes[a + '|' + b].slice(1, -1);
+    if (layout.routes[b + '|' + a]) return layout.routes[b + '|' + a].slice(1, -1).reverse();
+    return [];
+  }
+  // Position along the walking route between the previous and the current location.
+  function agentAt(prev, t, name, e) {
+    const a = prev.view.agents[name].location, bLoc = t.view.agents[name].location;
+    const p0 = spot(a, here(prev.view, name)), p1 = spot(bLoc, here(t.view, name));
+    const pts = [p0, ...(a === bLoc ? [] : route(a, bLoc)), p1];
+    const seg = pts.slice(1).map((p, j) => Math.hypot(p[0] - pts[j][0], p[1] - pts[j][1]));
+    let d = seg.reduce((s, v) => s + v, 0) * e;
+    for (let j = 0; j < seg.length; j++) {
+      if (d <= seg[j] || j === seg.length - 1) {
+        const f = seg[j] ? Math.min(1, d / seg[j]) : 1, [x0, y0] = pts[j], [x1, y1] = pts[j + 1];
+        const dx = x1 - x0, dy = y1 - y0, moving = seg[j] > 0 && e < 1;
+        return { x: x0 + dx * f, y: y0 + dy * f, moving, dir: !moving ? 'down' : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up' };
+      }
+      d -= seg[j];
+    }
+    return { x: p1[0], y: p1[1], moving: false, dir: 'down' };
+  }
+
+  function darkness(h) {
+    if (h < 5) return .55; if (h < 7) return .55 - (h - 5) * .25; if (h < 18) return 0;
+    if (h < 22) return (h - 18) * .12; return .5;
+  }
+
+  // ---------- per-frame drawing ----------
+  function draw(ctx, { t, prev, frac, selected, time, tr }) {
+    const e = Math.min(1, frac), sec = time / 1000;
+    b.drawImage(bg, 0, 0);
+    // water shimmer
+    for (let y = 2; y < H; y += 7) for (let x = 2; x < 3 * T - 6; x += 11) {
+      const ph = (sec * .8 + rnd(x, y) * 6) % 6; if (ph > 1.2) continue;
+      R(b, x + (ph * 3 | 0), y, 3, 1, C.waterL);
+    }
+    const fires = new Set(t.view.fires || []);
+    const homeNow = new Set(names.filter(n => t.view.agents[n].location === 'home_' + n && t.view.agents[n].status === 'active'));
+    // chimney smoke
+    const smoke = (x, y, k) => { for (let i = 0; i < 4; i++) { const p = (sec * .5 + i / 4 + k) % 1;
+      const r = 1 + p * 3, sx = x + Math.sin((p + k) * 6) * 3, sy = y - p * 18;
+      b.globalAlpha = .5 * (1 - p); blob(b, sx, sy, r, r, ['#e8e8ee', '#d0d0d8', '#b8b8c4'], null); b.globalAlpha = 1; } };
+    smoke(...layout.smithyChimney, .3);
+    layout.houses.forEach((h, k) => { if (homeNow.has(h.name)) smoke(...h.chimney, k * .37); });
+    // agents, back to front
+    const shown = names.filter(n => t.view.agents[n].status === 'active')
+      .map(n => ({ n, ...agentAt(prev, t, n, e) }))
+      .filter(a => !(t.view.agents[a.n].asleep && t.view.agents[a.n].location === 'home_' + a.n && !a.moving));
+    shown.sort((p, q) => p.y - q.y);
+    lastPos = {};
+    for (const a of shown) {
+      const x = Math.round(a.x), y = Math.round(a.y);
+      lastPos[a.n] = [x, y - 8];
+      blob(b, x, y + 7, 5, 2, ['rgba(0,0,0,.25)', 'rgba(0,0,0,.25)', 'rgba(0,0,0,.25)'], null);
+      if (a.n === selected) { b.fillStyle = '#f2c14e'; for (const [dx, dy] of [[-7, 7], [6, 7], [-6, 8], [5, 8]]) b.fillRect(x + dx, y + dy, 2, 1); }
+      const row = a.dir === 'up' ? 1 : a.dir === 'down' ? 0 : 2, f = a.moving ? 1 + (Math.floor(sec * 7) % 2) : 0;
+      b.save();
+      if (a.dir === 'left') { b.translate(x, 0); b.scale(-1, 1); b.translate(-x, 0); }
+      b.drawImage(sheets[a.n], f * 12, row * 16, 12, 16, x - 6, y - 8, 12, 16);
+      b.restore();
+    }
+    // fire
+    for (const id of fires) {
+      const bx = layout.box[id]; if (!bx) continue;
+      const [x0, y0, w, h] = bx;
+      for (let i = 0; i < 26; i++) {
+        const p = (sec * 1.6 + rnd(i, 3)) % 1, fx = x0 + 4 + rnd(i, 1) * (w - 8), fy = y0 + h * (.25 + rnd(i, 2) * .7) - p * 20;
+        const r = (1 - p) * 6 + 1.5;
+        blob(b, fx, fy, r, r * 1.4, ['#ffe066', '#ff9f1c', '#e4572e'], null);
+      }
+      for (let i = 0; i < 4; i++) { const p = (sec * .6 + i / 4) % 1;
+        b.globalAlpha = .45 * (1 - p); blob(b, x0 + w / 2 + Math.sin(p * 8 + i) * 6, y0 - p * 26, 3 + p * 5, 3 + p * 5, ['#555', '#444', '#333'], null); b.globalAlpha = 1; }
+    }
+    // night
+    const h0 = prev.view.hour, h1 = t.view.hour, hour = h1 === h0 + 1 ? h0 + e : h0, dark = darkness(hour);
+    if (dark > 0) {
+      b.fillStyle = `rgba(16,20,56,${dark})`; b.fillRect(0, 0, W, H);
+      b.globalCompositeOperation = 'lighter';
+      const glow = (x, y, r, a) => { const gr = b.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, `rgba(255,190,90,${a})`); gr.addColorStop(1, 'rgba(255,190,90,0)'); b.fillStyle = gr; b.fillRect(x - r, y - r, 2 * r, 2 * r); };
+      layout.lamps.forEach(([x, y]) => glow(x + 1, y - 15, 22, dark * .9));
+      glow(...layout.forge, 26, dark);
+      layout.houses.forEach(h => { if (homeNow.has(h.name)) h.windows.forEach(([x, y]) => glow(x + 4, y + 4, 12, dark)); });
+      for (const id of fires) { const [x0, y0, w, hh] = layout.box[id] || [0, 0, 0, 0]; glow(x0 + w / 2, y0 + hh / 2, 48, .8); }
+      b.globalCompositeOperation = 'source-over';
+      layout.houses.forEach(h => { if (homeNow.has(h.name)) h.windows.forEach(([x, y]) => R(b, x + 1, y + 1, 7, 6, C.lit)); });
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(buf, 0, 0, W * S, H * S);
+    labels(ctx, t, shown, selected, sec, tr || String);
+  }
+
+  // ---------- full-resolution text ----------
+  function plaque(ctx, x, y, text) {
+    ctx.font = '600 12px system-ui, sans-serif'; const w = ctx.measureText(text).width + 12;
+    ctx.fillStyle = '#3a2416'; ctx.fillRect(x - w / 2 - 2, y - 10, w + 4, 20);
+    ctx.fillStyle = '#8a5a35'; ctx.fillRect(x - w / 2, y - 8, w, 16);
+    ctx.fillStyle = '#fbefd5'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y + 1);
+  }
+  function bubble(ctx, x, y, text) {
+    text = text.length > 64 ? text.slice(0, 61) + '…' : text;
+    ctx.font = '12px system-ui, sans-serif'; const w = Math.min(280, ctx.measureText(text).width + 16), h = 22;
+    const bx = Math.max(4, Math.min(W * S - w - 4, x - w / 2)), by = y - h - 8;
+    ctx.fillStyle = '#1b1b24'; ctx.fillRect(bx - 2, by, w + 4, h); ctx.fillRect(bx, by - 2, w, h + 4);
+    ctx.fillStyle = '#fffbe8'; ctx.fillRect(bx, by, w, h);
+    ctx.fillStyle = '#1b1b24'; ctx.fillRect(x - 4, by + h, 8, 4); ctx.fillStyle = '#fffbe8'; ctx.fillRect(x - 2, by + h, 4, 3);
+    ctx.fillStyle = '#222'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, bx + w / 2, by + h / 2 + 1, w - 10);
+  }
+  function labels(ctx, t, shown, selected, sec, tr) {
+    const top = { market: -34, field: -44, river: -40, square: -38, forest: -26, mine: -58, smithy: -82 };
+    for (const [id, dy] of Object.entries(top)) {
+      const [x, y] = layout.anchors[id]; plaque(ctx, x * S, (y + dy) * S, t.view.locations[id] || id);
+    }
+    for (const h of layout.houses) {
+      const z = t.view.agents[h.name], asleepHome = z.asleep && z.location === 'home_' + h.name && !shown.some(a => a.n === h.name);
+      if (asleepHome) { ctx.font = '700 14px system-ui'; ctx.fillStyle = '#e8efe9'; ctx.textAlign = 'center';
+        const p = (sec * .7) % 1; ctx.globalAlpha = 1 - p; ctx.fillText('z', (h.x + 24) * S + p * 10, (h.y + 8) * S - p * 20);
+        ctx.fillText('Z', (h.x + 30) * S + p * 12, (h.y + 2) * S - p * 24); ctx.globalAlpha = 1; }
+      ctx.font = '600 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(20,16,12,.75)'; const w = ctx.measureText(h.name).width + 10;
+      ctx.fillRect((h.x + 24) * S - w / 2, (h.y + 50) * S - 1, w, 16); ctx.fillStyle = color[h.name];
+      ctx.fillText(h.name, (h.x + 24) * S, (h.y + 50) * S + 7);
+    }
+    for (const a of shown) {
+      const x = a.x * S, y = a.y * S, v = t.view.agents[a.n];
+      ctx.font = '600 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const w = ctx.measureText(a.n).width + 8;
+      ctx.fillStyle = a.n === selected ? 'rgba(242,193,78,.95)' : 'rgba(20,16,12,.7)'; ctx.fillRect(x - w / 2, y + 18, w, 14);
+      ctx.fillStyle = a.n === selected ? '#1b1b24' : '#fff'; ctx.fillText(a.n, x, y + 25);
+      if (v.asleep) { ctx.fillStyle = '#e8efe9'; ctx.fillText('z z', x + 16, y - 22); continue; }
+      const said = (t.decisions[a.n] || {}).say;
+      if (said && !a.moving) bubble(ctx, x, y - 16, tr(String(said)));
+    }
+  }
+
+  // Name of the villager under a point in canvas pixels, or null.
+  function pick(cx, cy) {
+    let best = null, bd = 14;
+    for (const [n, [x, y]] of Object.entries(lastPos)) { const d = Math.hypot(cx / S - x, cy / S - y); if (d < bd) { bd = d; best = n; } }
+    return best;
+  }
+
+  return { init, draw, pick };
+})();
