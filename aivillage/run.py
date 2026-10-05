@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fire-day", type=int, default=0, help="god: set a random house on fire on this day")
     p.add_argument("--models", default=None,
                    help="LLM agents instead of bots: comma-separated OpenRouter model ids cycled over agents, "
-                        "or 'stub' to test the LLM pipeline without a key")
+                        "'default' for llm.DEFAULT_MODEL, or 'stub' to test the LLM pipeline without a key")
     p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
     a = p.parse_args(argv)
 
@@ -172,12 +172,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def llm_agents(world: World, models: list[str]) -> dict:
-    from .llm import LLMAgent, OpenRouterClient, StubClient
+    from .llm import LLMAgent, OpenRouterClient, StubClient, world_facts, DEFAULT_MODEL
+    facts = world_facts(world.config)
     out = {}
     for i, name in enumerate(sorted(world.agents)):
         m = models[i % len(models)]
+        m = DEFAULT_MODEL if m == "default" else m
         client = StubClient(name) if m == "stub" else OpenRouterClient(m)
-        out[name] = LLMAgent(name, world.agents[name].profession, client)
+        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts)
     return out
 
 

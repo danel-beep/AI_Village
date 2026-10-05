@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import time
 import urllib.error
@@ -17,6 +18,9 @@ from dataclasses import dataclass, field
 
 from .bots import WorkerBot
 from .registry import ACTIONS
+
+# Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
+DEFAULT_MODEL = "openai/gpt-6-luna"
 
 SYSTEM = """You are {name}, a villager ({profession}) in a small village. You are a person, not an assistant.
 Survive and live your life: eat, work, earn coins, pay the weekly tax, deal with your neighbours.
@@ -33,8 +37,38 @@ Each hour you get a JSON observation and answer with ONE JSON object and nothing
 Actions:
 {actions}
 
-Locations are ids like square, market, field, river, forest, mine, smithy, home_<Name>.
+World facts:
+{facts}
+
+Rules of thumb:
+- Only use items you actually have: check "you.inventory" before eat, sell, give, craft or offer.
+- buy/sell work only at the market. Talking to, giving to or trading with someone needs them in the same place ("here.people").
+- If "last_error" is set, your previous action failed: read why and do something different.
+- Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
+- Hungry with no food? Anyone can gather berries in the forest or buy bread at the market; or ask a neighbour.
+- Plan a few hours ahead: travel takes hours, and work/craft only pay off if you finish them.
+
 Item maps look like {{"bread": 2, "coins": 5}}. Keep "thought" under 40 words."""
+
+
+def world_facts(cfg: dict) -> str:
+    """A short cheat sheet built from the run config, so the model does not have to guess the rules."""
+    items = cfg["items"]
+    food = ", ".join(f"{k} +{v['food']}" for k, v in items.items() if v.get("food"))
+    lines = [f"- Food (satiety gained per item): {food}. Nothing else is edible.",
+             f"- You lose {cfg['satiety_loss_per_hour']} satiety per hour awake and {cfg['satiety_loss_night']} at night."]
+    for rid, r in cfg["recipes"].items():
+        ins = " + ".join(f"{n} {k}" for k, n in r["inputs"].items())
+        who = f", only a {r['profession']}" if r["profession"] else ""
+        lines.append(f"- Craft {rid}: {ins} -> {r['output']} (at {r['where']}{who}).")
+    res = "; ".join(f"{lid}: {', '.join(l['resources'])}" for lid, l in cfg["locations"].items() if l.get("resources"))
+    lines.append(f"- Gather with work at: {res}. Your profession gathers its goods {cfg['work_profession_multiplier']}x faster.")
+    roads = "; ".join(f"{lid} -> {', '.join(l['neighbors'])}" for lid, l in cfg["locations"].items())
+    lines.append(f"- Map: {roads}; every home_<Name> -> square. move finds the path itself, one step per hour.")
+    lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
+                 "SELL to the trader at b coins.")
+    lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days.")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -62,17 +96,20 @@ class Client:
 class OpenRouterClient(Client):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
-    def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 2,
-                 max_tokens: int = 400):
+    def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 5,
+                 max_tokens: int = 1500, reasoning: dict | None = None):
         self.model = model
         self.key = api_key or os.environ.get("OPENROUTER_API_KEY")
         if not self.key:
             raise RuntimeError("OPENROUTER_API_KEY is not set")
         self.timeout, self.retries, self.max_tokens = timeout, retries, max_tokens
+        # Hidden reasoning is billed and slow; keep it short. Models without reasoning ignore this.
+        self.reasoning = reasoning if reasoning is not None else {"effort": "low", "exclude": True}
 
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
         body = json.dumps({"model": self.model, "messages": messages, "max_tokens": self.max_tokens,
-                           "temperature": 0.8, "usage": {"include": True}}).encode()
+                           "temperature": 0.8, "usage": {"include": True},
+                           "response_format": {"type": "json_object"}, "reasoning": self.reasoning}).encode()
         req = urllib.request.Request(self.URL, body, {"Authorization": f"Bearer {self.key}",
                                                       "Content-Type": "application/json"})
         last: Exception | None = None
@@ -83,7 +120,10 @@ class OpenRouterClient(Client):
                 return data["choices"][0]["message"]["content"] or "", data.get("usage", {})
             except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
                 last = e
-                time.sleep(2 ** attempt)
+                wait = 2 ** attempt
+                if isinstance(e, urllib.error.HTTPError) and e.code == 429:  # rate limit: back off harder
+                    wait = min(4 * 2 ** attempt, 40) * (0.5 + random.random())  # jitter breaks lockstep
+                time.sleep(wait)
         raise RuntimeError(f"{self.model}: {last}")
 
 
@@ -157,11 +197,15 @@ class LLMAgent:
     profession: str
     client: Client
     notes: str = ""
+    facts: str = ""
     usage: Usage = field(default_factory=Usage)
+    recent: list = field(default_factory=list)
 
     def messages(self, obs: dict) -> list[dict]:
-        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe())
-        user = "Observation (your notes: " + json.dumps(self.notes or "none") + "):\n" + json.dumps(compact_obs(obs))
+        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe(),
+                               facts=self.facts or "(none)")
+        user = ("Observation (your notes: " + json.dumps(self.notes or "none")
+                + "; your last actions: " + json.dumps(self.recent) + "):\n" + json.dumps(compact_obs(obs)))
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
     def decide(self, obs: dict) -> dict:
@@ -172,6 +216,15 @@ class LLMAgent:
             return {"thought": f"(model error: {e})"[:200], "action": {"name": "wait"}}
         self.usage.add(usage)
         dec = parse_decision(text)
+        if "parse_error" in dec:  # one retry: cheap models sometimes cut a reply short
+            try:
+                text, usage = self.client.complete(self.messages(obs))
+                self.usage.add(usage)
+                dec = parse_decision(text)
+            except Exception:
+                pass
+        act = dec.get("action") if isinstance(dec.get("action"), dict) else {}
+        self.recent = (self.recent + [f"h{obs.get('time', {}).get('hour', '?')} {act.get('name')} {json.dumps(act.get('args') or {})}"])[-3:]
         if isinstance(dec.get("notes"), str):
             self.notes = dec["notes"][:1000]
         return dec
