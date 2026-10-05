@@ -355,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=None, help="default: a new random village every start")
     p.add_argument("--bots", default="worker,worker,thief,worker,random")
     p.add_argument("--models", default=None, help="OpenRouter model ids (comma-separated) or 'stub'")
-    p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
+    p.add_argument("--agents", type=int, default=0, help="number of villagers (more than 5 get generated names; resources scale up)")
     p.add_argument("--mode", default=modes.DEFAULT_MODE, choices=list(modes.MODES),
                    help="economy mode (aivillage/modes.py)")
     p.add_argument("--log", default="runs/live.jsonl", help="also write the replayable log here")
@@ -378,8 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     if modes.disabled(a.mode):
         override["disabled_actions"] = modes.disabled(a.mode)
     if a.agents:
-        from .config import DEFAULT_CONFIG
-        override["agents"] = DEFAULT_CONFIG["agents"][: a.agents]
+        override["population"] = {"size": a.agents}
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     print(f"Village seed {a.seed} (run again with --seed {a.seed} to get the same map)")
     on_night = None

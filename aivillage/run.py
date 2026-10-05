@@ -169,7 +169,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--models", default=None,
                    help="LLM agents instead of bots: comma-separated OpenRouter model ids cycled over agents, "
                         "'default' for llm.DEFAULT_MODEL, or 'stub' to test the LLM pipeline without a key")
-    p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
+    p.add_argument("--fallback", default=None,
+                   help="comma-separated backup OpenRouter models used when the main one is rate-limited or down "
+                        "(default: env AIVILLAGE_FALLBACK_MODELS)")
+    p.add_argument("--agents", type=int, default=0,
+                   help="number of villagers: the first N, or more with generated names (resources scale up)")
     p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
                                                 "standard, peaceful, scarcity, debt, gold_rush, lawless")
     mapgen.add_args(p)
@@ -193,8 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     override = rc.world_override()
     if a.agents:
-        from .config import DEFAULT_CONFIG
-        override["agents"] = (override.get("agents") or DEFAULT_CONFIG["agents"])[: a.agents]
+        override["population"] = {**(override.get("population") or {}), "size": a.agents}
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     names = sorted(world.agents)
     brains = rc.brains(names)
@@ -205,7 +208,8 @@ def main(argv: list[str] | None = None) -> int:
     elif a.bots:
         kinds = a.bots.split(",")
         brains = {n: ("bot", kinds[i % len(kinds)]) for i, n in enumerate(names)}
-    agents = llm_agents(world, {n: m for n, (kind, m) in brains.items() if kind == "model"})
+    fallbacks = a.fallback.split(",") if a.fallback else (rc.fallback_models or None)
+    agents = llm_agents(world, {n: m for n, (kind, m) in brains.items() if kind == "model"}, fallbacks)
     bots = {n: BOT_TYPES[k](n, rc.seed) for n, (kind, k) in brains.items() if kind == "bot"}
 
     def decide(name: str, obs: dict) -> dict:
@@ -222,7 +226,12 @@ def main(argv: list[str] | None = None) -> int:
     for name, ag in agents.items():
         u = ag.usage
         print(f"  {name:8} {ag.client.model:30} calls={u.calls} fail={u.failures} "
-              f"tokens={u.prompt_tokens}+{u.completion_tokens} cost=${u.cost_usd:.4f}")
+              f"tokens={u.prompt_tokens}+{u.completion_tokens} cost=${u.cost_usd:.4f}"
+              + (f" answered_by={u.by_model}" if len(u.by_model) > 1 else ""))
+    from .llm import _GATES
+    for model, g in _GATES.items():
+        print(f"  queue {model}: {g.calls} calls, max {g.limit} at once, {g.rate_limited} rate-limited, "
+              f"{g.waited:.0f}s waiting")
     return 0
 
 
@@ -232,9 +241,9 @@ def night_reflection(world: World, agents: dict, day: int) -> dict:
     return reflect_all({n: ag for n, ag in agents.items() if world.agents[n].status != "dead"}, day)
 
 
-def llm_agents(world: World, models: list[str] | dict[str, str]) -> dict:
+def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list[str] | None = None) -> dict:
     """models: ids cycled over agents, or agent name -> id. An id is an OpenRouter model,
-    'default' (llm.DEFAULT_MODEL) or 'stub'."""
+    'default' (llm.DEFAULT_MODEL) or 'stub'. `fallbacks`: backup models (None = env AIVILLAGE_FALLBACK_MODELS)."""
     if isinstance(models, list):
         models = {n: models[i % len(models)] for i, n in enumerate(sorted(world.agents))}
     if not models:
@@ -245,7 +254,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str]) -> dict:
     out = {}
     for name, m in models.items():
         m = DEFAULT_MODEL if m == "default" else m
-        client = StubClient(name) if m == "stub" else OpenRouterClient(m)
+        client = StubClient(name) if m == "stub" else OpenRouterClient(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off)
     return out
 
