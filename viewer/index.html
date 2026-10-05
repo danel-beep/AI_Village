@@ -142,7 +142,9 @@ function render() {
   const t = ticks[i], prev = ticks[Math.max(0, i - 1)];
   PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr });
   document.getElementById('scrub').value = i;
-  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:00`;
+  // Minutes run with the animation, so the clock keeps ticking while the next hour is being computed.
+  const mm = t.view.hour === prev.view.hour + 1 ? Math.min(59, Math.floor(frac * 60)) : 0;
+  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function panel() {
