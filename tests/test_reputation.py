@@ -77,6 +77,9 @@ def test_gossip_is_stored_with_source_and_never_scored(w):
         assert "Dmitri" not in w.agents[who].reputation
     assert engine.observe(w, "Boris")["rumors"][-1]["from"] == "Anna"
     assert not w.agents["Anna"].rumors and not w.agents["Dmitri"].rumors
+    from aivillage.run import view  # the viewer's dossier reads rumors from the log's view
+    social = view(w)["social"]
+    assert social["Boris"]["rumors"][-1]["about"] == "Dmitri" and "Anna" not in social
 
 
 def test_gossip_to_one_person_and_errors(w):
