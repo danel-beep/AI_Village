@@ -36,6 +36,7 @@ god events ─┐
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |
 | `aivillage/run.py` | run loop (parallel decisions), JSONL log, `replay`, CLI |
 | `aivillage/translate.py` | post-processes a finished log into a `<log>.ru.json` sidecar for spectators (never touches the log) |
+| `aivillage/metrics.py` | behaviour metrics from a log only (JSON + Russian markdown) |
 | `viewer/index.html` | 2D replay of a log; `scripts/build_demo.py` bundles a log into one page |
 
 ## How to add a mechanic
@@ -43,7 +44,7 @@ god events ─┐
 1. Numbers → `config.py`.
 2. State, if needed → a field in `state.py` (and `from_dict`).
 3. Action → `@ACTIONS.action("name", "one-line description for the model", ArgsModel, available=...)` in `actions.py`. Validate everything first, raise `ActionError` with a message the agent can act on, then mutate. Use `ops` for items/coins and `ctx.emit` for what others see (`visibility`: public / location / private).
-4. Periodic effects → `end_of_hour` or `night` in `engine.py`.
+4. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
 5. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
 6. `python -m pytest -q` must stay green.
 

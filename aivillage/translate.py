@@ -1,4 +1,4 @@
-"""Translate a run log's viewer-facing texts (thoughts, says, event texts) for spectators.
+"""Translate a run log's viewer-facing texts (thoughts, says, event texts, diaries) for spectators.
 
 Agents think and speak English; this post-processes a finished log into a sidecar file
 `<log>.<lang>.json` = {"type": "translation", "lang", "model", "texts": {original: translated}}.
@@ -34,6 +34,10 @@ def collect_texts(records: Iterable[dict]) -> list[str]:
     """Unique viewer-facing strings of a log, in first-seen order."""
     seen: dict[str, None] = {}
     for rec in records:
+        if rec.get("type") == "diary":
+            for entry in (rec.get("entries") or {}).values():
+                if isinstance(entry, dict) and isinstance(entry.get("text"), str) and entry["text"].strip():
+                    seen.setdefault(entry["text"], None)
         if rec.get("type") != "tick":
             continue
         for d in (rec.get("decisions") or {}).values():

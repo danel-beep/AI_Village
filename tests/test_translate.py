@@ -13,6 +13,7 @@ LOG = [
     tick({"Anna": {"thought": "I am hungry.", "say": "Hi!"}, "Boris": {"thought": "", "say": None}},
          [{"text": "Anna arrived at Field."}]),
     tick({"Anna": {"thought": "I am hungry.", "say": "Bye"}}, [{"text": "Anna arrived at Field."}]),
+    {"type": "diary", "day": 1, "entries": {"Anna": {"day": 1, "text": "A long day.", "people": {}}}},
 ]
 
 
@@ -23,7 +24,7 @@ def write_log(tmp_path):
 
 
 def test_collect_unique_in_order():
-    assert collect_texts(LOG) == ["I am hungry.", "Hi!", "Anna arrived at Field.", "Bye"]
+    assert collect_texts(LOG) == ["I am hungry.", "Hi!", "Anna arrived at Field.", "Bye", "A long day."]
 
 
 def test_batches_respect_limits():
@@ -38,7 +39,7 @@ def test_sidecar_and_cache(tmp_path):
     out = translate_log(log, Translator(client, "ru", cache))
     assert out == sidecar_path(log, "ru") == tmp_path / "run.ru.json"
     data = json.loads(out.read_text())
-    assert data["lang"] == "ru" and data["texts"]["Hi!"] == "[ru] Hi!" and len(data["texts"]) == 4
+    assert data["lang"] == "ru" and data["texts"]["Hi!"] == "[ru] Hi!" and len(data["texts"]) == 5
     calls = client.calls
     translate_log(log, Translator(client, "ru", cache))  # everything cached now
     assert client.calls == calls
