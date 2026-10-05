@@ -31,11 +31,8 @@ god events ─┐
 | `aivillage/actions.py` | agent actions |
 | `aivillage/god.py` | experimenter interventions |
 | `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
-<<<<<<< HEAD
 | `aivillage/reputation.py` | reputation (each agent's own tally of deeds it saw: thefts, defaults, repaid debts, fire help, trades, gifts) and rumors (`gossip` action; stored with the teller, never scored). Hooks in via `ops.EVENT_HOOKS`; adds `reputation` / `rumors` to `observe()`; config block `reputation` |
-=======
 | `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
->>>>>>> origin/main
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |

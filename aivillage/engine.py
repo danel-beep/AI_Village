@@ -12,11 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-<<<<<<< HEAD
-from . import ops, reputation, seasons
-=======
-from . import ops, seasons, tiles
->>>>>>> origin/main
+from . import ops, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
