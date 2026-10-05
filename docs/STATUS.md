@@ -31,4 +31,4 @@ Updated: 2026-10-05. Each backlog item is independent and sized for one thread /
 7. ~~Pixel-art viewer~~ — done, see above.
 8. ~~Translation layer for viewers~~ — done (see above).
 10. ~~**Seasons.**~~ Done, see above.
-11. **CI.** GitHub Actions running pytest on PRs.
+11. ~~**CI.** GitHub Actions running pytest on PRs.~~ Готово: `.github/workflows/tests.yml` гоняет pytest на каждом PR и push в main.
