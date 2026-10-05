@@ -45,6 +45,9 @@ MODES: dict[str, dict[str, Any]] = {
             "steal_notice_chance": 0.9,
             "steal_awake_target_success": 0.2,
             "max_steal_qty": 1,
+            # rare, mild crises
+            "crises": {"chance_per_day": 0.2, "gap_days": 3, "max_quiet_days": 8,
+                       "kinds": {"rats": {"eat": 0.3}, "crop_failure": {"keep": 0.6, "garden_share": 0.25}}},
         },
     },
     "scarcity": {
@@ -57,6 +60,9 @@ MODES: dict[str, dict[str, Any]] = {
             "satiety_start": 50,
             "npc_sell_ratio": 2.5,
             "locations": _food(grain=(20, 4), fish=(15, 3), berries=(6, 2)),
+            # food is already short: crises come often and hit food first
+            "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
+                       "kinds": {"caravan": {"weight": 1}, "rats": {"weight": 3}}},
         },
     },
     "debt": {
@@ -69,6 +75,8 @@ MODES: dict[str, dict[str, Any]] = {
             "tax_every_days": 2,
             "tax_amount": 12,
             "eviction_days": 3,
+            # money is the problem: price spikes and caravans matter more than lost food
+            "crises": {"kinds": {"shortage": {"weight": 3}, "caravan": {"weight": 3}}},
         },
     },
     "gold_rush": {
@@ -86,6 +94,8 @@ MODES: dict[str, dict[str, Any]] = {
             ],
             "items": {"ore": {"value": 10}},
             "locations": {"mine": {"resources": {"ore": {"start": 8, "max": 8, "regen": 3}}}},
+            # caravans buy ore and tools dear
+            "crises": {"kinds": {"caravan": {"weight": 4, "items": ["ore", "tool", "lock"]}}},
         },
     },
     "lawless": {
@@ -97,6 +107,9 @@ MODES: dict[str, dict[str, Any]] = {
             "steal_notice_chance": 0.05,
             "steal_awake_target_success": 0.9,
             "max_steal_qty": 10,
+            # want gives thieves a motive: frequent crises, rats hit most houses
+            "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
+                       "kinds": {"rats": {"weight": 3, "share": 0.6}}},
         },
         "disabled": ["install_lock", "report_theft"],
     },

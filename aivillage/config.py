@@ -141,6 +141,36 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
         },
     },
+    # Soft world crises (aivillage/crises.py): at dawn, from `first_day`, with `chance_per_day`, a crisis of a
+    # kind picked by `weight` starts and lasts `days` [min, max]; at most `max_active` at once, `gap_days` quiet
+    # days after one ends, never more than `max_quiet_days` calm days in a row. They hit villagers unevenly
+    # (some yards, some chests), so the lucky have food to trade and the unlucky have reasons to ask, borrow
+    # or steal. Economy modes tune these numbers.
+    "crises": {
+        "enabled": True,
+        "first_day": 2,
+        "chance_per_day": 0.5,
+        "max_active": 1,
+        "gap_days": 1,
+        "max_quiet_days": 4,
+        "kinds": {
+            # Common crops fail: `resources` keep `keep` of what is left and do not regrow; sown beds on
+            # common land die, and so do sown garden beds in `garden_share` of the yards.
+            "crop_failure": {"weight": 3, "days": [2, 3], "resources": ["grain"], "keep": 0.3,
+                             "garden_share": 0.5},
+            # Drought: river and bushes dry up (same rules as crop_failure, no gardens).
+            "drought": {"weight": 2, "days": [2, 3], "resources": ["fish", "berries"], "keep": 0.4},
+            # Rats get into `share` of the houses at once and eat `eat` of the food in each chest.
+            "rats": {"weight": 2, "days": [1, 1], "share": 0.5, "eat": 0.6,
+                     "items": ["grain", "fish", "berries", "bread", "fish_soup", "egg", "milk", "honey"]},
+            # The trader runs short of one food: buying it from him costs `buy` times more.
+            "shortage": {"weight": 2, "days": [2, 3], "items": ["grain", "fish", "bread", "fish_soup"],
+                         "buy": 3.0},
+            # A caravan merchant at the market pays `sell` times more for one good while he stays.
+            "caravan": {"weight": 2, "days": [2, 2], "items": ["wood", "stone", "ore", "tool", "fish"],
+                        "sell": 2.5},
+        },
+    },
     # Population (aivillage/population.py): size N > len(agents) adds generated villagers (seeded names,
     # professions by weight); resources and project needs scale by max(1, N / base_size). None = just `agents`.
     "population": {
