@@ -82,12 +82,34 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
 
-    # --- disasters ---
-    {"key": "fire_ticks", "path": "fire_ticks", "group": "Беды и пожары", "type": "range",
+    # --- crises (aivillage/crises.py) ---
+    {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
+     "hint": "Неурожай, засуха, крысы, нехватка у торговца, караван: бьют по жителям неравномерно."},
+    {"key": "crisis_chance", "path": "crises.chance_per_day", "group": "Кризисы", "type": "range", "scale": 0.01,
+     "label": "Шанс кризиса каждое утро", "min": 0, "max": 100, "step": 5, "unit": "%"},
+    {"key": "crisis_first_day", "path": "crises.first_day", "group": "Кризисы", "type": "range",
+     "label": "Первый кризис не раньше дня", "min": 1, "max": 14, "step": 1},
+    {"key": "crisis_max_quiet", "path": "crises.max_quiet_days", "group": "Кризисы", "type": "range",
+     "label": "Не больше спокойных дней подряд", "min": 1, "max": 14, "step": 1, "unit": " дн."},
+    {"key": "crisis_gap", "path": "crises.gap_days", "group": "Кризисы", "type": "range",
+     "label": "Передышка после кризиса", "min": 0, "max": 7, "step": 1, "unit": " дн."},
+    {"key": "crisis_w_crop_failure", "path": "crises.kinds.crop_failure.weight", "group": "Кризисы", "type": "range",
+     "label": "Как часто неурожай", "min": 0, "max": 5, "step": 1, "hint": "0: никогда. Числа: сравнительная частота видов."},
+    {"key": "crisis_w_drought", "path": "crises.kinds.drought.weight", "group": "Кризисы", "type": "range",
+     "label": "Как часто засуха", "min": 0, "max": 5, "step": 1},
+    {"key": "crisis_w_rats", "path": "crises.kinds.rats.weight", "group": "Кризисы", "type": "range",
+     "label": "Как часто крысы", "min": 0, "max": 5, "step": 1},
+    {"key": "crisis_w_shortage", "path": "crises.kinds.shortage.weight", "group": "Кризисы", "type": "range",
+     "label": "Как часто нехватка у торговца", "min": 0, "max": 5, "step": 1},
+    {"key": "crisis_w_caravan", "path": "crises.kinds.caravan.weight", "group": "Кризисы", "type": "range",
+     "label": "Как часто караван", "min": 0, "max": 5, "step": 1},
+
+    # --- fires ---
+    {"key": "fire_ticks", "path": "fire_ticks", "group": "Пожары и заказы", "type": "range",
      "label": "Сколько часов горит дом до потери", "min": 2, "max": 24, "step": 1, "unit": " ч"},
-    {"key": "fire_water_needed", "path": "fire_water_needed", "group": "Беды и пожары", "type": "range",
+    {"key": "fire_water_needed", "path": "fire_water_needed", "group": "Пожары и заказы", "type": "range",
      "label": "Вёдер, чтобы потушить", "min": 1, "max": 8, "step": 1},
-    {"key": "order_every_days", "path": "order_every_days", "group": "Беды и пожары", "type": "range",
+    {"key": "order_every_days", "path": "order_every_days", "group": "Пожары и заказы", "type": "range",
      "label": "Заказы на доске раз в", "min": 1, "max": 10, "step": 1, "unit": " дн."},
 
     # --- map and speed ---

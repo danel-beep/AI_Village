@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine, mapgen, modes, plots, tiles
+from . import crises, engine, mapgen, modes, plots, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -105,6 +105,7 @@ def view(world: World) -> dict:
             "social": {a.name: {"reputation": a.reputation, "rumors": a.rumors}
                        for a in world.agents.values() if a.reputation or a.rumors},
             "plots": plots.view(world),
+            "crises": crises.view(world),  # active world crises (crises.py)
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
@@ -250,13 +251,16 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         models = {n: models[i % len(models)] for i, n in enumerate(sorted(world.agents))}
     if not models:
         return {}
-    from .llm import LLMAgent, StubClient, make_client, world_facts
+    from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
     off = frozenset(world.config.get("disabled_actions") or ())
     facts = world_facts(world.config)
+    chars = {a["name"]: a.get("character") for a in world.config["agents"]}
+    mode = world.config.get("characters", "default")
     out = {}
     for name, m in models.items():
         client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
-        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off)
+        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
+                             character=character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name))
     return out
 
 
