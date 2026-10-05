@@ -380,7 +380,7 @@ const PixelMap = (() => {
   }
 
   // ---------- per-frame drawing ----------
-  function draw(ctx, { t, prev, frac, selected, time }) {
+  function draw(ctx, { t, prev, frac, selected, time, tr }) {
     const e = Math.min(1, frac), sec = time / 1000;
     b.drawImage(bg, 0, 0);
     // water shimmer
@@ -441,7 +441,7 @@ const PixelMap = (() => {
     }
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(buf, 0, 0, W * S, H * S);
-    labels(ctx, t, shown, selected, sec);
+    labels(ctx, t, shown, selected, sec, tr || String);
   }
 
   // ---------- full-resolution text ----------
@@ -460,7 +460,7 @@ const PixelMap = (() => {
     ctx.fillStyle = '#1b1b24'; ctx.fillRect(x - 4, by + h, 8, 4); ctx.fillStyle = '#fffbe8'; ctx.fillRect(x - 2, by + h, 4, 3);
     ctx.fillStyle = '#222'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, bx + w / 2, by + h / 2 + 1, w - 10);
   }
-  function labels(ctx, t, shown, selected, sec) {
+  function labels(ctx, t, shown, selected, sec, tr) {
     const top = { market: -34, field: -44, river: -40, square: -38, forest: -26, mine: -58, smithy: -82 };
     for (const [id, dy] of Object.entries(top)) {
       const [x, y] = layout.anchors[id]; plaque(ctx, x * S, (y + dy) * S, t.view.locations[id] || id);
@@ -483,7 +483,7 @@ const PixelMap = (() => {
       ctx.fillStyle = a.n === selected ? '#1b1b24' : '#fff'; ctx.fillText(a.n, x, y + 25);
       if (v.asleep) { ctx.fillStyle = '#e8efe9'; ctx.fillText('z z', x + 16, y - 22); continue; }
       const said = (t.decisions[a.n] || {}).say;
-      if (said && !a.moving) bubble(ctx, x, y - 16, String(said));
+      if (said && !a.moving) bubble(ctx, x, y - 16, tr(String(said)));
     }
   }
 

@@ -35,6 +35,11 @@ god events ─┐
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient` |
 | `aivillage/run.py` | run loop (parallel decisions), JSONL log, `replay`, CLI |
+| `aivillage/runconfig.py` | YAML run config (`--config`): validated up front, resolves to a world override, per-agent brains, god script; `mechanics.disabled` → world `disabled_actions`, enforced in `registry` |
+| `aivillage/translate.py` | post-processes a finished log into a `<log>.ru.json` sidecar for spectators (never touches the log) |
+| `aivillage/metrics.py` | behaviour metrics from a log only (JSON + Russian markdown) |
+| `aivillage/server.py` | live mode: FastAPI app runs `run.run()` in a thread, streams log records over `/ws`, god events via `POST /api/god` (queued into `god_script`, so they are logged and replay exactly), pause/pace via `POST /api/control` |
+| `viewer/live.js`, `viewer/god.js` | injected by the server into `index.html`: live feed (uses only `load()` / `ticks` / optional `window.viewerAppend`) and the god panel built from GOD schemas |
 | `viewer/index.html` | Replay UI (controls, villager cards, diary, events). Feed it via `Viewer.start(header)` / `Viewer.push(row)`; `scripts/build_demo.py` bundles a log + scripts into one page |
 | `viewer/pixelmap.js` | Pixel-art map renderer: map layout (viewer-only coordinates), art drawn in code, walking, fire, lighting |
 

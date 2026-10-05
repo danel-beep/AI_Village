@@ -38,6 +38,7 @@
     <button id="play">▶</button><button id="stepb">⏭</button>
     <input id="scrub" type="range" min="0" value="0">
     <label class="muted">скорость <input id="speed" type="range" min="1" max="20" value="4"></label>
+    <button id="lang" hidden title="язык мыслей и реплик">RU</button>
     <span id="clock"></span>
   </div>
 </div>
@@ -48,7 +49,7 @@
 </div>
 <div id="drop"><div>
   <p><b>AI Village</b>: открой лог прогона (<code>runs/*.jsonl</code>) или передай <code>?log=путь</code>.</p>
-  <input type="file" id="file" accept=".jsonl,.json">
+  <input type="file" id="file" accept=".jsonl,.json" multiple>
 </div></div>
 <script src="pixelmap.js"></script>
 <script>
@@ -75,10 +76,33 @@ function load(text) {
   start(lines[0]); lines.slice(1).forEach(push);
 }
 window.Viewer = { start, push, load };
-document.getElementById('file').onchange = e => e.target.files[0].text().then(load);
+// Live feed (viewer/live.js): append a row and keep following if the viewer was at the newest ticks.
+window.viewerAppend = row => {
+  const follow = i >= ticks.length - 3; push(row);
+  if (follow && row.view) { if (ticks.length - 1 - i > 2) { i = ticks.length - 2; frac = 0; } playing = true; document.getElementById('play').textContent = '⏸'; }
+};
+// Translations: sidecar <log>.ru.json from aivillage/translate.py maps original text -> Russian.
+let TR = null, lang = 'en';
+function tr(s) { return lang !== 'en' && TR && TR[s] || s; }
+function setTr(obj) {
+  if (!obj || obj.type !== 'translation') return;
+  TR = obj.texts; lang = obj.lang; const b = document.getElementById('lang'); b.hidden = false; b.textContent = lang.toUpperCase();
+}
+document.getElementById('lang').onclick = e => {
+  lang = lang === 'en' ? 'ru' : 'en'; e.target.textContent = lang.toUpperCase(); lastPanel = -1;
+};
+document.getElementById('file').onchange = e => {
+  const fs = [...e.target.files], log = fs.find(f => f.name.endsWith('.jsonl')) || fs[0];
+  fs.filter(f => f !== log).forEach(f => f.text().then(t => { setTr(JSON.parse(t)); lastPanel = -1; }));
+  log.text().then(load);
+};
 const qs = new URLSearchParams(location.search).get('log');
+if (window.EMBEDDED_TR) setTr(window.EMBEDDED_TR);
 if (window.EMBEDDED_LOG) load(window.EMBEDDED_LOG);
-else if (qs) fetch(qs).then(r => r.text()).then(load);
+else if (qs) {
+  fetch(qs.replace(/\.jsonl$/, '') + '.ru.json').then(r => r.ok ? r.json() : null).then(setTr, () => {});
+  fetch(qs).then(r => r.text()).then(load);
+}
 
 document.getElementById('play').onclick = () => { playing = !playing; document.getElementById('play').textContent = playing ? '⏸' : '▶'; };
 document.getElementById('stepb').onclick = () => go(i + 1);
@@ -95,7 +119,7 @@ cv.onclick = e => {
 function render() {
   if (!ticks.length) return;
   const t = ticks[i], prev = ticks[Math.max(0, i - 1)];
-  PixelMap.draw(g, { t, prev, frac, selected, time: performance.now() });
+  PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr });
   document.getElementById('scrub').value = i;
   document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:00`;
 }
@@ -110,7 +134,7 @@ function panel() {
     return `<div class="card ${n === selected ? 'sel' : ''}" data-n="${n}"><span class="name" style="color:${color[n]}">${n}</span>
       <span class="muted">${v.profession} · ${t.view.locations[v.location] || v.location} · ${v.status}</span>
       <div class="muted">еда ${v.satiety} · здоровье ${v.health} · ${v.coins} монет · ${inv}</div>
-      <div class="thought">${esc(thoughts[n] || '')}</div></div>`;
+      <div class="thought">${esc(tr(thoughts[n] || ''))}</div></div>`;
   }).join('');
   document.querySelectorAll('.card').forEach(el => el.onclick = () => select(el.dataset.n));
   diaryPanel();
@@ -118,7 +142,7 @@ function panel() {
   for (let k = i; k >= 0 && feed.length < 40; k--) for (const e of ticks[k].events.slice().reverse()) {
     const mine = selected && (e.actor === selected || e.to.includes(selected));
     if ((selected ? mine : e.visibility !== 'private') && feed.length < 40)
-      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:00</span> ${esc(e.text)}</div>`);
+      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:00</span> ${esc(tr(e.text))}</div>`);
   }
   document.getElementById('feed').innerHTML = feed.join('');
 }
@@ -126,8 +150,8 @@ function diaryPanel() {
   const own = selected ? diaries.filter(d => d.at <= i && d.entries[selected]).map(d => d.entries[selected]).reverse() : [];
   document.getElementById('diaryh').hidden = document.getElementById('diary').hidden = !selected;
   document.getElementById('diary').innerHTML = !selected ? '' : own.length ? own.map(d => `<div class="card"><span class="muted">День ${d.day}</span>
-    <div class="thought">${esc(d.text)}</div>${Object.entries(d.people || {}).map(([p, note]) =>
-    `<div class="muted"><b style="color:${color[p] || 'inherit'}">${esc(p)}</b>: ${esc(note)}</div>`).join('')}</div>`).join('')
+    <div class="thought">${esc(tr(d.text))}</div>${Object.entries(d.people || {}).map(([p, note]) =>
+    `<div class="muted"><b style="color:${color[p] || 'inherit'}">${esc(p)}</b>: ${esc(tr(note))}</div>`).join('')}</div>`).join('')
     : '<div class="muted">Пока записей нет: дневник пишется ночью.</div>';
 }
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
