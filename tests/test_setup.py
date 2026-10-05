@@ -99,6 +99,9 @@ def test_setup_mode_start_stop_and_past_runs(tmp_path, monkeypatch):
     rep = c.post("/api/report-last", json={"note": "всё стоит"}).json()
     assert rep["ok"] and rep["name"].endswith(".zip")
     assert c.get("/replay/..%2Fx").status_code == 404
+    ro = c.post("/api/roster", json={"n": 7, "existing": [{"name": "Ваня", "profession": "farmer"}]}).json()["roster"]
+    assert len(ro) == 7 and ro[0]["name"] == "Ваня"
+    assert c.post("/api/roster", json={"n": 2, "existing": [{"name": "", "profession": "x"}]}).status_code == 400
 
 
 def test_plain_server_cannot_be_stopped_from_the_page(tmp_path):
@@ -110,3 +113,21 @@ def test_plain_server_cannot_be_stopped_from_the_page(tmp_path):
     c = TestClient(create_app(sim))
     assert "src=\"/setup.js\"" not in c.get("/").text
     assert c.post("/api/stop").status_code == 400
+
+
+def test_villagers_one_by_one():
+    from aivillage import engine
+    rows = [{"name": "  Ваня ", "profession": "farmer", "character": "sly"},
+            {"name": "Петя", "profession": "smith", "character": "You love songs."},
+            {"name": "Lost", "profession": "miner", "character": "default"}]
+    r = knobs.to_run({"brains": "llm", "villagers": 2, "characters": "random", "roster": rows})
+    assert r["override"]["agents"] == [{"name": "Ваня", "profession": "farmer", "character": "sly"},
+                                       {"name": "Петя", "profession": "smith", "character": "You love songs."}]
+    assert r["override"]["characters"] == "random"
+    w = engine.new_world({**knobs.to_run({"brains": "bots", "villagers": 4, "roster": rows})["override"], "seed": 1})
+    assert [a["name"] for a in w.config["agents"]][:3] == ["Ваня", "Петя", "Lost"] and len(w.agents) == 4
+    for bad in ([{"name": "", "profession": "farmer"}], [{"name": "A", "profession": "pirate"}],
+                [{"name": "A", "profession": "farmer"}, {"name": "a", "profession": "smith"}]):
+        with pytest.raises(ValueError):
+            knobs.to_run({"roster": bad})
+    assert len(knobs.roster(8, 5)) == 8

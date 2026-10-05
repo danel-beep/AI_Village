@@ -12,6 +12,7 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
 - no `path`: a run option handled in `to_run()` (villagers, days, mode, pace, ...).
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
 - `only`: "llm" or "bots" shows the knob for that kind of village only.
+- `roster` (not a knob): optional list of {name, profession, character} from "Жители по одному".
 - `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
 """
 
@@ -45,6 +46,10 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "bot_mix", "group": "Деревня", "type": "choice", "label": "Какие боты", "only": "bots",
      "default": "mixed", "options": [["mixed", "Смешанные"], ["workers", "Трудяги"], ["traders", "Торговцы"],
                                      ["thieves", "Много воров"], ["homestead", "Хозяйственные"]]},
+    {"key": "characters", "group": "Деревня", "type": "choice", "label": "Характер жителей", "only": "llm",
+     "default": "default", "options": [["default", "😐 Нейтральный у всех"], ["random", "🎲 Случайный у каждого"]],
+     "hint": "Характер: одна мягкая строка о темпераменте в подсказке жителя, не приказ. Каждого жителя "
+             "можно настроить отдельно ниже, в «Жители по одному»."},
     {"key": "summaries", "group": "Деревня", "type": "toggle", "label": "Сводки «Что произошло?» и хайлайты от ИИ",
      "only": "llm", "default": True, "hint": "Пересказ каждого дня, около $0.0003 за день."},
 
@@ -123,6 +128,53 @@ KNOBS: list[dict[str, Any]] = [
 ]
 
 
+# Russian names for llm.CHARACTERS presets (the start screen's "Характер" dropdown).
+CHARACTER_LABELS = {
+    "friendly": "Дружелюбный", "generous": "Щедрый", "honest": "Честный", "cautious": "Осторожный",
+    "ambitious": "Честолюбивый", "greedy": "Жадный", "aggressive": "Вспыльчивый", "sly": "Хитрый",
+    "lazy": "Ленивый",
+}
+NAME_MAX = 20
+
+
+def roster(n: int, seed: int, existing: list[dict] | None = None) -> list[dict]:
+    """Default villagers for the "one by one" editor: `existing` kept, the rest named like population.py does."""
+    from .population import generate_agents
+    cfg = make_config({"seed": seed})
+    base = cfg["agents"] if existing is None else existing
+    return [{"name": a["name"], "profession": a["profession"], "character": a.get("character", "default")}
+            for a in generate_agents(base, n, cfg)]
+
+
+def characters() -> dict:
+    from .llm import CHARACTERS
+    return {k: {"label": CHARACTER_LABELS.get(k, k), "text": v} for k, v in CHARACTERS.items()}
+
+
+def clean_roster(rows: list, n: int) -> list[dict]:
+    """Start-screen villagers -> config `agents` (first n). Raises ValueError with a Russian message."""
+    from .llm import CHARACTER_MAX_CHARS, CHARACTERS
+    profs = set(DEFAULT_CONFIG["professions"])
+    out, seen = [], set()
+    for i, r in enumerate(rows[:n]):
+        if not isinstance(r, dict):
+            raise ValueError("житель: ожидались поля name, profession, character")
+        name = " ".join(str(r.get("name") or "").split())[:NAME_MAX]
+        if not name:
+            raise ValueError(f"у жителя №{i + 1} нет имени")
+        if name.lower() in seen:
+            raise ValueError(f"имя {name} повторяется")
+        seen.add(name.lower())
+        prof = r.get("profession")
+        if prof not in profs:
+            raise ValueError(f"{name}: нет профессии {prof!r}")
+        ch = str(r.get("character") or "default").strip()
+        if ch != "default" and ch not in CHARACTERS:
+            ch = ch[:CHARACTER_MAX_CHARS]
+        out.append({"name": name, "profession": prof, "character": ch})
+    return out
+
+
 def _get(cfg: dict, path: str) -> Any:
     for part in path.split("."):
         if not isinstance(cfg, dict) or part not in cfg:
@@ -164,7 +216,8 @@ def mode_defaults(mode: str) -> dict[str, Any]:
 
 
 def schema() -> dict:
-    return {"knobs": active(), "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k},
+    return {"knobs": active(), "characters": characters(), "professions": sorted(DEFAULT_CONFIG["professions"]),
+            "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k},
             "mode_defaults": {m: mode_defaults(m) for m in modes.MODES}}
 
 
@@ -192,6 +245,8 @@ def to_run(opts: dict) -> dict:
     """Start-screen answers -> what the server needs: world `override`, `decide` kind, days, pace, seed.
 
     Missing answers take the knob default (mode default for config knobs). Raises ValueError on bad input."""
+    opts = dict(opts)
+    rows = opts.pop("roster", None)
     knobs = {k["key"]: k for k in active()}
     unknown = set(opts) - set(knobs)
     if unknown:
@@ -213,6 +268,9 @@ def to_run(opts: dict) -> dict:
                 v = round(v * k["scale"], 6)
             _set(override, k["path"], v)
     override["population"] = {"size": val["villagers"]}
+    override["characters"] = val["characters"]
+    if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter
+        override["agents"] = clean_roster(rows, val["villagers"])
     override.setdefault("map", {})["procedural"] = not val["fixed_map"]
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],

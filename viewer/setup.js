@@ -76,6 +76,13 @@
       #su .msg { font-size:13px; flex-basis:100%; min-height:18px; }
       #su .bad { color:#ff8a72; }
       #su .runs a { color:#e8efe9; display:inline-block; margin:3px 10px 3px 0; }
+      #su .vr { display:grid; grid-template-columns:1fr 1fr 1.3fr; gap:6px; padding:6px 0; border-top:1px solid #2f3935; }
+      #su .vr input, #su .vr select { width:100%; box-sizing:border-box; background:#1d2321; color:#e8efe9;
+        border:1px solid #4a5650; border-radius:6px; padding:6px 8px; font:13px system-ui; }
+      #su .vr .own { grid-column:1 / -1; }
+      #su .vr .hint { grid-column:1 / -1; margin:0; }
+      @media (max-width:560px) { #su .vr { grid-template-columns:1fr 1fr; } #su .vr select.ch { grid-column:1 / -1; } }
+      #su .vbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
       #su textarea { width:100%; box-sizing:border-box; background:#1d2321; color:#e8efe9; border:1px solid #4a5650;
         border-radius:6px; padding:6px 8px; font:13px system-ui; min-height:54px; margin-top:6px; }
     `;
@@ -91,6 +98,17 @@
       <header><h1>🏡 AI Village: новая деревня</h1></header>
       <p class="keyline" id="su-key"></p>
       <div id="su-groups"></div>
+      <details id="su-people"><summary>👥 Жители по одному: имена, профессии, характеры</summary>
+        <div class="vbar"><label class="tog"><input type="checkbox" id="su-own"><span></span></label>
+          <span>Настроить каждого жителя вручную</span></div>
+        <div class="hint">Выключено: имена и профессии подберутся сами, характер по выбору «Характер жителей» выше.
+          Характер: мягкий намёк на темперамент в подсказке жителя, а не приказ что-то делать.</div>
+        <div id="su-vbox" hidden>
+          <div class="vbar"><button class="small" id="su-rand">🎲 Случайные жители</button>
+            <button class="small" id="su-neutral">😐 Всем нейтральный</button></div>
+          <div id="su-vlist"></div>
+        </div>
+      </details>
       <div class="play">
         <button class="go" id="su-go">▶ Играть</button>
         <button class="small" id="su-reset">Сбросить к режиму</button>
@@ -197,13 +215,14 @@
       }
       knobs.forEach(paint);
       keyLine();
+      if (k.key === 'villagers') syncRoster();
       remember();
     }
 
     function remember() {
       try {
         localStorage.setItem(STORE, JSON.stringify(Object.assign({}, values,
-          { seed: null, __touched: Object.fromEntries([...touched].map(t => [t, 1])) })));
+          { seed: null, roster: roster, __touched: Object.fromEntries([...touched].map(t => [t, 1])) })));
       } catch (e) { /* storage blocked: the form still works */ }
     }
 
@@ -235,12 +254,79 @@
       if (i.has_key !== hasKey || i.model !== info.model) { hasKey = i.has_key; info.model = i.model; keyLine(); }
     }).catch(() => {}), 3000);
 
+    // --- villagers one by one (knobs.roster / clean_roster on the server) ---
+    const PROF = { farmer: 'Фермер', fisher: 'Рыбак', woodcutter: 'Лесоруб', miner: 'Шахтёр', smith: 'Кузнец' };
+    let roster = Array.isArray(start.roster) && start.roster.length ? start.roster : null;
+    const n = () => values.villagers;
+    const fetchRoster = (existing, seed) => post('/api/roster', { n: n(), existing, seed });
+
+    function drawRoster() {
+      const list = $('su-vlist');
+      list.textContent = '';
+      $('su-own').checked = !!roster;
+      $('su-vbox').hidden = !roster;
+      if (!roster) return;
+      roster.slice(0, n()).forEach((v, idx) => {
+        const r = document.createElement('div');
+        r.className = 'vr';
+        const name = document.createElement('input');
+        name.value = v.name; name.maxLength = 20; name.placeholder = 'Имя';
+        name.oninput = () => { v.name = name.value; remember(); };
+        const prof = document.createElement('select');
+        for (const p of info.professions) prof.add(new Option(PROF[p] || p, p, false, p === v.profession));
+        prof.onchange = () => { v.profession = prof.value; remember(); };
+        const ch = document.createElement('select');
+        ch.className = 'ch';
+        ch.add(new Option('😐 Нейтральный', 'default'));
+        for (const [key, c] of Object.entries(info.characters)) ch.add(new Option(c.label, key));
+        ch.add(new Option('✍️ Свой текст…', '__own'));
+        const custom = !(v.character in info.characters) && v.character !== 'default';
+        ch.value = custom ? '__own' : v.character;
+        const own = document.createElement('input');
+        own.className = 'own'; own.maxLength = 300; own.hidden = !custom;
+        own.placeholder = 'Например: You love music and hate being alone.';
+        own.value = custom ? v.character : '';
+        own.oninput = () => { v.character = own.value.trim() || 'default'; remember(); };
+        const about = document.createElement('div');
+        about.className = 'hint';
+        const showAbout = () => { about.textContent = info.characters[v.character] ? '«' + info.characters[v.character].text + '»' : ''; };
+        ch.onchange = () => {
+          own.hidden = ch.value !== '__own';
+          v.character = ch.value === '__own' ? (own.value.trim() || 'default') : ch.value;
+          if (!own.hidden) own.focus();
+          showAbout(); remember();
+        };
+        showAbout();
+        r.append(name, prof, ch, own, about);
+        list.appendChild(r);
+      });
+    }
+
+    function syncRoster() {
+      if (roster && roster.length < n()) fetchRoster(roster).then(d => { roster = d.roster; drawRoster(); remember(); },
+        e => { $('su-msg').textContent = e.message; $('su-msg').className = 'msg bad'; });
+      else drawRoster();
+    }
+
+    $('su-own').onchange = () => {
+      if (!$('su-own').checked) { roster = null; drawRoster(); remember(); return; }
+      fetchRoster().then(d => { roster = d.roster; drawRoster(); remember(); });
+    };
+    $('su-rand').onclick = () => fetchRoster([]).then(d => {
+      const keys = Object.keys(info.characters);
+      roster = d.roster.map(v => Object.assign(v, { character: keys[Math.floor(Math.random() * keys.length)] }));
+      drawRoster(); remember();
+    });
+    $('su-neutral').onclick = () => { roster.forEach(v => { v.character = 'default'; }); drawRoster(); remember(); };
+    syncRoster();
+
     $('su-reset').onclick = () => { touched = new Set(); set(byKey.mode, values.mode); };
     $('su-go').onclick = () => {
       const go = $('su-go');
       go.disabled = true; $('su-msg').textContent = 'Строю деревню…'; $('su-msg').className = 'msg';
       const body = {};
       for (const k of knobs) if (!(k.only && k.only !== values.brains)) body[k.key] = values[k.key];
+      if (roster) body.roster = roster.slice(0, n());
       post('/api/start', body).then(() => location.reload(), e => {
         go.disabled = false; $('su-msg').textContent = e.message; $('su-msg').className = 'msg bad';
       });

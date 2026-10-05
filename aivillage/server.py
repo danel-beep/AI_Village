@@ -287,6 +287,8 @@ class Host:
                                 summary_model=sm, reports_dir=self.reports_dir,
                                 reveal_reports=self.reveal_reports)
             self.last = {**run_opts["values"], "seed": None}
+            if opts.get("roster"):
+                self.last["roster"] = world.config["agents"]
             self.sim.start()
             print(f"Village seed {seed}: {log}")
             return self.sim
@@ -415,6 +417,19 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
                 "last": host.last, "has_key": keys.has_any_key(),
                 "model": keys.get("model") or llm.DEFAULT_MODEL,
                 "finished": bool(host.sim and host.sim.finished)}
+
+    @app.post("/api/roster")
+    def roster(body: dict) -> dict:
+        # Villagers for the "one by one" editor: keeps the ones given, adds seeded names up to n.
+        try:
+            n = max(1, min(int(body.get("n") or 5), 60))
+            seed = int(body.get("seed") or random.SystemRandom().randrange(1, 1_000_000))
+            existing = body.get("existing")
+            if existing is not None:
+                existing = knobs.clean_roster(existing, n)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"roster": knobs.roster(n, seed, existing)}
 
     @app.post("/api/start")
     def start(body: dict, request: Request) -> dict:
