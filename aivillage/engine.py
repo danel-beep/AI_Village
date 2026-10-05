@@ -1,0 +1,321 @@
+"""The world engine: a deterministic function (world, decisions, god events) -> (world', events).
+
+It knows nothing about LLMs. Agents (LLM or scripted) only see `observe()` output and
+only act through `step()` decisions.
+"""
+
+from __future__ import annotations
+
+import random
+from typing import Any
+
+from . import actions as _actions  # noqa: F401  (registers actions)
+from . import god as _god  # noqa: F401  (registers god events)
+from . import ops
+from .actions import step_move, work_hour
+from .config import make_config
+from .ops import Ctx, Event, fmt_items
+from .registry import ACTIONS, GOD, ActionError
+from .state import Agent, Chest, Location, Order, Project, World
+
+# A decision is what an agent returns each turn:
+# {"thought": str, "action": {"name": str, "args": {...}}, "say": str | None}
+Decision = dict[str, Any]
+GodEvent = dict[str, Any]  # {"name": str, "args": {...}}
+
+
+def new_world(config: dict | None = None) -> World:
+    cfg = make_config(config)
+    w = World(config=cfg, hour=cfg["day_start_hour"])
+    for lid, spec in cfg["locations"].items():
+        res = {r: v["start"] for r, v in spec.get("resources", {}).items()}
+        w.locations[lid] = Location(lid, spec["name"], list(spec["neighbors"]), res)
+    for spec in cfg["agents"]:
+        name = spec["name"]
+        home = f"home_{name}"
+        w.locations[home] = Location(home, f"{name}'s house", ["square"])
+        w.locations["square"].neighbors.append(home)
+        a = Agent(name=name, profession=spec["profession"], home=home, location=home,
+                  satiety=cfg["satiety_start"], health=cfg["health_max"])
+        w.agents[name] = a
+        ops.mint_coins(w, a, cfg["start_coins"])
+        w.chests[f"chest_{name}"] = Chest(f"chest_{name}", name, home)
+    for pid, spec in cfg["projects"].items():
+        w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]))
+    return w
+
+
+def rng_for(world: World, salt: str = "") -> random.Random:
+    return random.Random(f"{world.config['seed']}:{world.tick}:{salt}")
+
+
+def needs_decision(world: World, name: str) -> bool:
+    a = world.agents[name]
+    return ops.can_act(a) and a.task is None
+
+
+def waiting_agents(world: World) -> list[str]:
+    return [n for n in sorted(world.agents) if needs_decision(world, n)]
+
+
+# ---------- observation ----------
+
+def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
+    """What the agent knows right now. This is the ONLY input an agent gets."""
+    a = world.agents[name]
+    ctx = Ctx(world, rng_for(world, "observe"))
+    loc = world.locations[a.location]
+    cfg = world.config
+    people = [{"name": o.name, "asleep": o.asleep} for o in world.agents.values()
+              if o.name != name and o.status == "active" and o.location == a.location]
+    chest = world.chests[f"chest_{name}"]
+    chests_here = [{"owner": c.owner, "locked": c.locked,
+                    **({"items": c.items, "coins": c.coins} if ops.can_act(a) and
+                       (c.owner == name or name in c.shared_with) else {})}
+                   for c in world.chests.values() if c.location == a.location]
+    every = cfg["tax_every_days"]
+    obs = {
+        "time": {"day": world.day, "hour": world.hour, "day_ends_at": cfg["day_end_hour"],
+                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": cfg["tax_amount"]},
+        "you": {
+            "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
+            "satiety": a.satiety, "health": a.health, "coins": a.coins, "inventory": dict(a.inventory),
+            "tool_wear": a.tool_wear, "sick": world.day < a.sick_until_day,
+            "evicted": world.day < a.evicted_until_day, "task": a.task,
+            "your_chest": {"items": chest.items, "coins": chest.coins, "locked": chest.locked,
+                           "shared_with": chest.shared_with},
+            "chests_shared_with_you": [c.owner for c in world.chests.values() if name in c.shared_with],
+        },
+        "here": {
+            "id": loc.id, "name": loc.name, "roads_to": loc.neighbors, "resources": dict(loc.resources),
+            "ground": dict(loc.ground), "people": people, "chests": chests_here,
+            "on_fire": loc.id in world.fires,
+        },
+        "fires": [{"house": f.location, "water_needed": f.water_needed, "hours_left": f.ticks_left}
+                  for f in world.fires.values()],
+        "news": list(a.inbox),
+        "offers_to_you": [vars(o) for o in world.offers.values() if o.to == name],
+        "your_offers": [vars(o) for o in world.offers.values() if o.sender == name],
+        "board": {
+            "debts": [vars(d) for d in world.debts.values() if d.status != "repaid"],
+            "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
+            "projects": [{"id": p.id, "name": p.name, "needs": p.needs, "contributed": p.contributed}
+                         for p in world.projects.values() if not p.done],
+            "trader_prices": {i: {"buy": max(1, int(v["value"] * cfg["npc_sell_ratio"])),
+                                  "sell": max(1, int(v["value"] * cfg["npc_buy_ratio"]))}
+                              for i, v in cfg["items"].items() if v.get("tradable", True)},
+            "recipes": cfg["recipes"],
+            "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
+                          for o in world.agents.values()],
+        },
+        "last_error": a.last_error,
+        "available_actions": ACTIONS.available(ctx, a) if ops.can_act(a) else [],
+    }
+    if consume_inbox:
+        a.inbox.clear()
+        a.last_error = None
+    return obs
+
+
+# ---------- step ----------
+
+def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent] | None = None) -> list[Event]:
+    """Advance the world by one hour. Mutates `world` in place and returns the events."""
+    ctx = Ctx(world, rng_for(world))
+    for g in god_events or []:
+        try:
+            GOD.run(ctx, None, g["name"], g.get("args"))
+        except ActionError as e:
+            ctx.emit("god_error", f"[god] {g['name']} failed: {e}")
+
+    deliver_mail(ctx)
+
+    order = sorted(world.agents)
+    ctx.rng.shuffle(order)
+    for name in order:
+        a = world.agents[name]
+        if not ops.can_act(a):
+            continue
+        dec = decisions.get(name)
+        if dec is not None:
+            a.task = None  # a fresh decision interrupts any running task
+            run_decision(ctx, a, dec)
+        elif a.task is not None:
+            continue_task(ctx, a)
+
+    end_of_hour(ctx)
+    world.tick += 1
+    world.hour += 1
+    if world.hour >= world.config["day_end_hour"]:
+        night(ctx)
+    return ctx.events
+
+
+def run_decision(ctx: Ctx, a: Agent, dec: Decision) -> None:
+    say = dec.get("say")
+    if say:
+        try:
+            ACTIONS.run(ctx, a, "say", {"text": str(say)})
+        except ActionError:
+            pass
+    act = dec.get("action") or {"name": "wait"}
+    if not isinstance(act, dict):
+        act = {"name": "wait"}
+    try:
+        ACTIONS.run(ctx, a, str(act.get("name", "wait")), act.get("args") if isinstance(act.get("args"), dict) else {})
+    except ActionError as e:
+        a.last_error = f"{act.get('name')}: {e}"
+        a.task = None
+        ctx.emit("error", f"Your action failed: {a.last_error}", actor=a.name, to=[a.name],
+                 action=act, invalid=True)
+
+
+def continue_task(ctx: Ctx, a: Agent) -> None:
+    t = a.task
+    if t["kind"] == "move":
+        nxt = t["path"].pop(0)
+        step_move(ctx, a, nxt)
+        if not t["path"]:
+            a.task = None
+    elif t["kind"] == "work":
+        got = work_hour(ctx, a, t["resource"])
+        t["hours_left"] -= 1
+        if t["hours_left"] <= 0 or got == 0:
+            a.task = None
+    else:  # unknown task kinds never block an agent forever
+        a.task = None
+
+
+def deliver_mail(ctx: Ctx) -> None:
+    w = ctx.world
+    due = [m for m in w.mail if m.deliver_tick <= w.tick]
+    w.mail = [m for m in w.mail if m.deliver_tick > w.tick]
+    for m in due:
+        ctx.emit("letter", f'Letter from {m.sender}: "{m.text}"', actor=m.sender, to=[m.to])
+        interrupt(w, m.to)
+
+
+def interrupt(world: World, name: str) -> None:
+    a = world.agents.get(name)
+    if a is not None and a.task is not None:
+        a.task = None
+
+
+def end_of_hour(ctx: Ctx) -> None:
+    w, cfg = ctx.world, ctx.cfg
+    # Things that should make a busy agent stop and think.
+    for ev in ctx.events:
+        if ev.kind in ("whisper", "offer", "steal_attempt", "fire", "say", "give", "lend"):
+            for n in ops.recipients(w, ev):
+                if n != ev.actor:
+                    interrupt(w, n)
+    for a in w.agents.values():
+        if a.status != "active":
+            continue
+        loss = cfg["satiety_loss_asleep_per_hour"] if a.asleep else cfg["satiety_loss_per_hour"]
+        a.satiety = max(0, a.satiety - loss)
+        if a.satiety == 0:
+            a.health = max(0, a.health - cfg["starving_health_loss_per_hour"])
+            ctx.emit("starving", "You are starving and losing health! Eat something.", to=[a.name])
+    for f in list(w.fires.values()):
+        f.ticks_left -= 1
+        if f.ticks_left <= 0:
+            burn_house(ctx, f.location)
+    for o in list(w.offers.values()):
+        if o.expires_tick <= w.tick:
+            del w.offers[o.id]
+    check_health(ctx)
+
+
+def burn_house(ctx: Ctx, home: str) -> None:
+    w = ctx.world
+    w.fires.pop(home, None)
+    for c in w.chests.values():
+        if c.location == home:
+            lost = dict(c.items)
+            for k, v in lost.items():
+                ops.burn(w, c.items, k, v)
+            coins = c.coins
+            ops.burn_coins(w, c, coins)
+            ctx.emit("house_burned", f"{w.locations[home].name} burned down. The chest and everything in it "
+                     f"({fmt_items(lost)}, {coins} coins) is gone.", visibility="public", home=home)
+
+
+def check_health(ctx: Ctx) -> None:
+    w, cfg = ctx.world, ctx.cfg
+    for a in w.agents.values():
+        if a.status != "active" or a.health > 0:
+            continue
+        a.task, a.asleep = None, False
+        if cfg["death_mode"] == "death":
+            a.status = "dead"
+            ctx.emit("death", f"{a.name} has died.", visibility="public")
+            continue
+        for k, v in list(a.inventory.items()):
+            ops.burn(w, a.inventory, k, v - v // 2)
+        a.status, a.status_until_day = "hospital", w.day + cfg["hospital_days"]
+        ctx.emit("hospital", f"{a.name} collapsed and was taken to the hospital for {cfg['hospital_days']} days.",
+                 visibility="public")
+
+
+def night(ctx: Ctx) -> None:
+    w, cfg = ctx.world, ctx.cfg
+    w.hour = cfg["day_end_hour"]
+    for f in list(w.fires.values()):
+        burn_house(ctx, f.location)
+    for a in w.agents.values():
+        if a.status != "active":
+            continue
+        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"])
+        if a.satiety == 0:
+            a.health = max(0, a.health - cfg["starving_health_loss_night"])
+        elif (a.location == a.home and w.day >= a.evicted_until_day
+              and a.satiety >= cfg["health_regen_min_satiety"]):
+            a.health = min(cfg["health_max"], a.health + cfg["health_regen_night_at_home"])
+    check_health(ctx)
+
+    w.day += 1
+    w.hour = cfg["day_start_hour"]
+    for loc in w.locations.values():
+        spec = cfg["locations"].get(loc.id, {}).get("resources", {})
+        if w.day < loc.drought_until_day:
+            continue
+        for r, s in spec.items():
+            loc.resources[r] = min(s["max"], loc.resources.get(r, 0) + s["regen"])
+    for a in w.agents.values():
+        a.asleep, a.task = False, None
+        if a.status == "hospital" and w.day >= a.status_until_day:
+            a.status, a.location = "active", a.home
+            a.health, a.satiety = 60, 60
+            ctx.emit("discharged", f"{a.name} is back from the hospital.", visibility="public")
+
+    # Weekly tax
+    if (w.day - 1) % cfg["tax_every_days"] == 0:
+        for a in w.agents.values():
+            if a.status == "dead":
+                continue
+            if a.coins >= cfg["tax_amount"]:
+                ops.burn_coins(w, a, cfg["tax_amount"])
+                ctx.emit("tax", f"You paid {cfg['tax_amount']} coins of tax.", to=[a.name])
+            else:
+                ops.burn_coins(w, a, a.coins)
+                a.evicted_until_day = w.day + cfg["eviction_days"]
+                ctx.emit("evicted", f"{a.name} could not pay the tax and is locked out of their house "
+                         f"for {cfg['eviction_days']} days.", visibility="public")
+    # Debts
+    for d in w.debts.values():
+        if d.status == "open" and w.day > d.due_day:
+            d.status = "defaulted"
+            ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({d.coins_owed} coins, "
+                     f"{d.id}).", visibility="public")
+    # Orders
+    for o in w.orders.values():
+        if o.status == "open" and w.day > o.expires_day:
+            o.status = "expired"
+    if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
+        tpl = ctx.rng.choice(cfg["order_templates"])
+        o = Order(w.new_id("order"), dict(tpl["needs"]), tpl["reward"], w.day + cfg["order_ttl_days"])
+        w.orders[o.id] = o
+        ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
+                 f"until day {o.expires_day}.", visibility="public")
+    ctx.emit("morning", f"Day {w.day} begins.", visibility="public")
