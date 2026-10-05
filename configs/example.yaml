@@ -10,12 +10,17 @@ log: runs/example.jsonl
 # Without `model`, agents are scripted bots of kind `bot` (worker, thief, random).
 model: stub
 bot: worker
+# Backup models for when the main one is rate-limited or down (also env AIVILLAGE_FALLBACK_MODELS).
+# fallback_models: [google/gemini-2.5-flash-lite]
 
 # Economy mode (aivillage/modes.py): standard, peaceful, scarcity, debt, gold_rush, lawless.
 # It changes only the rules of the world; `world:` below is applied on top of it.
 mode: standard
 
 # Omit `agents` to get the 5 default villagers.
+# `villagers: 20` makes the village that big: listed agents first, the rest get generated names and
+# professions (they use the default brain); resources and council orders grow with the population.
+# villagers: 20
 agents:
   - {name: Anna, profession: farmer}
   - {name: Boris, profession: fisher, bot: thief}
