@@ -7,7 +7,8 @@ propose; an accepted proposal is a wedding: the couple shares the proposer's hou
 both chests. When a villager dies (or ends up in another `estate_statuses` state), their
 belongings pass to the living spouse, else to the person they liked most among friends.
 
-The engine calls `after_hour` and `after_night`; agents see `observe()["relations"]`.
+Feelings hook in via `ops.EVENT_HOOKS`; the engine calls `after_hour` (estates) and
+`after_night` (decay, spouses, proposals); agents see `observe()["relations"]`.
 """
 
 from __future__ import annotations
@@ -50,12 +51,15 @@ def label(world: World, v: int) -> str:
     return "friend" if v >= t else "enemy" if v <= -t else "liked" if v > 0 else "disliked" if v < 0 else "neutral"
 
 
-def _event_feelings(world: World, ev: Event) -> None:
+def on_event(ctx: Ctx, ev: Event, recipients: list[str]) -> None:
+    """ops.EVENT_HOOKS: move feelings as events happen."""
+    world = ctx.world
     rule = _cfg(world)["on_event"].get(ev.kind)
-    if not rule or not ev.actor:
+    debt = world.debts.get(ev.data.get("debt", ""))
+    actor = ev.actor or (debt.borrower if debt and ev.kind == "default" else None)
+    if not rule or not actor:
         return
     who, delta = rule
-    actor = ev.actor
     if who in ("to", "both"):
         for n in ev.to:
             if n != actor:
@@ -63,11 +67,8 @@ def _event_feelings(world: World, ev: Event) -> None:
                 if who == "both":
                     change(world, actor, n, delta)
     elif who == "lender":
-        lender = ev.data.get("lender")
-        if lender is None and ev.data.get("debt") in world.debts:
-            lender = world.debts[ev.data["debt"]].lender
-        if lender:
-            change(world, lender, actor, delta)
+        if debt:
+            change(world, debt.lender, actor, delta)
     elif who == "owner":
         place = ev.location or world.agents[actor].location
         for o in world.agents.values():
@@ -248,22 +249,16 @@ def settle_estate(ctx: Ctx, name: str) -> None:
 
 # ---------- engine hooks ----------
 
+ops.EVENT_HOOKS.append(on_event)
+
+
 def after_hour(ctx: Ctx) -> None:
-    """Feelings from this hour's events, then estates of anyone who just left the village."""
-    _feel_new_events(ctx)
+    """Estates of anyone who just left the village (death, exile)."""
     _settle_all(ctx)
-
-
-def _feel_new_events(ctx: Ctx) -> None:
-    seen = getattr(ctx, "kin_seen", 0)
-    for ev in ctx.events[seen:]:
-        _event_feelings(ctx.world, ev)
-    ctx.kin_seen = len(ctx.events)
 
 
 def after_night(ctx: Ctx) -> None:
     w, cfg = ctx.world, _cfg(ctx.world)
-    _feel_new_events(ctx)
     for row in list(w.kin.feelings.values()):
         for b, v in list(row.items()):
             row[b] = v - cfg["decay_per_night"] if v > 0 else v + cfg["decay_per_night"]

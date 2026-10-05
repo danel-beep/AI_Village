@@ -2,7 +2,7 @@
 
 import pytest
 
-from aivillage import engine, ops
+from aivillage import engine, ops, run, tiles
 from aivillage.invariants import check
 from aivillage.registry import ACTIONS
 
@@ -83,7 +83,8 @@ def test_tool_wears_out(w):
 
 def test_resources_run_out_and_regrow(w):
     put(w, "Anna", "field")
-    w.locations["field"].resources["grain"] = 2
+    tiles.clear(w.locations["field"], "grain")
+    tiles.grow(w.locations["field"], "grain", 2, 5, 40)
     act(w, "Anna", "work")
     assert w.agents["Anna"].inventory["grain"] == 2
     assert w.locations["field"].resources["grain"] == 0
@@ -195,17 +196,20 @@ def test_fire_burns_chest_unless_put_out(w):
     gift(w, "Anna", bread=3)
     act(w, "Anna", "store", items={"bread": 3}, coins=5)
     engine.step(w, {}, [{"name": "fire", "args": {"person": "Anna"}}])
-    for _ in range(5):
+    for _ in range(4):
+        engine.step(w, {})
+    assert w.fires["home_Anna"].water_needed == 5  # nobody fights it: +1 bucket every 2 hours
+    for _ in range(6):
         engine.step(w, {})
         check(w)
+    assert "home_Anna" not in w.fires
     assert w.chests["chest_Anna"].items == {} and w.chests["chest_Anna"].coins == 0
     # second fire, put out by a neighbour
     engine.step(w, {}, [{"name": "fire", "args": {"person": "Boris"}}])
     put(w, "Clara", "home_Boris")
     gift(w, "Clara", water=3)
-    for _ in range(3):
-        act(w, "Clara", "extinguish")
-    assert "home_Boris" not in w.fires
+    act(w, "Clara", "extinguish")  # pours all 3 buckets at once
+    assert "home_Boris" not in w.fires and w.agents["Clara"].inventory.get("water", 0) == 0
 
 
 def test_tax_and_eviction(w):
@@ -353,3 +357,54 @@ def test_seasons_can_be_disabled():
         engine.step(w, {})
     assert w.locations["field"].resources["grain"] == 40
     assert "season" not in engine.observe(w, "Anna", consume_inbox=False)["time"]
+
+
+def test_trees_fall_and_regrow_as_objects(w):
+    forest = w.locations["forest"]
+    assert forest.slots["wood"] == [10] * 8 and forest.resources["wood"] == 80
+    put(w, "Clara", "forest")
+    gift(w, "Clara", tool=1)
+    events = act(w, "Clara", "work", resource="wood", hours=2)  # 6 wood per hour, finishes one tree first
+    assert forest.slots["wood"] == [4] + [10] * 7
+    events += engine.step(w, {})
+    assert forest.slots["wood"] == [0, 8] + [10] * 6
+    assert [e.data["slot"] for e in events if e.kind == "slot_empty"] == [0]
+    while w.day == 1:
+        engine.step(w, {})
+    assert forest.slots["wood"] == [10] * 8  # regrowth refills the stump first
+    view = run.view(w)
+    assert view["map"]["forest"]["slots"]["wood"] == [10] * 8
+
+
+def test_plant_and_harvest_a_bed(w):
+    field = w.locations["field"]
+    put(w, "Anna", "field")
+    gift(w, "Anna", grain=1)
+    assert "no free bed" in errors(act(w, "Anna", "plant"))[0]
+    tiles.clear(field, "grain")
+    act(w, "Anna", "plant")
+    assert field.planted == {"0": {"resource": "grain", "by": "Anna", "ripe_day": 3}}
+    assert engine.observe(w, "Anna", consume_inbox=False)["here"]["beds"]["grain"]["growing"] == [3]
+    assert "grain" not in w.agents["Anna"].inventory
+    while w.day < 2:
+        engine.step(w, {})
+        check(w)
+    assert field.slots["grain"][0] == 0 and field.slots["grain"][1] > 0  # sown bed waits, others regrow
+    while w.day < 3:
+        engine.step(w, {})
+    check(w)
+    assert field.planted == {} and field.slots["grain"][0] == 5
+    assert any("is ripe" in n for n in w.agents["Anna"].inbox)
+
+
+def test_fire_grows_and_pouring_is_logged(w):
+    engine.step(w, {}, [{"name": "fire", "args": {"person": "Anna"}}])
+    put(w, "Boris", "home_Anna")
+    gift(w, "Boris", water=2)
+    events = act(w, "Boris", "extinguish")
+    pour = [e for e in events if e.kind == "pour_water"][0]
+    assert pour.data == {"helper": "Boris", "house": "home_Anna", "buckets": 2, "water_needed": 1}
+    assert run.view(w)["fire_info"]["home_Anna"]["water_needed"] >= 1
+    while w.hour < 21:
+        engine.step(w, {})
+    assert "home_Anna" not in w.fires  # 10 hours: burned down before night

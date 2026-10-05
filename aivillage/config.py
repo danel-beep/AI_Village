@@ -46,8 +46,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "inbox_size": 30,
     "order_every_days": 3,
     "order_ttl_days": 3,
-    "fire_ticks": 4,
+    # Fire: burns fire_ticks hours, then the house and chest are lost. Every fire_grow_hours it needs
+    # one more bucket (up to fire_water_max). Night counts as fire_night_hours of burning.
+    "fire_ticks": 10,
     "fire_water_needed": 3,
+    "fire_grow_hours": 2,
+    "fire_water_max": 8,
+    "fire_night_hours": 4,
     # Items. value = base price; NPC buys at value*npc_buy_ratio, sells at value*npc_sell_ratio.
     "npc_buy_ratio": 0.5,
     "npc_sell_ratio": 1.5,
@@ -79,20 +84,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "smith": [],
     },
     # Map: a graph of locations. Homes are added per agent and connected to the square.
+    # "slots" splits a resource into finite map objects (trees, beds, bushes, shoals, rocks; see tiles.py).
+    # "plant": the resource can be sown in an empty bed (costs `seed` of it, ripe after `days` nights).
     "locations": {
         "square": {"name": "Village square", "neighbors": ["market", "field", "forest", "river", "smithy"]},
         "market": {"name": "Market", "neighbors": ["square"]},
         "field": {"name": "Field", "neighbors": ["square", "river"],
-                  "resources": {"grain": {"start": 40, "max": 40, "regen": 10}}},
+                  "resources": {"grain": {"start": 40, "max": 40, "regen": 10, "slots": 8,
+                                       "plant": {"seed": 1, "days": 2}}}},
         "river": {"name": "River", "neighbors": ["square", "field"],
-                  "resources": {"fish": {"start": 30, "max": 30, "regen": 8},
+                  "resources": {"fish": {"start": 30, "max": 30, "regen": 8, "slots": 6},
                                 "water": {"start": 999, "max": 999, "regen": 999}}},
         "forest": {"name": "Forest", "neighbors": ["square", "mine"],
-                   "resources": {"wood": {"start": 80, "max": 80, "regen": 40},
-                                 "berries": {"start": 15, "max": 15, "regen": 5}}},
+                   "resources": {"wood": {"start": 80, "max": 80, "regen": 40, "slots": 8},
+                                 "berries": {"start": 15, "max": 15, "regen": 5, "slots": 5}}},
         "mine": {"name": "Mine", "neighbors": ["forest"],
-                 "resources": {"stone": {"start": 60, "max": 60, "regen": 30},
-                               "ore": {"start": 30, "max": 30, "regen": 10}}},
+                 "resources": {"stone": {"start": 60, "max": 60, "regen": 30, "slots": 6},
+                               "ore": {"start": 30, "max": 30, "regen": 10, "slots": 6}}},
         "smithy": {"name": "Smithy", "neighbors": ["square"]},
     },
     "projects": {
@@ -137,12 +145,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "divorce_hurt": 40,    # the left spouse's feeling drops by this
         "estate_statuses": ["dead", "exiled", "banished"],  # property passes on in these states
         # event kind -> [who, delta]: "to" = addressees about the actor, "both" = both ways,
-        # "lender"/"victim"/"owner" = that person about the actor
+        # "lender" = the debt's lender, "owner" = who lives in the house where it happened
         "on_event": {
             "give": ["to", 5], "lend": ["to", 4], "repay": ["lender", 4], "trade": ["both", 2],
             "whisper": ["both", 1], "letter": ["to", 1], "decline": ["to", -1],
             "steal_attempt": ["to", -20], "witness": ["to", -10], "default": ["lender", -15],
             "fire_out": ["owner", 10], "extinguish": ["owner", 4],
+        },
+    },
+    # Reputation and rumors (aivillage/reputation.py). Each agent keeps its own tally of deeds it saw or
+    # lived through; "deltas" maps event kinds to score changes. Rumors (gossip) never change scores.
+    "reputation": {
+        "enabled": True,
+        "score_cap": 10,
+        "notes_per_person": 3,
+        "rumors_kept": 6,
+        "deltas": {
+            "witness": -3,        # saw someone steal
+            "steal_attempt": -4,  # caught someone stealing from you
+            "default": -3,        # debt not repaid on time (public)
+            "repay": 2,           # debt fully repaid on time (public)
+            "fire_out": 3,        # put out a fire (public)
+            "extinguish": 1,      # helped with a fire (seen there)
+            "give": 1,
+            "lend": 1,
+            "trade": 1,           # completed a trade with you
+            "contribute": 1,      # gave to a village project (public)
         },
     },
     "agents": [

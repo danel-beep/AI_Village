@@ -12,12 +12,12 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import family, ops, seasons
+from . import family, ops, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, GOD, ActionError
-from .state import Agent, Chest, Location, Order, Project, World
+from .state import Agent, Chest, Fire, Location, Order, Project, World
 
 # A decision is what an agent returns each turn:
 # {"thought": str, "action": {"name": str, "args": {...}}, "say": str | None}
@@ -31,6 +31,7 @@ def new_world(config: dict | None = None) -> World:
     for lid, spec in cfg["locations"].items():
         res = {r: v["start"] for r, v in spec.get("resources", {}).items()}
         w.locations[lid] = Location(lid, spec["name"], list(spec["neighbors"]), res)
+        tiles.init(w.locations[lid], spec.get("resources", {}))
     for spec in cfg["agents"]:
         name = spec["name"]
         home = f"home_{name}"
@@ -75,6 +76,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
                        (c.owner == name or name in c.shared_with) else {})}
                    for c in world.chests.values() if c.location == a.location]
     every = cfg["tax_every_days"]
+    beds = plant_info(world, loc)
     obs = {
         "time": {"day": world.day, "hour": world.hour, "day_ends_at": cfg["day_end_hour"],
                  "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": cfg["tax_amount"],
@@ -92,6 +94,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "id": loc.id, "name": loc.name, "roads_to": loc.neighbors, "resources": dict(loc.resources),
             "ground": dict(loc.ground), "people": people, "chests": chests_here,
             "on_fire": loc.id in world.fires,
+            **({"beds": beds} if beds else {}),
         },
         "fires": [{"house": f.location, "water_needed": f.water_needed, "hours_left": f.ticks_left}
                   for f in world.fires.values()],
@@ -114,10 +117,23 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "last_error": a.last_error,
         "available_actions": ACTIONS.available(ctx, a) if ops.can_act(a) else [],
     }
+    obs.update(reputation.observe(world, name))
     if consume_inbox:
         a.inbox.clear()
         a.last_error = None
     return obs
+
+
+def plant_info(world: World, loc) -> dict:
+    """Sowable resources here: free beds and what the agent's own sown beds are doing."""
+    out = {}
+    for r, s in world.config["locations"].get(loc.id, {}).get("resources", {}).items():
+        if "plant" in s:
+            out[r] = {"free_beds": len(tiles.free_beds(loc, r)),
+                      "growing": sorted(p["ripe_day"] for p in loc.planted.values() if p["resource"] == r),
+                      "seed": s["plant"]["seed"], "ripe_after_nights": s["plant"]["days"],
+                      "harvest_per_bed": tiles.capacity(s)}
+    return out
 
 
 # ---------- step ----------
@@ -257,14 +273,31 @@ def end_of_hour(ctx: Ctx) -> None:
             if was > 0:  # wake once when hunger starts, not every hour after
                 interrupt(w, a.name)
     for f in list(w.fires.values()):
-        f.ticks_left -= 1
-        if f.ticks_left <= 0:
-            burn_house(ctx, f.location)
+        burn_for(ctx, f, 1)
     for o in list(w.offers.values()):
         if o.expires_tick <= w.tick:
             del w.offers[o.id]
     check_health(ctx)
     family.after_hour(ctx)
+
+
+def burn_for(ctx: Ctx, f: Fire, hours: int) -> None:
+    """The fire burns `hours` more: it grows every fire_grow_hours and takes the house when time is up."""
+    cfg = ctx.cfg
+    grow = cfg["fire_grow_hours"]
+    before = f.water_needed
+    for _ in range(hours):
+        f.hours += 1
+        f.ticks_left -= 1
+        if grow and f.hours % grow == 0:
+            f.water_needed = min(cfg["fire_water_max"], f.water_needed + 1)
+    if f.ticks_left <= 0:
+        burn_house(ctx, f.location)
+    elif f.water_needed > before:
+        name = ctx.world.locations[f.location].name
+        ctx.emit("fire_grows", f"The fire at {name} is spreading: it now needs {f.water_needed} buckets of water, "
+                 f"{f.ticks_left} hours before it burns down.", location=f.location, visibility="location",
+                 house=f.location, water_needed=f.water_needed, hours_left=f.ticks_left)
 
 
 def burn_house(ctx: Ctx, home: str) -> None:
@@ -302,7 +335,7 @@ def night(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
     w.hour = cfg["day_end_hour"]
     for f in list(w.fires.values()):
-        burn_house(ctx, f.location)
+        burn_for(ctx, f, cfg["fire_night_hours"])
     for a in w.agents.values():
         if a.status != "active":
             continue
@@ -322,7 +355,16 @@ def night(ctx: Ctx) -> None:
         if w.day < loc.drought_until_day:
             continue
         for r, s in spec.items():
-            loc.resources[r] = min(s["max"], loc.resources.get(r, 0) + seasons.regen(cfg, w.day, r, s["regen"]))
+            cap = tiles.capacity(s) if s.get("slots") else s["max"]
+            tiles.grow(loc, r, seasons.regen(cfg, w.day, r, s["regen"]), cap, s["max"])
+    for loc in w.locations.values():
+        if not loc.planted:
+            continue
+        caps = {r: tiles.capacity(s) for r, s in cfg["locations"][loc.id]["resources"].items() if s.get("slots")}
+        for slot, p in tiles.ripen(loc, w.day, caps):
+            ctx.emit("crop_ripe", f"The {p['resource']} you planted at the {loc.name} is ripe: {caps[p['resource']]} "
+                     f"{p['resource']} ready to harvest (anyone there can take it).", to=[p["by"]],
+                     location=loc.id, resource=p["resource"], slot=slot, by=p["by"])
     for a in w.agents.values():
         a.asleep, a.task = False, None
         if a.status == "hospital" and w.day >= a.status_until_day:
@@ -348,7 +390,7 @@ def night(ctx: Ctx) -> None:
         if d.status == "open" and w.day > d.due_day:
             d.status = "defaulted"
             ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({d.coins_owed} coins, "
-                     f"{d.id}).", actor=d.borrower, visibility="public", lender=d.lender, debt=d.id)
+                     f"{d.id}).", visibility="public", debt=d.id)
     # Orders
     for o in w.orders.values():
         if o.status == "open" and w.day > o.expires_day:
