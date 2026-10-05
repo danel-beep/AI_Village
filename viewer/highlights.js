@@ -49,7 +49,7 @@
     msg.textContent = days.length ? 'Нажмите на момент, чтобы перемотать к нему.'
       : 'Хайлайты появятся в конце каждого игрового дня.';
     for (const d of days.slice().reverse()) {
-      list.append(el('h4', { textContent: `День ${d.day}` }));
+      list.append(el('h4', { textContent: `День ${d.day}` + (d.partial ? ' · пока идёт' : '') }));
       for (const it of d.items) {
         const row = el('div', { className: 'hl' });
         row.append(el('div', { className: 'when', textContent: it.time + (it.who.length ? ' · ' + it.who.join(', ') : '') }),

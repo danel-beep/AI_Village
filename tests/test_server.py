@@ -116,3 +116,25 @@ def test_highlights_without_key_last_day_too(tmp_path):
     assert any(it["kind"] == "fire" and it["who"] == ["Anna"] for it in got[0]["items"])
     assert json.loads((tmp_path / "live.highlights.json").read_text(encoding="utf-8")) == got
     replay(tmp_path / "live.jsonl")
+
+
+def test_diaries_reach_late_joiners_and_today_has_highlights(tmp_path):
+    world = engine.new_world({"seed": 3})
+    nights = []
+    sim = LiveSim(world, bots_decider(world, ["worker"], 3), 2, str(tmp_path / "live.jsonl"), 0.1,
+                  on_night=lambda w, day: nights.append(day) or {"Anna": {"day": day, "text": "ok", "people": {}}})
+    client = TestClient(create_app(sim))
+    sim.start()
+    wait(lambda: len(sim.ticks) >= 10)
+    sim.running.clear()
+    today = client.get("/api/highlights").json()["highlights"]  # mid-day 1: the day so far, by rules
+    assert today and today[-1]["partial"] and today[-1]["day"] == 1
+    sim.pace = 0.0
+    sim.running.set()
+    wait(lambda: sim.finished)
+    assert nights and sim.diaries
+    with client.websocket_connect("/ws") as ws:
+        rows = [json.loads(ws.receive_text()) for _ in range(1 + len(sim.ticks) + len(sim.diaries))]
+    diary = next(k for k, r in enumerate(rows) if r["type"] == "diary")
+    assert rows[diary - 1]["type"] == "tick" and rows[diary - 1]["tick"] == sim.diaries[0][0]
+    assert not any(h.get("partial") for h in client.get("/api/highlights").json()["highlights"])
