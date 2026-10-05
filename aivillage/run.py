@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
@@ -52,10 +53,11 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
     try:
         while world.day < end_day:
             asked = engine.waiting_agents(world)
-            decisions = {}
-            for name in asked:
-                obs = engine.observe(world, name)
-                decisions[name] = decide(name, obs)
+            observations = [(name, engine.observe(world, name)) for name in asked]
+            # All agents think at the same time: a slow model does not slow the others down.
+            with ThreadPoolExecutor(max_workers=max(1, len(asked))) as pool:
+                results = list(pool.map(lambda pair: decide(*pair), observations))
+            decisions = dict(zip(asked, results))
             god = (god_script or {}).get(world.tick, [])
             tick = world.tick
             events = engine.step(world, decisions, god)
@@ -65,12 +67,22 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
                 stats[ev.kind] += 1
             stats["llm_calls"] += len(asked)
             log.write({"type": "tick", "tick": tick, "asked": asked, "decisions": decisions, "god": god,
-                       "events": [asdict(e) for e in events], "hash": world.hash()})
+                       "events": [asdict(e) for e in events], "hash": world.hash(), "view": view(world)})
             if on_tick:
                 on_tick(world, events)
     finally:
         log.close()
     return dict(stats)
+
+
+def view(world: World) -> dict:
+    """Small snapshot for the viewer (not used by replay)."""
+    return {"day": world.day, "hour": world.hour,
+            "agents": {a.name: {"location": a.location, "status": a.status, "asleep": a.asleep,
+                                "satiety": a.satiety, "health": a.health, "coins": a.coins,
+                                "profession": a.profession, "inventory": a.inventory}
+                       for a in world.agents.values()},
+            "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()}}
 
 
 def read_log(path: str | Path) -> Iterable[dict]:
@@ -123,22 +135,50 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--log", default=None, help="write a replayable JSONL log here")
     p.add_argument("--replay", default=None, help="replay and verify a log instead of running")
     p.add_argument("--fire-day", type=int, default=0, help="god: set a random house on fire on this day")
+    p.add_argument("--models", default=None,
+                   help="LLM agents instead of bots: comma-separated OpenRouter model ids cycled over agents, "
+                        "or 'stub' to test the LLM pipeline without a key")
+    p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
     a = p.parse_args(argv)
 
     if a.replay:
         w = replay(a.replay)
         print(f"replay OK: {w.tick} ticks, final hash {w.hash()}")
         return 0
-    world = engine.new_world({"seed": a.seed})
+    override: dict = {"seed": a.seed}
+    if a.agents:
+        from .config import DEFAULT_CONFIG
+        override["agents"] = DEFAULT_CONFIG["agents"][: a.agents]
+    world = engine.new_world(override)
     kinds = a.bots.split(",")
+    agents = None
+    if a.models:
+        agents = llm_agents(world, a.models.split(","))
+        decide = lambda name, obs: agents[name].decide(obs)
+    else:
+        decide = bots_decider(world, kinds, a.seed)
     god = {}
     if a.fire_day:
         hours = world.config["day_end_hour"] - world.config["day_start_hour"]
         victim = sorted(world.agents)[a.seed % len(world.agents)]
         god[(a.fire_day - 1) * hours + 4] = [{"name": "fire", "args": {"person": victim}}]
-    stats = run(world, bots_decider(world, kinds, a.seed), a.days, god, a.log)
+    stats = run(world, decide, a.days, god, a.log)
     print(summary(world, stats))
+    for name, ag in (agents or {}).items():
+        u = ag.usage
+        print(f"  {name:8} {ag.client.model:30} calls={u.calls} fail={u.failures} "
+              f"tokens={u.prompt_tokens}+{u.completion_tokens} cost=${u.cost_usd:.4f}")
     return 0
+
+
+def llm_agents(world: World, models: list[str]) -> dict:
+    from .llm import LLMAgent, OpenRouterClient, StubClient
+    out = {}
+    for i, name in enumerate(sorted(world.agents)):
+        m = models[i % len(models)]
+        client = StubClient(name) if m == "stub" else OpenRouterClient(m)
+        out[name] = LLMAgent(name, world.agents[name].profession, client)
+    return out
 
 
 if __name__ == "__main__":

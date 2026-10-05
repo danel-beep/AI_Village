@@ -1,6 +1,6 @@
 # AI Village
 
-Деревня, где каждый житель — отдельная LLM. Сейчас готов шаг 1 из [спецификации](https://claude.ai/code/artifact/df507acc-4173-430d-9dfe-760898a4e089): детерминированный движок мира без LLM, скриптовые боты и тесты.
+Деревня, где каждый житель — отдельная LLM. Готовы шаги 1–2 из [спецификации](https://claude.ai/code/artifact/df507acc-4173-430d-9dfe-760898a4e089): детерминированный движок мира, скриптовые боты, LLM-агенты через OpenRouter и 2D-вьюер.
 
 ## Запуск
 
@@ -10,6 +10,17 @@ python -m aivillage.run --days 10 --bots worker,worker,thief,worker,random --log
 python -m aivillage.run --replay runs/demo.jsonl     # проверить, что лог воспроизводится один в один
 python -m pytest -q
 ```
+
+## LLM-агенты и 2D-вьюер
+
+```bash
+export OPENROUTER_API_KEY=...   # ключ openrouter.ai
+python -m aivillage.run --days 2 --agents 3 --models google/gemini-2.5-flash-lite --log runs/llm.jsonl
+python -m aivillage.run --days 2 --models stub --log runs/stub.jsonl   # без ключа: «модель» отвечает как бот
+python -m http.server 8000      # затем открыть http://localhost:8000/viewer/?log=/runs/llm.jsonl
+```
+
+`--models a,b,c` раздаёт модели жителям по кругу. Агенты думают параллельно, упавший провайдер = «ждать», а не падение деревни. В конце прогона печатаются вызовы, токены и стоимость по каждому агенту. Один ход стоит ~1300 токенов на вход.
 
 ## Как устроено
 
@@ -24,6 +35,8 @@ python -m pytest -q
 | `aivillage/invariants.py` | проверки после каждого хода: ничего не берётся из ниоткуда, нет отрицательных значений |
 | `aivillage/bots.py` | скриптовые агенты: random (фаззер), worker (честный), thief (вор) |
 | `aivillage/run.py` | прогон, JSONL-лог, реплей |
+| `aivillage/llm.py` | LLM-агент: промпт, разбор ответа, заметки агента, клиенты OpenRouter и stub |
+| `viewer/index.html` | 2D-карта деревни: воспроизводит лог, мысли и реплики жителей |
 
 Агент получает только словарь `observe(world, name)` и отвечает решением
 `{"thought": "...", "action": {"name": "...", "args": {...}}, "say": "..."}`.
