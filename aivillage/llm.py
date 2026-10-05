@@ -75,8 +75,8 @@ class OpenRouterClient(Client):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
     def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 2,
-                 max_tokens: int = 400):
-        self.model = model
+                 max_tokens: int = 400, temperature: float = 0.8):
+        self.model, self.temperature = model, temperature
         self.key = api_key or os.environ.get("OPENROUTER_API_KEY")
         if not self.key:
             raise RuntimeError("OPENROUTER_API_KEY is not set")
@@ -84,7 +84,7 @@ class OpenRouterClient(Client):
 
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
         body = json.dumps({"model": self.model, "messages": messages, "max_tokens": self.max_tokens,
-                           "temperature": 0.8, "usage": {"include": True}}).encode()
+                           "temperature": self.temperature, "usage": {"include": True}}).encode()
         req = urllib.request.Request(self.URL, body, {"Authorization": f"Bearer {self.key}",
                                                       "Content-Type": "application/json"})
         last: Exception | None = None
@@ -191,9 +191,10 @@ class LLMAgent:
     diary: list[dict] = field(default_factory=list)  # [{"day", "text"}], one per night
     day_log: list[str] = field(default_factory=list)  # today's turns, consumed by reflect()
     villagers: set[str] = field(default_factory=set)
+    disabled_actions: frozenset[str] = frozenset()
 
     def messages(self, obs: dict) -> list[dict]:
-        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe())
+        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe(self.disabled_actions))
         memory = {"notes": self.notes or "none"}
         if self.people:
             memory["people"] = self.people
