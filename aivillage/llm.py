@@ -2,7 +2,9 @@
 
 Models are reached through one interface, `Client.complete(messages) -> (text, usage)`.
 `OpenRouterClient` covers GPT, Claude, Gemini, DeepSeek and others with one key;
-`StubClient` answers like a scripted bot so the whole pipeline runs without a key.
+`OpenAIClient` calls OpenAI directly (own key, much higher parallel limits);
+`make_client` picks the provider from the saved settings (aivillage/keys.py) and falls back
+from OpenAI to OpenRouter; `StubClient` answers like a scripted bot so the whole pipeline runs without a key.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import governance
+from . import governance, keys
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -181,6 +183,10 @@ def env_fallbacks() -> list[str]:
     return [m.strip() for m in os.environ.get("AIVILLAGE_FALLBACK_MODELS", "").split(",") if m.strip()]
 
 
+class ProviderDown(RuntimeError):
+    """The provider refuses this client for good (bad key, no credit, unknown model): stop calling it."""
+
+
 class OpenRouterClient(Client):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -188,7 +194,7 @@ class OpenRouterClient(Client):
                  max_tokens: int = 1500, temperature: float = 0.8, reasoning: dict | None = None,
                  fallbacks: list[str] | None = None, parallel: int | None = None):
         self.model, self.temperature = model, temperature
-        self.key = api_key or os.environ.get("OPENROUTER_API_KEY")
+        self.api_key = api_key  # None: read from settings/env on every call, so a changed key applies at once
         if not self.key:
             raise RuntimeError("OPENROUTER_API_KEY is not set")
         self.timeout, self.retries, self.max_tokens = timeout, retries, max_tokens
@@ -198,6 +204,10 @@ class OpenRouterClient(Client):
         # (`models` routing), and after repeated 429s the client calls them directly.
         self.fallbacks = [m for m in (env_fallbacks() if fallbacks is None else fallbacks) if m != model]
         self.parallel = parallel
+
+    @property
+    def key(self) -> str | None:
+        return self.api_key or keys.get("openrouter_key")
 
     def _post(self, models: list[str], messages: list[dict]) -> tuple[str, dict]:
         body = {"model": models[0], "messages": messages, "max_tokens": self.max_tokens,
@@ -234,6 +244,164 @@ class OpenRouterClient(Client):
                         models, limited = models[1:], 0
                 time.sleep(wait)
         raise RuntimeError(f"{self.model}: {last}")
+
+
+# OpenAI direct: USD per 1M tokens (input, cached input, output); OpenAI's API reports no cost itself.
+OPENAI_PRICES = {"gpt-6-luna": (0.10, 0.01, 0.50), "gpt-6-luna-pro": (0.10, 0.01, 0.50),
+                 "gpt-5.6-luna": (0.20, 0.02, 1.20)}
+# OpenAI's per-minute limits are far above OpenRouter's ~4 parallel calls for Luna.
+OPENAI_PARALLEL = 16
+# Parameters a model rejected with HTTP 400, remembered per model so only one call pays for it.
+_UNSUPPORTED: dict[str, set] = {}
+
+
+def openai_id(model: str) -> str:
+    """'openai/gpt-6-luna' -> 'gpt-6-luna' (OpenAI's own name)."""
+    return model.split("/", 1)[1] if model.startswith("openai/") else model
+
+
+def openai_cost(model: str, usage: dict) -> float:
+    price = OPENAI_PRICES.get(model)
+    if not price:
+        return 0.0
+    cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+    fresh = int(usage.get("prompt_tokens") or 0) - cached
+    return (fresh * price[0] + cached * price[1] + int(usage.get("completion_tokens") or 0) * price[2]) / 1e6
+
+
+class OpenAIClient(Client):
+    URL = "https://api.openai.com/v1/chat/completions"
+
+    def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 6,
+                 max_tokens: int = 1500, temperature: float | None = None, reasoning: dict | None = None,
+                 parallel: int | None = None, **_):
+        self.model = model if "/" in model else f"openai/{model}"  # same id as on OpenRouter, for logs
+        self.name = openai_id(model)
+        self.api_key = api_key
+        if not self.key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        self.timeout, self.retries, self.max_tokens = timeout, retries, max_tokens
+        self.temperature = temperature  # Luna is a reasoning model and takes no temperature; sent only if given
+        self.effort = (reasoning or {}).get("effort", "low")
+        self.parallel = parallel or int(keys.get("parallel") or 0) or OPENAI_PARALLEL
+
+    @property
+    def key(self) -> str | None:
+        return self.api_key or keys.get("openai_key")
+
+    def _post(self, messages: list[dict]) -> tuple[str, dict]:
+        body = {"model": self.name, "messages": messages, "max_completion_tokens": self.max_tokens,
+                "response_format": {"type": "json_object"}, "reasoning_effort": self.effort}
+        if self.temperature is not None:
+            body["temperature"] = self.temperature
+        for p in _UNSUPPORTED.get(self.name, ()):
+            body.pop(p, None)
+        req = urllib.request.Request(self.URL, json.dumps(body).encode(),
+                                     {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json"})
+        with gate_for(f"direct:{self.name}", self.parallel):
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                data = json.load(r)
+        usage = dict(data.get("usage") or {})
+        usage["cost"] = openai_cost(self.name, usage)
+        usage["model"] = self.model
+        return data["choices"][0]["message"]["content"] or "", usage
+
+    @staticmethod
+    def _error(e: urllib.error.HTTPError) -> str:
+        try:
+            err = json.loads(e.read() or b"{}").get("error") or {}
+        except (ValueError, AttributeError, OSError):
+            err = {}
+        return f"{err.get('code') or ''} {err.get('param') or ''} {err.get('message') or ''}".strip()
+
+    def complete(self, messages: list[dict]) -> tuple[str, dict]:
+        last: Exception | None = None
+        for attempt in range(self.retries + 1):
+            try:
+                return self._post(messages)
+            except urllib.error.HTTPError as e:
+                last, msg = e, self._error(e)
+                if e.code in (401, 403):
+                    raise ProviderDown(f"OpenAI: key rejected ({e.code}) {msg}") from e
+                if e.code == 404:
+                    raise ProviderDown(f"OpenAI: model {self.name} not available ({msg})") from e
+                if e.code == 429 and "insufficient_quota" in msg:
+                    raise ProviderDown(f"OpenAI: no credit on the account ({msg})") from e
+                if e.code == 400:
+                    bad = [p for p in ("temperature", "reasoning_effort", "response_format") if p in msg]
+                    if bad and not set(bad) <= _UNSUPPORTED.get(self.name, set()):
+                        _UNSUPPORTED.setdefault(self.name, set()).update(bad)
+                        continue
+                    raise RuntimeError(f"{self.model}: HTTP 400 {msg}") from e
+                wait = 2 ** attempt
+                if e.code == 429:
+                    after = e.headers.get("Retry-After") if e.headers else None
+                    wait = float(after) if after and after.replace(".", "", 1).isdigit() else min(2 * 2 ** attempt, 30)
+                    gate_for(f"direct:{self.name}", self.parallel).cool(wait)
+                    wait *= 0.5 + random.random()
+                time.sleep(wait)
+            except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
+                last = e
+                time.sleep(2 ** attempt)
+        raise RuntimeError(f"{self.model}: {last}")
+
+
+class FallbackClient(Client):
+    """OpenAI first, OpenRouter when it fails. A ProviderDown (bad key, no credit) switches for good."""
+
+    def __init__(self, primary: Client, backup: Client):
+        self.primary, self.backup = primary, backup
+        self.model = primary.model
+        self.down: str | None = None
+
+    def complete(self, messages: list[dict]) -> tuple[str, dict]:
+        if self.down is None:
+            try:
+                return self.primary.complete(messages)
+            except ProviderDown as e:
+                self.down = str(e)
+            except RuntimeError:
+                pass  # outage or repeated errors: only this call goes to the backup
+        return self.backup.complete(messages)
+
+
+def make_client(model: str = "default", fallbacks: list[str] | None = None, **kw) -> Client:
+    """Client for `model` ('default' = saved model, else DEFAULT_MODEL) by the saved provider:
+    auto: OpenAI models go to OpenAI directly when an OpenAI key is set (OpenRouter as backup),
+    everything else to OpenRouter; openai / openrouter: force one route (non-OpenAI models
+    always need OpenRouter). Raises RuntimeError when no usable key is set."""
+    if model == "default":
+        model = keys.get("model") or DEFAULT_MODEL
+    if "/" not in model:
+        model = f"openai/{model}"
+    prov = keys.provider()
+    has_oa, has_or = bool(keys.get("openai_key")), bool(keys.get("openrouter_key"))
+    direct = model.startswith("openai/") and prov != "openrouter"
+    if direct and prov == "openai" and not has_oa:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+    if direct and has_oa:
+        primary = OpenAIClient(model, retries=3 if has_or else 6, **kw)
+        if not has_or:
+            return primary
+        return FallbackClient(primary, OpenRouterClient(model, fallbacks=fallbacks, **kw))
+    return OpenRouterClient(model, fallbacks=fallbacks, **kw)
+
+
+def check(model: str = "default") -> dict:
+    """One tiny call through `make_client`: {"ok", "model", "provider", "error"} for the settings panel."""
+    try:
+        client = make_client(model, max_tokens=200)
+    except RuntimeError as e:
+        return {"ok": False, "error": str(e)}
+    route = "openai" if isinstance(client, (OpenAIClient, FallbackClient)) else "openrouter"
+    try:
+        text, usage = client.complete([{"role": "user", "content": 'Reply with JSON {"ok": true}'}])
+    except RuntimeError as e:
+        return {"ok": False, "model": client.model, "provider": route, "error": str(e)[:300]}
+    if isinstance(client, FallbackClient) and client.down:
+        route = "openrouter"
+    return {"ok": True, "model": usage.get("model") or client.model, "provider": route,
+            "note": client.down if isinstance(client, FallbackClient) else None}
 
 
 class StubClient(Client):

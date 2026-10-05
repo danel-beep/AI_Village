@@ -242,18 +242,18 @@ def night_reflection(world: World, agents: dict, day: int) -> dict:
 
 def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list[str] | None = None) -> dict:
     """models: ids cycled over agents, or agent name -> id. An id is an OpenRouter model,
-    'default' (llm.DEFAULT_MODEL) or 'stub'. `fallbacks`: backup models (None = env AIVILLAGE_FALLBACK_MODELS)."""
+    'default' (saved model, else llm.DEFAULT_MODEL) or 'stub'; llm.make_client picks the provider.
+    `fallbacks`: backup models (None = env AIVILLAGE_FALLBACK_MODELS)."""
     if isinstance(models, list):
         models = {n: models[i % len(models)] for i, n in enumerate(sorted(world.agents))}
     if not models:
         return {}
-    from .llm import DEFAULT_MODEL, LLMAgent, OpenRouterClient, StubClient, world_facts
+    from .llm import LLMAgent, StubClient, make_client, world_facts
     off = frozenset(world.config.get("disabled_actions") or ())
     facts = world_facts(world.config)
     out = {}
     for name, m in models.items():
-        m = DEFAULT_MODEL if m == "default" else m
-        client = StubClient(name) if m == "stub" else OpenRouterClient(m, fallbacks=fallbacks)
+        client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off)
     return out
 

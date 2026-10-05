@@ -18,7 +18,7 @@ irm https://raw.githubusercontent.com/danel-beep/ai_village/main/scripts/install
 curl -fsSL https://raw.githubusercontent.com/danel-beep/ai_village/main/scripts/install.sh | sh
 ```
 
-Дальше откроется меню: 1 — деревня с ИИ-жителями (первый раз попросит ключ OpenRouter и запомнит его), 2 — бесплатная деревня с ботами, 3 — посмотреть прошлый прогон, 4 — сменить ключ. Деревня открывается в браузере, кнопка «⚡ Режим бога» внизу справа. Пока смотрите, не закрывайте чёрное окно. Ключ и записи прогонов лежат в папке `AIVillage` в домашней папке и при обновлениях не трогаются.
+Дальше откроется меню: 1 — деревня с ИИ-жителями (первый раз попросит ключ OpenAI или OpenRouter и запомнит его; поменять можно в игре, кнопка «⚙️ Настройки» вверху слева), 2 — бесплатная деревня с ботами, 3 — посмотреть прошлый прогон, 4 — сменить ключ. Деревня открывается в браузере, кнопка «⚡ Режим бога» внизу справа. Пока смотрите, не закрывайте чёрное окно. Ключ и записи прогонов лежат в папке `AIVillage` в домашней папке и при обновлениях не трогаются.
 
 Модель для ИИ-жителей по умолчанию `openai/gpt-6-luna` (переменная `AIVILLAGE_MODEL`), 5 жителей, 10 дней. Код меню: `aivillage/launcher.py`, скрипты: `scripts/install.*`, `scripts/start.*`.
 
@@ -34,7 +34,8 @@ python -m pytest -q
 ## LLM-агенты и 2D-вьюер
 
 ```bash
-export OPENROUTER_API_KEY=...   # ключ openrouter.ai
+export OPENAI_API_KEY=...       # ключ OpenAI (напрямую, больше параллельных запросов)
+export OPENROUTER_API_KEY=...   # или/и ключ openrouter.ai (запасной путь и модели не от OpenAI)
 python -m aivillage.run --days 2 --agents 3 --models default --log runs/llm.jsonl
 python -m aivillage.run --days 2 --models stub --log runs/stub.jsonl   # без ключа: «модель» отвечает как бот
 python -m http.server 8000      # затем открыть http://localhost:8000/viewer/?log=/runs/llm.jsonl
@@ -77,7 +78,7 @@ python -m aivillage.server --agents 3 --models default   # LLM
 | `aivillage/bots.py` | скриптовые агенты: random (фаззер), worker (честный), thief (вор) |
 | `aivillage/run.py` | прогон, JSONL-лог, реплей |
 | `aivillage/runconfig.py`, `configs/example.yaml` | конфиг прогона в YAML |
-| `aivillage/llm.py` | LLM-агент: промпт, разбор ответа, заметки агента, клиенты OpenRouter и stub |
+| `aivillage/llm.py` | LLM-агент: промпт, разбор ответа, заметки агента, клиенты OpenAI, OpenRouter и stub |
 | `viewer/index.html` | 2D-карта деревни: воспроизводит лог, мысли и реплики жителей |
 
 Агент получает только словарь `observe(world, name)` и отвечает решением
