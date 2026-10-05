@@ -44,6 +44,8 @@ LANDMARKS = {
 }
 PATCH = {"box": (4, 3), "anchor": (1, 3)}
 HOUSE = {"box": (3, 3), "anchor": (1, 3)}
+FAIR_YARD = 5 * 4 - 3 * 3  # yard tiles of the fair plot (one tile left, right and behind the house)
+PLOT_CELLS = 6  # plots.py cells of the fair plot (config plots.start_cells)
 HAMLET = {"box": (3, 3), "anchor": (1, 1)}  # a small green with a well; houses gather around it
 HAMLET_NAMES = ["Mill lane", "Riverside", "Hill end", "Oak row", "Pine corner", "Brook end"]
 
@@ -414,6 +416,12 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     out["map"] = {**cfg.get("map", {}), "procedural": True, "homes": homes, "layout": layout,
                   "start": {n: {"coins": f["coins"], "items": f["items"],
                                 "plot": places[f"home_{n}"]["plot"]} for n, f in fortune.items()}}
+    # the plots engine (plots.py) reads the start from the agents: yard size in cells and house level
+    for a in out["agents"]:
+        f, plot = fortune[a["name"]], places[f"home_{a['name']}"]["plot"]
+        yard = plot[2] * plot[3] - HOUSE["box"][0] * HOUSE["box"][1]
+        a.setdefault("plot_cells", max(1, round(PLOT_CELLS * yard / FAIR_YARD)))
+        a.setdefault("house_level", f["house_level"])
     out["map"]["fairness"] = fairness(out)
     return out
 
@@ -460,7 +468,8 @@ def _fortune(cfg: dict, u: float, rng: random.Random) -> dict:
         stash = {}
         if goods and rng.random() < u:
             stash[rng.choice(goods)] = rng.randint(1, max(1, round(12 * u)))
-        out[a["name"]] = {"yard": (size(), size(), size()), "coins": coins, "items": stash}
+        level = 1 + (rng.random() < 0.3 * u) + (rng.random() < 0.1 * u)
+        out[a["name"]] = {"yard": (size(), size(), size()), "coins": coins, "items": stash, "house_level": level}
     return out
 
 
@@ -555,7 +564,8 @@ def fairness(cfg: dict) -> dict:
         out[a["name"]] = {"square": d.get("square"), "market": d.get("market"), "work": d.get(spot),
                           "work_spot": spot, "coins": start.get("coins", cfg["start_coins"]),
                           "items": start.get("items", {}),
-                          "plot_tiles": start["plot"][2] * start["plot"][3] if "plot" in start else None}
+                          "plot_tiles": start["plot"][2] * start["plot"][3] if "plot" in start else None,
+                          "plot_cells": a.get("plot_cells"), "house_level": a.get("house_level")}
     return out
 
 

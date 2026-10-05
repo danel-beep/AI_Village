@@ -109,3 +109,22 @@ def test_fixed_map_flag_and_for_run():
     assert mapgen.for_run({}, unfairness=0.8)["map"]["unfairness"] == 0.8
     w = engine.new_world()
     assert "layout" not in w.config["map"]  # the engine default stays the hand-made map
+
+
+def test_plot_start_for_the_plots_engine():
+    fair = gen(6, 6, unfairness=0)
+    assert {a["plot_cells"] for a in fair["agents"]} == {mapgen.PLOT_CELLS}
+    assert {a["house_level"] for a in fair["agents"]} == {1}
+    unfair = [gen(seed, 10, unfairness=1) for seed in range(1, 4)]
+    assert any(len({a["plot_cells"] for a in c["agents"]}) > 2 for c in unfair)
+    assert all(1 <= a["house_level"] <= 3 for c in unfair for a in c["agents"])
+    kept = mapgen.generate(make_config({"seed": 1, "map": {"procedural": True}, "agents": [
+        {"name": "A", "profession": "farmer", "plot_cells": 40}, {"name": "B", "profession": "smith"}]}))
+    assert kept["agents"][0]["plot_cells"] == 40  # an explicit start wins
+
+
+def test_economy_modes_set_start_unfairness():
+    from aivillage import modes
+    assert modes.unfairness("peaceful") < modes.unfairness("standard") < modes.unfairness("gold_rush")
+    w = engine.new_world(mapgen.for_run(modes.world_override("scarcity")))
+    assert w.config["map"]["unfairness"] == 0.6 and "layout" in w.config["map"]
