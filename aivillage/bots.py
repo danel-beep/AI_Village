@@ -46,6 +46,9 @@ class RandomBot(Bot):
             args = {"item": pick_item(), "qty": r.randint(1, 3)}
         elif name in ("say",):
             args = {"text": r.choice(["hello", "anyone selling bread?", "I need wood", "   "])}
+        elif name == "gossip":
+            args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""]),
+                    **({"to": r.choice(people)} if r.random() < 0.5 else {})}
         elif name in ("whisper", "letter"):
             args = {"to": r.choice(people), "text": "psst"}
         elif name == "give":

@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import ops, seasons
+from . import ops, reputation, seasons
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -113,6 +113,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "last_error": a.last_error,
         "available_actions": ACTIONS.available(ctx, a) if ops.can_act(a) else [],
     }
+    obs.update(reputation.observe(world, name))
     if consume_inbox:
         a.inbox.clear()
         a.last_error = None
@@ -344,7 +345,7 @@ def night(ctx: Ctx) -> None:
         if d.status == "open" and w.day > d.due_day:
             d.status = "defaulted"
             ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({d.coins_owed} coins, "
-                     f"{d.id}).", visibility="public")
+                     f"{d.id}).", visibility="public", debt=d.id)
     # Orders
     for o in w.orders.values():
         if o.status == "open" and w.day > o.expires_day:

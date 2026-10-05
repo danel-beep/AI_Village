@@ -34,6 +34,9 @@ class Agent:
     evicted_until_day: int = 0
     last_error: str | None = None
     inbox: list[str] = field(default_factory=list)
+    # reputation.py: own tally of what this agent saw others do, and rumors it heard
+    reputation: dict[str, dict] = field(default_factory=dict)
+    rumors: list[dict] = field(default_factory=list)
 
 
 @dataclass

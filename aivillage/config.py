@@ -122,6 +122,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
         },
     },
+    # Reputation and rumors (aivillage/reputation.py). Each agent keeps its own tally of deeds it saw or
+    # lived through; "deltas" maps event kinds to score changes. Rumors (gossip) never change scores.
+    "reputation": {
+        "enabled": True,
+        "score_cap": 10,
+        "notes_per_person": 3,
+        "rumors_kept": 6,
+        "deltas": {
+            "witness": -3,        # saw someone steal
+            "steal_attempt": -4,  # caught someone stealing from you
+            "default": -3,        # debt not repaid on time (public)
+            "repay": 2,           # debt fully repaid on time (public)
+            "fire_out": 3,        # put out a fire (public)
+            "extinguish": 1,      # helped with a fire (seen there)
+            "give": 1,
+            "lend": 1,
+            "trade": 1,           # completed a trade with you
+            "contribute": 1,      # gave to a village project (public)
+        },
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
