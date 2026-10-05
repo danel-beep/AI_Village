@@ -58,6 +58,10 @@ class Location:
     resources: dict[str, int] = field(default_factory=dict)
     ground: dict[str, int] = field(default_factory=dict)
     drought_until_day: int = 0
+    # Finite map objects (see tiles.py): resource -> units left in each tree / bed / bush / rock.
+    slots: dict[str, list[int]] = field(default_factory=dict)
+    # Sown beds: slot index (str) -> {"resource", "by", "ripe_day"}.
+    planted: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -103,8 +107,9 @@ class Project:
 @dataclass
 class Fire:
     location: str
-    ticks_left: int
-    water_needed: int
+    ticks_left: int  # hours until the house burns down
+    water_needed: int  # buckets still needed; grows while nobody fights the fire
+    hours: int = 0  # how long it has been burning
 
 
 @dataclass

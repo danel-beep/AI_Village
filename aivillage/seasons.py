@@ -6,6 +6,7 @@ resources; in winter the field gives nothing and what is left on it withers.
 
 from __future__ import annotations
 
+from . import tiles
 from .ops import Ctx
 
 
@@ -48,6 +49,6 @@ def new_day(ctx: Ctx) -> None:
         if loc is None:
             continue
         for r in resources:
-            loc.resources[r] = 0
+            tiles.clear(loc, r)
     ctx.emit("season", f"{season.capitalize()} has come. {s['announce'].get(season, '')}".strip(),
              visibility="public")
