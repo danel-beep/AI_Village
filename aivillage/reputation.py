@@ -126,7 +126,7 @@ def _can_gossip(ctx: Ctx, a: Agent) -> bool:
                for o in ctx.world.agents.values())
 
 
-@ACTIONS.action("gossip", "Tell people here something about another villager (true or false). "
+@ACTIONS.action("gossip", "Tell people here something about another villager. "
                 "They remember who told them.", GossipArgs, available=_can_gossip)
 def gossip(ctx: Ctx, a: Agent, args: GossipArgs) -> None:
     about = _agent(ctx, args.about)
