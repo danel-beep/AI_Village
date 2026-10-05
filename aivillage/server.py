@@ -26,6 +26,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
 from . import engine, reports
+from .highlights import Highlighter, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
 from .registry import GOD, ActionError
 from .run import bots_decider, llm_agents, night_reflection, run
@@ -70,6 +71,10 @@ class LiveSim:
         # Recaps ("Что произошло?"): one per finished game day in the background, plus on demand.
         self.summarizer = summarizer
         self.summaries: list[dict] = []
+        # Highlights ("⭐ Хайлайты дня"): 3-5 dramatic moments per finished day, same model as the recaps,
+        # picked by rules alone when recaps are off.
+        self.highlighter = Highlighter(summarizer.client if summarizer else None, world.config)
+        self.highlights: list[dict] = []
         self._sum_lock = threading.Lock()
         self.reports_dir = reports_dir or str(Path(log_path or "runs/live.jsonl").parent / "reports")
         self.reveal_reports = reveal_reports
@@ -101,6 +106,9 @@ class LiveSim:
             self.error = f"{type(e).__name__}: {e}"
             self._publish({"type": "error", "text": self.error})
         self.finished = True
+        if self.ticks and not self.stopping:  # the last day has no "next morning" to trigger its recap
+            last = day_of(self.ticks[-1], self.world.config)[0]
+            threading.Thread(target=self._end_of_day, args=(last,), daemon=True).start()
         self._publish({"type": "end", "tick": self.world.tick})
 
     def _on_record(self, rec: dict) -> None:
@@ -109,8 +117,8 @@ class LiveSim:
         elif rec["type"] == "tick":
             new_day = self.ticks and rec["view"]["day"] != self.ticks[-1]["view"]["day"]
             self.ticks.append(rec)
-            if new_day and self.summarizer:
-                threading.Thread(target=self._summarize_day, args=(rec["view"]["day"] - 1,), daemon=True).start()
+            if new_day:
+                threading.Thread(target=self._end_of_day, args=(rec["view"]["day"] - 1,), daemon=True).start()
         self._publish(rec)
         if rec["type"] == "tick":
             self._wait()
@@ -134,8 +142,27 @@ class LiveSim:
         self.running.set()
 
     # --- recaps and problem reports ---
-    def _summarize_day(self, day: int) -> None:
+    def _end_of_day(self, day: int) -> None:
         days = [d for d in by_day(list(self.ticks), self.world.config) if day_of(d[0], self.world.config)[0] == day]
+        if self.summarizer:
+            self._summarize_day(days)
+        self._highlight_day(days[0] if days else [])
+
+    def _highlight_day(self, ticks: list[dict]) -> None:
+        try:
+            rec = self.highlighter.pick(ticks)
+        except Exception:  # highlights must never stop the village
+            rec = None
+        if not rec:
+            return
+        with self._sum_lock:
+            self.highlights = sorted([h for h in self.highlights if h["day"] != rec["day"]] + [rec],
+                                     key=lambda h: h["day"])
+            if self.log_path:
+                write_highlights(self.log_path, self.highlights)
+        self._publish({"type": "highlights", **rec})
+
+    def _summarize_day(self, days: list[list[dict]]) -> None:
         done = max((s["to_tick"] for s in self.summaries), default=-1)
         rest = [t for t in (days[0] if days else []) if t["tick"] > done]  # skip what a button recap covered
         if len(rest) >= 2:
@@ -246,6 +273,10 @@ def create_app(sim: LiveSim) -> FastAPI:
     @app.get("/api/summary")
     def summaries() -> dict:
         return {"enabled": sim.summarizer is not None, "summaries": sim.summaries}
+
+    @app.get("/api/highlights")
+    def highlights() -> dict:
+        return {"highlights": sim.highlights}
 
     @app.post("/api/summary")
     def summary_now() -> dict:
