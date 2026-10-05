@@ -51,7 +51,7 @@ god events ─┐
 | `aivillage/summary.py` | LLM recaps of log stretches for spectators (digest of thoughts/actions/says/events → 3-6 Russian sentences); sidecar `<log>.summary.json` |
 | `aivillage/reports.py` | problem reports: note + log + recaps zipped for the project chat; `show` prints the moment around the reported tick |
 | `aivillage/metrics.py` | behaviour metrics from a log only (JSON + Russian markdown) |
-| `aivillage/server.py` | live mode: FastAPI app runs `run.run()` in a thread, streams log records over `/ws`, god events via `POST /api/god` (queued into `god_script`, so they are logged and replay exactly), pause/pace via `POST /api/control` |
+| `aivillage/server.py` | live mode: FastAPI app runs `run.run()` in a thread, streams log records over `/ws`, god events via `POST /api/god` (scheduled for a tick just after the one on screen via `GodQueue`, announced as `god_pending`, then logged in `god`, so replay stays exact), pause/pace via `POST /api/control` |
 | `viewer/report.js` | injected by the server: recap panel (`/api/summary`) and problem report form (`/api/report`) |
 | `viewer/live.js`, `viewer/god.js` | injected by the server into `index.html`: live feed (uses only `load()` / `ticks` / optional `window.viewerAppend`) and the god panel built from GOD schemas |
 | `viewer/index.html` | Replay UI (controls, villager cards, diary, events). Feed it via `Viewer.start(header)` / `Viewer.push(row)`; `scripts/build_demo.py` bundles a log + scripts into one page |

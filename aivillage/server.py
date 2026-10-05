@@ -34,6 +34,7 @@ from .run import bots_decider, llm_agents, night_reflection, run, with_tick_minu
 from .state import World
 
 VIEWER = Path(__file__).resolve().parent.parent / "viewer"
+VIEW_LAG_MINUTES = 30  # two quarter-hour ticks of buffer: smooth, and a god click lands half an hour later
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
 
 
@@ -42,22 +43,24 @@ class _Stop(Exception):
 
 
 class GodQueue:
-    """Stands in for run()'s `god_script` dict: each tick drains whatever the viewer queued."""
+    """Stands in for run()'s `god_script` dict: each tick takes the queued events that are due.
+    An event is never lost: one whose tick already went by (a click racing the sim) lands next tick."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._pending: list[dict] = []
+        self._pending: list[tuple[int, dict]] = []
 
     def __bool__(self) -> bool:
         return True
 
-    def put(self, ev: dict) -> None:
+    def put(self, ev: dict, tick: int = 0) -> None:
         with self._lock:
-            self._pending.append(ev)
+            self._pending.append((tick, ev))
 
-    def get(self, _tick: int, _default=None) -> list[dict]:
+    def get(self, tick: int, _default=None) -> list[dict]:
         with self._lock:
-            out, self._pending = self._pending, []
+            out = [ev for t, ev in self._pending if t <= tick]
+            self._pending = [(t, ev) for t, ev in self._pending if t > tick]
         return out
 
 
@@ -66,7 +69,7 @@ class LiveSim:
 
     def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0,
                  on_night=None, summarizer: Summarizer | None = None, reports_dir: str | None = None,
-                 reveal_reports: bool = False):
+                 reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES):
         self.world, self.decide, self.days, self.log_path = world, decide, days, log_path
         self.on_night = on_night
         # Recaps ("Что произошло?"): one per finished game day in the background, plus on demand.
@@ -80,6 +83,9 @@ class LiveSim:
         self.reports_dir = reports_dir or str(Path(log_path or "runs/live.jsonl").parent / "reports")
         self.reveal_reports = reveal_reports
         self.pace = pace
+        # The picture trails the simulation by this many ticks (the viewer's buffer, for smooth play);
+        # a god event lands at least one tick after the moment on screen, at the sim's next tick.
+        self.view_lag_ticks = max(1, -(-view_lag_minutes // clock.tick_minutes(world.config)))
         self.god = GodQueue()
         self.header: dict | None = None
         self.ticks: deque[dict] = deque(maxlen=BACKLOG_TICKS)
@@ -223,12 +229,27 @@ class LiveSim:
             self._subs = {s for s in self._subs if s[1] is not q}
 
     # --- controls ---
-    def queue_god(self, name: str, args: dict) -> None:
+    def queue_god(self, name: str, args: dict, shown_tick: int | None = None) -> dict:
+        """Schedule a god event. `shown_tick` = the tick on the player's screen when they clicked: the event
+        lands at the sim's next tick, never before shown_tick + 1, so the viewer can play a lead-in
+        animation from the click until the picture reaches the landing tick (announced as `god_pending`)."""
         GOD.parse(name, args)  # reject bad input now; world-dependent errors show up as god_error events
-        self.god.put({"name": name, "args": args})
+        tick = self.world.tick
+        if shown_tick is not None:
+            tick = max(tick, int(shown_tick) + 1)
+        ev = {"name": name, "args": args}
+        self.god.put(ev, tick)
+        cfg = self.world.config
+        pending = {"type": "god_pending", "tick": tick, "at": clock.label(cfg, tick), **ev,
+                   "shown_tick": shown_tick, "lead_minutes": None if shown_tick is None else
+                   (tick - int(shown_tick)) * clock.tick_minutes(cfg)}
+        self._publish(pending)
+        return pending
 
     def status(self) -> dict:
         return {"tick": self.world.tick, "day": self.world.day, "hour": self.world.hour,
+                "minute": self.world.minute, "tick_minutes": clock.tick_minutes(self.world.config),
+                "view_lag_ticks": self.view_lag_ticks,
                 "paused": not self.running.is_set(), "pace": self.pace, "finished": self.finished,
                 "error": self.error}
 
@@ -346,10 +367,13 @@ def create_app(sim: LiveSim) -> FastAPI:
     @app.post("/api/god")
     def god(body: dict) -> dict:
         try:
-            sim.queue_god(str(body.get("name")), body.get("args") or {})
+            shown = body.get("shown_tick")
+            pending = sim.queue_god(str(body.get("name")), body.get("args") or {},
+                                    int(shown) if isinstance(shown, (int, float)) else None)
         except ActionError as e:
             raise HTTPException(400, str(e)) from None
-        return {"ok": True, "queued_for_tick": sim.world.tick}
+        return {"ok": True, "queued_for_tick": pending["tick"], "at": pending["at"],
+                "lead_minutes": pending["lead_minutes"]}
 
     @app.post("/api/control")
     def control(body: dict) -> dict:
@@ -401,6 +425,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--reveal-reports", action="store_true", help="open the file manager on a new report")
     p.add_argument("--tick-minutes", type=int, default=None, choices=clock.ALLOWED,
                    help=f"game minutes per tick (default {clock.RUN_DEFAULT}; 60 = the old hourly turns)")
+    p.add_argument("--view-lag-minutes", type=int, default=VIEW_LAG_MINUTES,
+                   help="game minutes the picture trails the simulation (viewer buffer for smooth play)")
     mapgen.add_args(p)
     a = p.parse_args(argv)
     if a.seed is None:
@@ -427,7 +453,8 @@ def main(argv: list[str] | None = None) -> int:
     sm = a.summary_model or ("default" if keys.has_any_key() else "off")
     summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
     days = a.days or (3 if a.models else 30)
-    sim = LiveSim(world, decide, days, a.log, a.pace, on_night, summarizer, a.reports, a.reveal_reports)
+    sim = LiveSim(world, decide, days, a.log, a.pace, on_night, summarizer, a.reports, a.reveal_reports,
+                  a.view_lag_minutes)
     sim.start()
     print(f"AI Village live: http://{a.host}:{a.port}")
     uvicorn.run(create_app(sim), host=a.host, port=a.port, log_level="warning")
