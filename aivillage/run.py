@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import engine
+from . import engine, modes
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -160,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="LLM agents instead of bots: comma-separated OpenRouter model ids cycled over agents, "
                         "'default' for llm.DEFAULT_MODEL, or 'stub' to test the LLM pipeline without a key")
     p.add_argument("--agents", type=int, default=0, help="use only the first N villagers")
+    p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
+                                                "standard, peaceful, scarcity, debt, gold_rush, lawless")
     a = p.parse_args(argv)
 
     if a.replay:
@@ -172,9 +174,12 @@ def main(argv: list[str] | None = None) -> int:
     except runconfig.ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    for key in ("days", "seed", "log"):
+    for key in ("days", "seed", "log", "mode"):
         if getattr(a, key) is not None:
             setattr(rc, key, getattr(a, key))
+    if rc.mode not in modes.MODES:
+        print(f"unknown mode '{rc.mode}' (have: {', '.join(modes.MODES)})", file=sys.stderr)
+        return 2
     override = rc.world_override()
     if a.agents:
         from .config import DEFAULT_CONFIG

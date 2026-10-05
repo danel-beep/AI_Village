@@ -112,6 +112,19 @@ def watch_old(home: Path) -> int:
     return 0
 
 
+def ask_mode() -> str:
+    from .modes import DEFAULT_MODE, MODES
+
+    names = list(MODES)
+    print("\nРежим экономики (правила мира, подсказка жителям та же):")
+    for i, m in enumerate(names, 1):
+        print(f"  {i} — {MODES[m]['title']}: {MODES[m]['about']}")
+    choice = input(f"Введите цифру и нажмите Enter [{names.index(DEFAULT_MODE) + 1}]: ").strip()
+    if choice.isdigit() and 1 <= int(choice) <= len(names):
+        return names[int(choice) - 1]
+    return DEFAULT_MODE
+
+
 def menu(home: Path) -> int:
     print("\n=== AI Village ===")
     print(f"  1 — Деревня с ИИ-жителями ({LLM_AGENTS} жителей, модель {MODEL}, стоит центы)")
@@ -124,9 +137,10 @@ def menu(home: Path) -> int:
         if not key:
             return 0
         os.environ["OPENROUTER_API_KEY"] = key
-        return live(home, ["--models", MODEL, "--agents", str(LLM_AGENTS), "--days", str(LLM_DAYS)])
+        return live(home, ["--models", MODEL, "--agents", str(LLM_AGENTS), "--days", str(LLM_DAYS),
+                           "--mode", ask_mode()])
     if choice == "2":
-        return live(home, ["--days", str(BOT_DAYS)])
+        return live(home, ["--days", str(BOT_DAYS), "--mode", ask_mode()])
     if choice == "3":
         return watch_old(home)
     if choice == "4":
