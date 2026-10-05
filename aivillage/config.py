@@ -17,7 +17,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Survival
     "satiety_max": 100,
     "satiety_start": 80,
-    "satiety_loss_per_hour": 3,
+    "satiety_loss_per_hour": 2,  # ~1 meal a day: fewer eat turns, more time for people
     "satiety_loss_asleep_per_hour": 2,
     "satiety_loss_night": 10,
     "starving_health_loss_per_hour": 5,
@@ -88,11 +88,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
                   "resources": {"fish": {"start": 30, "max": 30, "regen": 8},
                                 "water": {"start": 999, "max": 999, "regen": 999}}},
         "forest": {"name": "Forest", "neighbors": ["square", "mine"],
-                   "resources": {"wood": {"start": 50, "max": 50, "regen": 10},
+                   "resources": {"wood": {"start": 80, "max": 80, "regen": 40},
                                  "berries": {"start": 15, "max": 15, "regen": 5}}},
         "mine": {"name": "Mine", "neighbors": ["forest"],
-                 "resources": {"stone": {"start": 50, "max": 50, "regen": 10},
-                               "ore": {"start": 20, "max": 20, "regen": 4}}},
+                 "resources": {"stone": {"start": 60, "max": 60, "regen": 30},
+                               "ore": {"start": 30, "max": 30, "regen": 10}}},
         "smithy": {"name": "Smithy", "neighbors": ["square"]},
     },
     "projects": {
