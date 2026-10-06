@@ -74,14 +74,15 @@ const Camera = (() => {
     steal: 9, theft: 9, steal_attempt: 8, robbed: 8, witness: 6, caught: 8, report_theft: 6, eviction: 7, hospital: 7,
     wedding: 8, proposal: 7, proposal_refused: 6, divorce: 7, inheritance: 6, exile: 8, elected: 7, law_passed: 6,
     law_proposed: 4, election: 7, starving: 5, run_for_mayor: 4, candidate: 4, election_day: 3, vote: 2, default: 6, lend: 3, trade: 3, give: 3, gift: 3, whisper: 2,
-    gossip: 3, say: 1, offer: 2 };
+    gossip: 3, say: 1, offer: 2, set_fire: 9, arson_seen: 9, land_bought: 5, land_sold: 5, land_offer: 2 };
   const LABEL = { fire: '🔥 Пожар', fire_grows: '🔥 Пожар разгорается', burned_down: '🔥 Дом сгорел', extinguish: '💧 Тушат пожар',
     fire_out: '💧 Пожар потушен', pour_water: '💧 Тушат пожар', death: '✝ Смерть', steal: '🕵 Кража', theft: '🕵 Кража',
     steal_attempt: '🕵 Кража', robbed: '🕵 Кража', caught: '🚨 Вора поймали', witness: '👀 Свидетель', eviction: '🏚 Выселение',
     hospital: '🏥 В больницу', wedding: '💍 Свадьба', proposal: '💍 Предложение', divorce: '💔 Развод', exile: '⛔ Изгнание',
     elected: '🏛 Выборы', law_passed: '📜 Новый закон', law_proposed: '📜 Закон', run_for_mayor: '🏛 Выборы', candidate: '🏛 Выборы', election_day: '🗳 День выборов', vote: '🗳 Выборы',
     default: '💸 Долг не вернули', election: '🏛 Итоги выборов', starving: '😫 Голод', offer: '💬 Торгуются',
-    say: '💬 Разговор', whisper: '🤫 Шепчутся', decline: '💬 Отказ', lend: '💰 Заём', trade: '🤝 Сделка', give: '🎁 Подарок', gift: '🎁 Подарок', gossip: '🗣 Сплетня' };
+    say: '💬 Разговор', whisper: '🤫 Шепчутся', decline: '💬 Отказ', lend: '💰 Заём', trade: '🤝 Сделка', give: '🎁 Подарок', gift: '🎁 Подарок', gossip: '🗣 Сплетня',
+    set_fire: '🔥 Поджог', arson_seen: '🔥 Поджог', land_bought: '🏡 Купил землю', land_sold: '🏡 Продал землю', land_offer: '🏡 Продаёт землю' };
   const score = k => DRAMA[k] || (/fight|attack|duel|brawl|hit/.test(k) ? 9 : 0);
   const label = k => LABEL[k] || (/fight|attack|duel|brawl|hit/.test(k) ? '⚔ Драка' : '👀');
   const director = { on: false, shot: null, age: 0, hold: 0, seen: null, btn: null };
