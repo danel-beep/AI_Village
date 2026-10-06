@@ -175,6 +175,9 @@ class WorkerBot(Bot):
             food = next((f for f in FOODS if inv.get(f, 0) >= 3), None)
             if food:
                 return decision("help_stranger", {"item": food}, "feed the traveler")
+        foe = next((x for x in obs.get("threats", []) if x.get("strength") and x.get("where")), None)
+        if foe and me["health"] >= 60:
+            return go(foe["where"], "drive off the " + foe["what"])
 
         # Help with fires
         if obs["fires"]:

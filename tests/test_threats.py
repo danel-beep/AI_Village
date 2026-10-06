@@ -34,7 +34,7 @@ def until(w, tick):
 
 def test_warned_raid_is_announced_and_arrives_on_time():
     w = world()
-    ev = step(w, god=[{"name": "raid", "args": {"target": "Anna", "days": 2, "warn": True}}])
+    ev = step(w, god=[{"name": "raid", "args": {"target": "Anna", "in_days": 2, "warn": True}}])
     warn = [e for e in ev if e.kind == "threat_warning"][0]
     assert warn.visibility == "public" and "home_Anna" in warn.text and "day 3" in warn.text
     obs = engine.observe(w, "Boris", consume_inbox=False)
@@ -48,7 +48,7 @@ def test_warned_raid_is_announced_and_arrives_on_time():
 
 def test_unwarned_raid_is_invisible_until_it_comes():
     w = world()
-    ev = step(w, god=[{"name": "raid", "args": {"days": 1, "warn": False}}])
+    ev = step(w, god=[{"name": "raid", "args": {"in_days": 1, "warn": False}}])
     assert "threat_warning" not in kinds(ev)
     assert "threats" not in engine.observe(w, "Anna", consume_inbox=False)
     assert run.view(w)["threats"] == []

@@ -366,14 +366,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "defense_projects": {"wall": 0.6},
         "kinds": {
             # Bandits: start at the target's house; every hour nobody fights them they carry off `loot_share`
-            # of each chest there and move to the next house of `houses`; after `hours` they leave and set fire
-            # to the house they are at if nobody fought them that hour. Driven off, they drop the loot.
+            # of each chest there, and after `stay_hours` such hours move to the next of `houses` (nearest
+            # first); after `hours` they leave and set fire to the house they are at if nobody fought them that
+            # hour. Driven off, they drop the loot.
             "raid": {"per_day": 0.0, "name": "bandits", "hp": 60, "attack": 2, "damage_die": 6,
-                     "hours": 4, "houses": 3, "loot_share": 0.5, "burn": True, "bounty": 20},
-            # A beast: every hour unopposed it eats `eat_share` of the food in the chests of the house it is at,
-            # mauls someone there (d`damage_die` + `maul`), then prowls to another house; leaves after `hours`.
+                     "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20},
+            # A beast: every hour unopposed it eats `eat_share` of the food in the chests of the house it is at
+            # and mauls someone there (d`damage_die` + `maul`); after `stay_hours` it prowls to another house;
+            # leaves after `hours`.
             "beast": {"per_day": 0.0, "name": "beast", "hp": 80, "attack": 3, "damage_die": 8, "maul": 4,
-                      "hours": 5, "eat_share": 0.6, "bounty": 30},
+                      "hours": 6, "stay_hours": 2, "eat_share": 0.5, "bounty": 30},
             # A traveler at the square asks for `need` food. Fed, an honest one rewards each helper
             # (`reward_coins`, or a tool, or a tip about a treasure). With `scout_chance` he is a bandit scout:
             # unless chased off, bandits come unwarned 1-2 days after he leaves.

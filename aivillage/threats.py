@@ -115,8 +115,7 @@ def schedule(ctx: Ctx, kind: str, arrive_tick: int, warn: bool, target: str | No
          "target": target_home, "location": None, "route": [], "hp": 0, "max_hp": 0, "hours_left": 0,
          "fought": False, "fighters": {}, "loot": {}, "loot_coins": 0, "scout": scout, "fed": {}}
     w.threats.append(t)
-    when = "within the hour" if day == w.day and arrive_tick <= w.tick + clock.per_hour(cfg) else \
-        f"on day {day} around {hour}:00"
+    when = f"today around {hour}:{minute:02d}" if day == w.day else f"on day {day} around {hour}:00"
     if warn:
         where = f"{homes.get(target_home, '?')}'s house ({target_home})" if target_home else "the village"
         text = {"raid": f"Warning: a band of robbers is camped in the hills and means to raid {where} {when}.",
@@ -243,6 +242,15 @@ def _hour(ctx: Ctx, t: dict, opposed: bool) -> None:
         _leave(ctx, t, burn=not opposed)
 
 
+def _stayed(ctx: Ctx, t: dict) -> bool:
+    """Count an unopposed hour at this house; True (and reset) once they have spent `stay_hours` there."""
+    t["stay"] = t.get("stay", 0) + 1
+    if t["stay"] < int(_kind(ctx.cfg, t["kind"]).get("stay_hours", 1)):
+        return False
+    t["stay"] = 0
+    return True
+
+
 def _plunder(ctx: Ctx, t: dict) -> None:
     w = ctx.world
     share = float(_kind(ctx.cfg, "raid")["loot_share"]) * _defense(w)
@@ -270,7 +278,7 @@ def _plunder(ctx: Ctx, t: dict) -> None:
              to=[owner] if owner else None, threat=t["id"], home=home, items=took, coins=coins)
     route = t["route"]
     nxt = route[route.index(home) + 1] if home in route and route.index(home) + 1 < len(route) else None
-    if nxt and t["hours_left"] > 1:
+    if nxt and t["hours_left"] > 1 and _stayed(ctx, t):
         t["location"] = nxt
         ctx.emit("threat_moves", f"The bandits move on to {_name(w, nxt)}.", visibility="public", threat=t["id"],
                  location=nxt, threat_kind="raid")
@@ -308,7 +316,7 @@ def _prowl(ctx: Ctx, t: dict) -> None:
              visibility="public", to=sorted({n for n in (owner, victim) if n}), threat=t["id"], home=home, items=ate,
              victim=victim, damage=hurt)
     homes = [h for h in sorted(_homes(w)) if h != home]
-    if homes and t["hours_left"] > 1:
+    if homes and t["hours_left"] > 1 and _stayed(ctx, t):
         t["location"] = ctx.rng.choice(homes)
         ctx.emit("threat_moves", f"The beast prowls on toward {_name(w, t['location'])}.", visibility="public",
                  threat=t["id"], location=t["location"], threat_kind="beast")
@@ -503,27 +511,27 @@ def chase_stranger(ctx: Ctx, a: Agent, _args) -> None:
 
 class ThreatArgs(BaseModel):
     target: str | None = Field(None, description="villager whose house is hit first (empty: anyone)")
-    days: int = Field(0, ge=0, le=14, description="in how many days it comes (0: within the hour)")
+    in_days: int = Field(0, ge=0, le=14, description="in how many days it comes (0: within the hour)")
     warn: bool = Field(True, description="warn the village in advance")
 
 
-def _god_tick(ctx: Ctx, days: int) -> int:
+def _god_tick(ctx: Ctx, days: int, warn: bool) -> int:
     cfg = ctx.cfg
-    if days == 0:
-        return ctx.world.tick + 1
+    if days == 0:  # a warning today gives the village two hours to get ready
+        return ctx.world.tick + (clock.hours(cfg, 2) if warn else 1)
     return clock.tick_of(cfg, ctx.world.day + days, int(_t(cfg).get("arrive_hour", 11)))
 
 
 @GOD.action("raid", "Bandits raid a house (warned days ahead or not). If nobody fights them they plunder chests "
             "house after house and burn one when they leave.", ThreatArgs)
 def god_raid(ctx: Ctx, _god, args: ThreatArgs) -> None:
-    schedule(ctx, "raid", _god_tick(ctx, args.days), args.warn, args.target or None)
+    schedule(ctx, "raid", _god_tick(ctx, args.in_days, args.warn), args.warn, args.target or None)
 
 
 @GOD.action("beast", "A beast comes out of the forest (warned or not): eats stores and mauls people until driven "
             "off or it leaves.", ThreatArgs)
 def god_beast(ctx: Ctx, _god, args: ThreatArgs) -> None:
-    schedule(ctx, "beast", _god_tick(ctx, args.days), args.warn, args.target or None)
+    schedule(ctx, "beast", _god_tick(ctx, args.in_days, args.warn), args.warn, args.target or None)
 
 
 class TravelerArgs(BaseModel):
