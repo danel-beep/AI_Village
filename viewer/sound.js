@@ -20,7 +20,9 @@
     [/^(election|election_day|mayor|new_mayor)$/, 'fanfare'],
     [/^(candidate|vote|law|tax)/, 'bell'],
     [/^morning$/, 'rooster'],
-    [/^crisis$/, 'omen'],
+    [/^(crisis|threat_warning|threat_arrived)$/, 'omen'],
+    [/^(threat_defeated|care)$/, 'relief'],
+    [/^(defend|beast_attack|plundered)$/, 'punch'],
     [/^crisis_over$/, 'relief'],
     [/^(craft|build|project_done|upgrade)/, 'hammer'],
     [/^(hospital|evicted|death|died|dead|starving)$/, 'sad'],
@@ -38,7 +40,9 @@
   // Mood of the moment from a view row: what the music and the ambience follow.
   function mood(header, view) {
     const s = header && header.config && header.config.seasons;
-    const season = s && s.enabled !== false && s.order ? s.order[Math.floor((view.day - 1) / s.length_days) % s.order.length] : 'summer';
+    const first = s && s.order ? Math.max(0, s.order.indexOf(s.start || s.order[0])) : 0;   // as aivillage/seasons.py
+    const season = s && s.enabled !== false && s.order
+      ? s.order[Math.floor((first * s.length_days + (s.offset_days || 0) + view.day - 1) / s.length_days) % s.order.length] : 'summer';
     const h = view.hour + (view.minute || 0) / 60, night = h < 5.5 || h >= 21, dusk = !night && (h < 7 || h >= 19);
     const busy = ['market', 'square'], crowd = Object.values(view.agents || {})
       .filter(a => a.status === 'active' && busy.includes(a.location)).length;
@@ -205,5 +209,13 @@
   ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, unlock, { capture: true }));
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', controls); else controls();
 
-  window.Sound = { update, cues, mood, play: n => { init(); resume(); play(n); }, prefs };
+  // The mixed output as a MediaStream, for recording (viewer/clip.js); follows the sound button and volume.
+  let tap = null;
+  function captureStream() {
+    init(); resume();
+    if (!ctx || !ctx.createMediaStreamDestination) return null;
+    if (!tap) { tap = ctx.createMediaStreamDestination(); comp.connect(tap); }
+    return tap.stream;
+  }
+  window.Sound = { update, cues, mood, play: n => { init(); resume(); play(n); }, prefs, captureStream };
 })();

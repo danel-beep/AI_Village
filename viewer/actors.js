@@ -9,7 +9,7 @@ const Actors = (() => {
     buy: 'trade', sell: 'trade', fulfill_order: 'trade', contribute: 'trade', say: 'talk', whisper: 'talk', offer: 'talk',
     trade: 'talk', decline: 'talk', give: 'talk', lend: 'talk', repay: 'talk', steal: 'sneak', theft: 'sneak',
     plant: 'sow', harvest: 'farm', collect: 'farm', build: 'craft', fight: 'craft', set_fire: 'sneak',
-    land_bought: 'talk', land_offer: 'talk' };
+    land_bought: 'talk', land_offer: 'talk', defend: 'craft', help_stranger: 'talk', chase_stranger: 'talk', care: 'talk' };
   const PRI = { walk: 9, pour: 8, sneak: 7, craft: 6, sow: 5, chop: 5, mine: 5, farm: 5, fish: 5, water: 5, gather: 5, eat: 4,
                 trade: 3, talk: 2 };
   const SHADOW = ['rgba(0,0,0,.25)', 'rgba(0,0,0,.25)', 'rgba(0,0,0,.25)'];
