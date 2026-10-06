@@ -306,6 +306,9 @@ class World:
     transport: dict[str, Any] = field(default_factory=dict)
     honors: dict[str, Any] = field(default_factory=dict)  # honors.py: honor board notes and titles
     hire: dict[str, Any] = field(default_factory=dict)  # hire.py: {"jobs": {id: job}, "npcs": [outsider]}
+    # settle.py (camp start): {"camp": [villagers without a house site yet], "homes": {name: site id},
+    # "trails": {"a|b": times walked}}
+    settle: dict[str, Any] = field(default_factory=dict)
     addressed: dict[str, list] = field(default_factory=dict)  # addressed.py: name -> messages said to them
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
@@ -333,6 +336,8 @@ class World:
             del d["honors"]
         if not d["hire"]:  # hiring off or unused: same dict and hash as before the field existed
             del d["hire"]
+        if not d["settle"]:  # no camp start: same dict and hash as before the field existed
+            del d["settle"]
         if not d["addressed"]:  # nothing said to anyone yet: same dict and hash as before the field existed
             del d["addressed"]
         return d
@@ -373,6 +378,7 @@ class World:
             polities=d.get("polities", {}),
             transport=d.get("transport", {}),
             hire=d.get("hire", {}),
+            settle=d.get("settle", {}),
             honors=d.get("honors", {}),
             addressed=d.get("addressed", {}),
             next_id=d["next_id"],

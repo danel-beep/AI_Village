@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, land, mapgen, modes, plots, pricing, threats, tiles, transport, works
+from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, land, mapgen, modes, plots, pricing, settle, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -170,6 +170,7 @@ def view(world: World) -> dict:
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
             **({"known": k} if (k := explore.view(world)) is not None else {}),  # explore.py: places someone knows
+            **settle.view(world),  # settle.py: house sites taken, trails walked (camp start)
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
                     for l in world.locations.values() if l.slots},
             # for the viewer's object panels (viewer/inspect.js): the square's order board, trader prices
@@ -355,7 +356,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config) \
         | transport.hidden_actions(world.config) \
         | hire.hidden_actions(world.config) | construction.hidden_actions(world.config) \
-        | land.hidden_actions(world.config)
+        | land.hidden_actions(world.config) | settle.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

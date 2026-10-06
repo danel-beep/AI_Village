@@ -102,7 +102,10 @@ def may_use(world: World, name: str, plot: Plot) -> bool:
 
 
 def plot_here(world: World, a: Agent) -> Plot | None:
-    return world.plots.get(a.location)
+    plot = world.plots.get(a.location)
+    if plot and plot.kind == "home" and plot.owner in (world.settle or {}).get("camp", ()):
+        return None  # a spot at the camp (settle.py): no yard until a house site is taken
+    return plot
 
 
 def own_plot_here(world: World, a: Agent) -> Plot | None:

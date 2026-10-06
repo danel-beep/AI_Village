@@ -192,6 +192,23 @@ villager is observed standing there. Observation (on): `explored.places` {id: [r
 replaced by `explore.facts`. `move` goes to a known place or one road past one, walking only through known
 places. Log: tick `view.known` (sorted union of everyone's known places; absent when off). Viewer: `viewer/fog.js`.
 
+## Choosing where to live (`aivillage/settle.py`, Danel 2026-10-06)
+
+Config `settle` (on in the `survival` mode, start-screen toggles «Место под дом выбирают сами» and «Простор
+долины»), active only in a camp start (`modes.camp_start`). The generated map (`mapgen._build`) then puts no
+houses and no hamlets: `map.camp` = true, `map.homes` = everyone at the `camp` (square, named "Camp"),
+`map.sites` = {site id: {"near", "cells"}} with the geometry in `map.layout.places` (kind `homesite`, `near`,
+`plot`) and each site's road in `layout.routes`. Landmarks lie `spread_bonus` tiles further out on a wider map,
+forest/mine/patches at least `zone_gap` tiles apart (every patch kind before repeats), quarries `rare_bonus`
+further; landmarks may be one hour further from the square than on a ready map. Homes: `home_<Name>` is a spot at
+the camp (no yard: `plots.plot_here` is None) until `settle` takes a free site at the place where the villager
+stands (first come, once); the home location then links to that place. Observation `house_sites` = {"yours",
+"free_here", "free_by_place"} (known places only with exploration). State `world.settle` = {"camp": [names],
+"homes": {name: site}, "trails": {"a|b": walks}} (every road hop counted). Log: tick `view.settle` (same).
+Viewer (`pixelmap.js` campLayout): only taken sites as houses, walked roads (footpath under `road_at` walks,
+road from it), signposts on walked roads, the square paved once a common building stands there, bedrolls and a
+camp fire for those without a site, a meadow around the camp.
+
 ## Log fields for the viewer (task 13b)
 
 - `village_stage` events (above).

@@ -656,6 +656,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # no houses (level 0), no coins, empty pockets, no buildings in the yards, everyone a laborer who may
     # gather anything by hand (no trade places). From `until_stage` on, the start is the ready village.
     "bare_start": {"enabled": False, "until_stage": "hamlet", "coins_from_stage": "village"},
+    # Choosing where to live (aivillage/settle.py), only in a camp start (bare_start above): everyone starts at
+    # the `camp` with no house site; `settle` takes one of the free house sites at the place where the villager
+    # stands (first come), and the home moves there. A generated map (mapgen.py) puts no houses, no hamlets
+    # and no ready roads then: `sites_per_place` house sites around each place a villager may want to live by,
+    # landmarks `spread_bonus` tiles further out, resource places at least `zone_gap` tiles apart, the quarry
+    # (ore) `rare_bonus` tiles further still. Roads appear on the map as trails where villagers walk
+    # (`world.settle.trails`): a footpath from the first walk, a road from `road_at` walks (viewer only).
+    "settle": {"enabled": False, "camp": "square", "sites_per_place": 3, "spread_bonus": 6, "zone_gap": 9,
+               "rare_bonus": 8, "patches": [2, 4], "road_at": 12},
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with

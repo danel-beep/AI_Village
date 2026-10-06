@@ -40,6 +40,9 @@ const BuildLayer = (() => {
     return on;
   }
 
+  // Camp start (pixelmap.js): the layout was rebuilt as the villagers settled and walked; keep the banner state.
+  function relayout(layout) { if (K) K = { ...K, layout }; }
+
   // An offscreen picture of one kind and level (BuildArt.canvas pads 8 px on top for flags and smoke).
   function pic(kind, level) {
     const key = kind + '@' + level;
@@ -226,6 +229,6 @@ const BuildLayer = (() => {
     ctx.restore();
   }
 
-  return { init, draw, banner, gear, standing, enabled, empty, art, ART, NAME, STAGE };
+  return { init, relayout, draw, banner, gear, standing, enabled, empty, art, ART, NAME, STAGE };
 })();
 window.BuildLayer = BuildLayer;

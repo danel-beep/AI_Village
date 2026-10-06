@@ -749,8 +749,14 @@ class BuilderBot(WorkerBot):
         if self.game[loc]:
             self.game_ever.add(loc)
         self.res_ever.setdefault(loc, set()).update(k for k, v in here["resources"].items() if v)
+        homes = (obs.get("house_sites") or {}).get("homes") or {}
+        known = (obs.get("explored") or {}).get("places")
 
         def go(dest: str, why: str) -> dict:
+            # someone's house by a place I have not been to: that place first (settle.py, explore.py)
+            place = homes.get(dest[5:]) if dest.startswith("home_") else None
+            if known is not None and place and place not in known and loc != place:
+                dest = place
             return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
 
         if obs["fires"] or "defend" in acts:
@@ -772,6 +778,11 @@ class BuilderBot(WorkerBot):
             return decision("sleep", None, "night")
         if hour >= end - 3:
             return go(me["home"], "home for the night")
+        # Camp start (settle.py): take a house site at the first place I work at (the camp itself from day 2).
+        sites = obs.get("house_sites")
+        if sites and sites["yours"] is None and sites["free_here"] and "settle" in acts \
+                and (loc != "square" or t["day"] >= 2):
+            return decision("settle", None, "I will live here")
         # Tax day: sell hides and other spare goods to the trader for the coins.
         if t.get("tax", 0) > me["coins"] and t.get("next_tax_day", 0) - t["day"] <= 1 \
                 and "sell" not in (obs.get("locked_actions") or []):

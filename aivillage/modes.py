@@ -179,6 +179,7 @@ MODES["survival"] = {
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+                                              "settle": {"enabled": True},
                                               # pace (progression audit R3, Danel 2026-10-06 «подгоняй
                                               # настройки»): 2 units an hour by hand instead of 1; builder
                                               # bots reach the town on d10-12 instead of d14-18
@@ -218,6 +219,19 @@ DEFAULT_MODE = "crafts"
 # Rules every run starts with (under the mode's own settings), while the bare engine default stays off so
 # engine tests can leave villagers idle for days: one hospital stay, the second collapse is death.
 RUN_DEFAULTS: dict[str, Any] = {"lives": 2}
+
+
+def camp_start(cfg: dict) -> bool:
+    """True when the run starts as an empty camp: bare_start on, progress on, start stage before `until_stage`."""
+    from . import progress
+    b = cfg.get("bare_start") or {}
+    if not b.get("enabled") or not progress.enabled(cfg):
+        return False
+    ids = progress.stage_ids(cfg)
+    start = cfg["progress"].get("start_stage", 0)
+    idx = ids.index(start) if isinstance(start, str) else int(start)
+    until = b.get("until_stage")
+    return not (until in ids and idx >= ids.index(until))
 
 
 def bare_start(cfg: dict) -> None:
