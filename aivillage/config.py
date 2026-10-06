@@ -33,7 +33,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
             "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
-            "propose_build", "fund_project", "embezzle", "defend", "help_stranger", "chase_stranger", "care")},
+            "propose_build", "fund_project", "embezzle", "start_building", "bring_materials", "defend", "help_stranger", "chase_stranger", "care")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -564,6 +564,57 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spoilage": {"enabled": False,
                  "days": {"meat": 2, "fish": 2, "milk": 2, "berries": 3, "bread": 3, "fish_soup": 3, "stew": 3,
                           "pancakes": 3, "egg": 4, "honey_cake": 4, "grain": 14}},
+    # Building with your own hands (aivillage/construction.py, docs/specs/survival.md). Off here: houses are
+    # upgraded at once with upgrade_house. On, every building in `catalog` goes up on a site: start_building
+    # opens it, bring_materials delivers `items`, construct is one hour of work (`hours` in all). Work counts
+    # only while at least `min_workers` different villagers worked on the site within `team_window_minutes`;
+    # each extra co-worker in that window (up to `team_max`) adds `team_bonus` to everyone's hour.
+    # Catalog rows: `place` "home" (your yard; finished, it stands among the plot's buildings with a `level`;
+    # `house` sets the plot's house level) or "village" (common; `at`: allowed places, empty = any common
+    # place); `levels`: one row per level. Effects per level (what that level gives, not added up):
+    # `roof` (sleeping under a roof),
+    # `food_keeps_x` (food in the owner's store keeps that many times longer; `food_items` limits it),
+    # `sell_bonus` (the trader pays that much more), `defense` (added to the village defense), `workshop`
+    # (recipes that need this building; crafting.py). Which kinds can be started at which stage:
+    # progress.DEFAULT_UNLOCKS ("building:<kind>", "building:<kind>@<level>").
+    "construction": {
+        "enabled": False,
+        "team_window_minutes": 60,
+        "team_bonus": 0.25,
+        "team_max": 3,
+        "max_open_sites": 2,  # per villager who started them
+        "catalog": {
+            "shelter": {"name": "Shelter", "place": "home", "levels": [
+                {"items": {"wood": 4}, "hours": 2, "min_workers": 1, "roof": True}]},
+            "house": {"name": "House", "place": "home", "levels": [
+                {"items": {"wood": 10, "stone": 4}, "hours": 6, "min_workers": 1, "roof": True},
+                {"items": {"wood": 12, "stone": 10}, "hours": 8, "min_workers": 2, "roof": True},
+                {"items": {"wood": 16, "stone": 16, "ore": 2}, "hours": 10, "min_workers": 2, "roof": True}]},
+            "campfire": {"name": "Campfire", "place": "village", "levels": [
+                {"items": {"wood": 3, "stone": 3}, "hours": 1, "min_workers": 1},
+                {"items": {"stone": 8}, "hours": 3, "min_workers": 1}]},
+            "workbench": {"name": "Workbench", "place": "home", "levels": [
+                {"items": {"wood": 6, "stone": 2}, "hours": 3, "min_workers": 1, "workshop": True}]},
+            "granary": {"name": "Granary", "place": "home", "levels": [
+                {"items": {"wood": 10, "stone": 4}, "hours": 5, "min_workers": 1, "food_keeps_x": 2},
+                {"items": {"wood": 8, "stone": 10}, "hours": 6, "min_workers": 2, "food_keeps_x": 3}]},
+            "smokehouse": {"name": "Smokehouse", "place": "home", "levels": [
+                {"items": {"wood": 8, "stone": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 3,
+                 "food_items": ["meat", "fish"]}]},
+            "market_square": {"name": "Market square", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 15, "stone": 20}, "hours": 10, "min_workers": 2},
+                {"items": {"wood": 10, "stone": 25, "ore": 3}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
+            "smithy": {"name": "Smithy", "place": "home", "levels": [
+                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True}]},
+            "town_hall": {"name": "Town hall", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 25, "stone": 30}, "hours": 14, "min_workers": 3}]},
+            "tavern": {"name": "Tavern", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 20, "stone": 10}, "hours": 8, "min_workers": 2}]},
+            "palisade": {"name": "Palisade", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 25}, "hours": 8, "min_workers": 2, "defense": 1},
+                {"items": {"wood": 20, "stone": 15}, "hours": 10, "min_workers": 3, "defense": 2}]},
+        },
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

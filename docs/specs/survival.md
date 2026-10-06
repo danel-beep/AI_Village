@@ -51,6 +51,28 @@ Others from the plan: `campfire`, `granary`, `smokehouse`, `pen`, `kiln`, `mill`
 `tannery`, `stable`, `palisade` (→ `wall`), plus today's yard buildings (`garden_bed`, `chicken_coop`,
 `cow_pen`, `beehive`, `fence`) and works (`well`, `bridge`, `watchtower`, `wall`).
 
+## Construction (`aivillage/construction.py`, done)
+
+Config `construction`: `enabled`, `team_window_minutes`, `team_bonus`, `team_max`, `max_open_sites`, `catalog`
+(kind -> `name`, `place` "home" | "village", `at` (allowed places for village kinds), `levels`: rows of
+`items`, `hours`, `min_workers` and effects `roof`, `food_keeps_x` (+ `food_items`), `sell_bonus`, `defense`,
+`workshop`; a row is what that level gives, not added up). Catalog today: `shelter`, `house` 1–3, `campfire` 1–2,
+`workbench`, `granary` 1–2, `smokehouse`, `market_square` 1–2, `smithy`, `town_hall`, `tavern`, `palisade` 1–2.
+
+- Actions: `start_building(kind)` (here: own yard for "home" kinds, a common place for "village" ones),
+  `bring_materials(site_id, items)`, `construct(site_id)` (one hour). With `min_workers` > 1 an hour counts only
+  while that many different villagers worked on the site within the window (same day); lone hours older than the
+  window are lost (`site_work_lost`). `upgrade_house` is refused while construction is on.
+- Unlock keys: `building:<kind>` and `building:<kind>@<level>` (registered in `progress.DEFAULT_UNLOCKS`).
+- Finished "home" buildings are plot building dicts with `level` (`house` sets `plot.house`); "village" ones are
+  `world.construction["buildings"]` (`{id, kind, level, location, owner: None, built_day, builders}`), counted
+  through `progress.BUILT_SOURCES`.
+- API: `has_building(world, kind, name=None, location=None) -> level`, `has_roof(world, name)`,
+  `place(world, kind, location, level=1)` (start stages), `food_keeps_x` (via `spoilage.STORAGE_SOURCES`),
+  `defense` / `sell_bonus` (via `works.DEFENSE_SOURCES` / `works.SELL_BONUS_SOURCES`).
+- Events: `site_started` (public), `site_supplied`, `construct` (location), `site_work_lost` (private),
+  `building_done` (public: who worked how many hours, who brought how much; for village buildings who did not take part).
+
 ## Item ids
 
 Today: `grain fish berries wood stone ore water bread fish_soup tool lock egg milk honey gold club spear stew
@@ -62,6 +84,7 @@ tool of today's modes); weapons `bow sword`; armor `leather_armor iron_armor`; f
 
 - `village_stage` events (above).
 - Construction sites (task 3 defines them, fields fixed here): tick `view.sites` =
-  `[{"id", "kind", "level", "location", "done": 0..1, "workers": [names]}]`.
+  `[{"id", "kind", "level", "location", "done": 0..1, "workers": [names]}]`; `workers` = who worked on it within
+  the last `team_window_minutes`. Common buildings: tick `view.buildings` = `[{"id", "kind", "level", "location"}]`.
 - Buildings with levels: plot building dicts carry `level` (default 1); works keep `works.levels`.
 - Unexplored places (task 6): tick `view.known` = location ids someone has seen.
