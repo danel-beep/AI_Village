@@ -60,6 +60,10 @@
 <script src="mapgen.js"></script>
 <script src="maplayer.js"></script>
 <script src="plotlayer.js"></script>
+<script src="buildart.js"></script>
+<script src="icons.js"></script>
+<script src="buildlayer.js"></script>
+<script src="itemicons.js"></script>
 <script src="threatlayer.js"></script>
 <script src="animallayer.js"></script>
 <script src="seasonlayer.js"></script>
@@ -208,7 +212,7 @@ function panel() {
   for (let k = i; k >= 0 && Object.keys(thoughts).length < names.length; k--)
     for (const [n, d] of Object.entries(ticks[k].decisions)) if (!(n in thoughts) && d.thought) thoughts[n] = d.thought;
   document.getElementById('cards').innerHTML = names.map(n => {
-    const v = t.view.agents[n], inv = Object.entries(v.inventory).map(([k, q]) => `${q} ${k}`).join(', ') || 'пусто';
+    const v = t.view.agents[n], inv = (window.ItemIcons ? ItemIcons.list(v.inventory) : Object.entries(v.inventory).map(([k, q]) => `${q} ${k}`).join(', ')) || 'пусто';
     return `<div class="card ${n === selected ? 'sel' : ''}" data-n="${n}"><span class="name" style="color:${color[n]}">${n}</span>
       <span class="muted">${v.profession} · ${t.view.locations[v.location] || v.location} · ${v.status}</span>
       <div class="muted">еда ${v.satiety} · здоровье ${v.health} · ${v.coins} монет · ${inv}</div>
