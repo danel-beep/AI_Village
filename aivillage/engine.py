@@ -163,6 +163,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(market.observe(world, name))
     obs.update(works.observe(world, name))
     obs.update(taxes.observe(world, name))
+    obs.update(taxes.board(world))
     obs.update(places.observe(world, name))
     obs.update(chronicle.observe(world, name))
     obs.update(progress.observe(world, name))

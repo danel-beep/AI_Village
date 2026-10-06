@@ -168,3 +168,30 @@ def test_bots_with_the_new_rules_replay(mode, tmp_path):
     log = tmp_path / "run.jsonl"
     run(w, bots_decider(w, ["thief", "builder", "homestead", "worker"], 3), days=3, log_path=log)
     replay(log)
+
+
+def test_tax_board_shows_who_paid():
+    w = world(tax_amount=10, tax_every_days=2, taxes={"enabled": True},
+              laws={"enforcement": "voluntary", "bill_days": 2})
+    assert taxes_board(w) == []
+    for n in ("Anna", "Boris"):
+        ops.mint_coins(w, w.agents[n], 20)
+    while w.day < 3:
+        engine.step(w, {})
+    bill = next(d for d in w.debts.values() if d.kind == "tax" and d.borrower == "Boris")
+    err, _ = act(w, "Boris", "pay_bill", {"debt_id": bill.id})
+    assert err is None
+    row = taxes_board(w)[0]
+    assert row["tax_day"] == 3 and row["to"] == "village treasury" and row["paid"] == ["Boris"]
+    assert "Anna" in row["not_paid_yet"] and "Boris" not in row["not_paid_yet"]
+    while w.day < 5 or w.hour < 8:
+        engine.step(w, {})
+    rows = taxes_board(w)
+    assert [r["tax_day"] for r in rows] == [5, 3] and "Anna" in rows[1]["overdue"]
+    assert '"tax_board" lists' in llm.world_facts(w.config)
+    w.config["laws"]["tax_board"] = False
+    assert taxes_board(w) == []
+
+
+def taxes_board(w):
+    return engine.observe(w, "Clara", consume_inbox=False).get("tax_board", [])

@@ -352,6 +352,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "laws": {
         "enforcement": "auto",
         "bill_days": 3,  # a bill not paid within this many days is marked overdue (public), nothing more
+        # voluntary laws: observation "tax_board" = who paid the tax bills of the last tax_board_rounds tax days,
+        # who has not yet, whose bill is overdue (taxes.board). Only visibility, no rule follows from it.
+        "tax_board": True,
+        "tax_board_rounds": 2,
     },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
