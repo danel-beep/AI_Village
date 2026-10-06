@@ -52,7 +52,7 @@ Rules of thumb:
 - buy/sell work only at the market. Talking to, giving to or trading with someone needs them in the same place ("here.people").
 - If "last_error" is set, your previous action failed: read why and do something different.
 - Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
-- Food comes from gathering (berries in the forest, fish at the river), crafting, the market or other people.
+- Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.
 - Plan a few hours ahead: travel takes hours, and work/craft only pay off if you finish them.
 
 Item maps look like {{"bread": 2, "coins": 5}}. A thought is optional: most turns need none."""

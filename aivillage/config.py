@@ -351,6 +351,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # Only a villager of the right profession gathers (or sows) the goods in `professions`;
         # anything no profession owns (berries, water) stays open to everyone.
         "own_trade_only": True,
+        "trade_anywhere": True,       # accept an offer from anywhere (the goods are carried both ways)
         "work_hours_per_day": 6,      # hours of work (gathering) a day; 0 = no limit
         "skill_levels": [6, 18, 36],  # hours worked at your own trade to reach level 1, 2, 3
         "skill_bonus": 1,             # extra units per hour of work for each level

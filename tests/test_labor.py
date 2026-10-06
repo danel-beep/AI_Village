@@ -123,9 +123,27 @@ def test_unclaimed_order_gives_the_coins_back(w):
     assert w.agents["Clara"].coins == c0
 
 
+def test_offers_are_accepted_from_anywhere(w):
+    gift(w, "Clara", wood=4)
+    gift(w, "Boris", fish=3)
+    put(w, "Clara", "forest")
+    put(w, "Boris", "river")
+    act(w, "Clara", "offer", to="Boris", give={"wood": 4}, want={"fish": 3})
+    oid = next(iter(w.offers))
+    act(w, "Boris", "accept", offer_id=oid)
+    assert w.agents["Boris"].inventory["wood"] == 4 and w.agents["Clara"].inventory["fish"] == 3
+    near = engine.new_world({**CRAFTS, "labor": {"enabled": True, "trade_anywhere": False}})
+    gift(near, "Clara", wood=4)
+    put(near, "Clara", "forest")
+    act(near, "Clara", "offer", to="Boris", give={"wood": 4}, want={})
+    act(near, "Boris", "accept", offer_id=next(iter(near.offers)))
+    assert "must be here" in near.agents["Boris"].last_error
+
+
 def test_crafts_mode_needs_firewood_and_states_the_rules():
     cfg = make_config(world_override("crafts"))
     assert cfg["recipes"]["bread"]["inputs"] == {"grain": 2, "wood": 1}
+    assert cfg["professions"]["farmer"] == ["grain", "berries"]
     facts = world_facts(cfg)
     assert "only a villager of that profession" in facts and "trader_today" in facts
 

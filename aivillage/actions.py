@@ -399,8 +399,8 @@ def _transfer_bundle(src: Agent, dst: Agent, bundle: dict) -> None:
     ops.move_coins(src, dst, bundle.get("coins", 0))
 
 
-@ACTIONS.action("offer", "Propose a trade to anyone. If they accept while you are both in one place, "
-                "the swap happens automatically and fairly.", OfferArgs)
+@ACTIONS.action("offer", "Propose a trade to anyone. If they accept (see accept), the swap happens automatically "
+                "and fairly.", OfferArgs)
 def offer(ctx: Ctx, a: Agent, args: OfferArgs) -> None:
     other = _agent(ctx, args.to)
     if other.name == a.name:
@@ -431,12 +431,13 @@ def _my_offer(ctx: Ctx, a: Agent, offer_id: str) -> Offer:
     return o
 
 
-@ACTIONS.action("accept", "Accept a trade offer made to you. You must be in the same place.", OfferIdArgs,
+@ACTIONS.action("accept", "Accept a trade offer made to you. You must be in the same place, unless World facts say "
+                "trades are carried.", OfferIdArgs,
                 available=lambda c, a: any(o.to == a.name for o in c.world.offers.values()))
 def accept(ctx: Ctx, a: Agent, args: OfferIdArgs) -> None:
     o = _my_offer(ctx, a, args.offer_id)
     sender = ctx.world.agents[o.sender]
-    if sender.status != "active" or sender.location != a.location:
+    if sender.status != "active" or (sender.location != a.location and not labor.trade_anywhere(ctx.cfg)):
         raise ActionError(f"{sender.name} must be here to trade")
     if not _holds(sender, o.give):
         del ctx.world.offers[o.id]
