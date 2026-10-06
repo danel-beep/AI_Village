@@ -182,7 +182,7 @@ def _rats(ctx: Ctx, rng: random.Random, spec: dict, c: dict, days: int) -> None:
     chests = [ch for ch in sorted(w.chests.values(), key=lambda x: x.owner)
               if w.agents.get(ch.owner) and w.agents[ch.owner].status != "dead"]
     hit = rng.sample(chests, max(1, round(len(chests) * spec["share"]))) if chests else []
-    victims = []
+    victims, fed = [], []
     for ch in hit:
         eaten = {}
         for item in spec["items"]:
@@ -191,13 +191,22 @@ def _rats(ctx: Ctx, rng: random.Random, spec: dict, c: dict, days: int) -> None:
                 ops.burn(w, ch.items, item, n)
                 eaten[item] = n
         victims.append(ch.owner)
+        if eaten:
+            fed.append(ch.owner)
         ctx.emit("rats", (f"Rats got into {ch.owner}'s chest and ate {ops.fmt_items(eaten)}." if eaten else
                           f"Rats got into {ch.owner}'s house but found no food in the chest."),
                  to=[ch.owner], location=ch.location, victim=ch.owner, eaten=eaten)
     c["title"] = "rat plague"
     c["victims"] = victims
-    c["text"] = (f"Rats! Overnight they got into the houses of {', '.join(victims)} and ate food from the chests."
-                 if victims else "Rats roam the village, looking for food.")
+    # Say only what happened: chests without food lose nothing (the final live run's report said otherwise).
+    empty = [v for v in victims if v not in fed]
+    if fed:
+        c["text"] = f"Rats! Overnight they ate food from the chests of {', '.join(fed)}." + (
+            f" They also got into the houses of {', '.join(empty)} but found no food." if empty else "")
+    elif victims:
+        c["text"] = f"Rats got into the houses of {', '.join(victims)} overnight but found no food in the chests."
+    else:
+        c["text"] = "Rats roam the village, looking for food."
 
 
 def _shortage(ctx: Ctx, rng: random.Random, spec: dict, c: dict, days: int) -> None:
