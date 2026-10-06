@@ -361,7 +361,8 @@ class OpenRouterClient(Client):
 
 # OpenAI direct: USD per 1M tokens (input, cached input, output); OpenAI's API reports no cost itself.
 OPENAI_PRICES = {"gpt-6-luna": (0.10, 0.01, 0.50), "gpt-6-luna-pro": (0.10, 0.01, 0.50),
-                 "gpt-5.6-luna": (0.20, 0.02, 1.20)}
+                 "gpt-5.6-luna": (0.20, 0.02, 1.20), "gpt-6-sol": (2.00, 0.20, 10.00),
+                 "gpt-6-astra": (10.00, 1.00, 50.00)}
 # OpenAI's per-minute limits are far above OpenRouter's ~4 parallel calls for Luna.
 OPENAI_PARALLEL = 16
 # OpenAI limits tokens per minute (a new key: 200k, ~40 village turns). When a reply says less than this

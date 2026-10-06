@@ -52,7 +52,7 @@ Mode id `survival` («С нуля»). Config `bare_start` (`enabled`, `until_sta
 that stage has every villager at profession `laborer`, house level 0, no coins, items or yard buildings,
 gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode. A start before `coins_from_stage`
 (default `village`, where the market square brings the trader) has no coins either.
-The mode adds a small clay bank at the mine (bricks are reachable on every map size). Village projects
+The mode adds a small clay bank at the mine (bricks are reachable on every map size). It also adds wild grain in the forest (seed for garden beds before the market square brings the trader). Village projects
 (`works.py`: `contribute`, `build_work`, the council's suggestions, the config's starting projects) open with
 the town hall (`feature:works`).
 

@@ -459,7 +459,8 @@ def observe(world: World, name: str) -> dict:
     mine = next((p for p in world.plots.values() if p.home == a.home and may_use(world, name, p)), None) \
         or next((p for p in world.plots.values() if p.owner == name and p.kind == "home"), None)
     if mine:
-        up = upgrade_cost(cfg, mine)
+        # with construction on, houses are built on a site at the catalog's price (upgrade_house is refused)
+        up = None if _hand_built(cfg) else upgrade_cost(cfg, mine)
         out["plot"] = {
             "home": mine.home, "cells": mine.cells, "free_cells": mine.cells - used_cells(cfg, mine),
             "house_level": mine.house, "buildings": [_building_obs(cfg, b) for b in mine.buildings],
