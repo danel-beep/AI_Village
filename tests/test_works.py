@@ -190,3 +190,13 @@ def test_bots_run_with_works_and_replay(tmp_path):
     w = engine.new_world({"seed": 3})
     run(w, bots_decider(w, ["random", "worker", "random", "thief", "random"], seed=3), days=4, log_path=log)
     replay(log)
+
+
+def test_structures_not_offered_before_a_town_hall_with_stages():
+    w = engine.new_world({"seed": 1, "progress": {"enabled": True}})
+    obs = engine.observe(w, "Anna", consume_inbox=False)
+    assert "village_structures" not in obs and "propose_build" not in obs["available_actions"]
+    assert works.facts(w.config).startswith("- Village structures (once a town_hall stands in the village):")
+    plain = engine.new_world({"seed": 1})
+    assert engine.observe(plain, "Anna", consume_inbox=False)["village_structures"]["you_can_start"]
+    assert works.facts(plain.config).startswith("- Village structures: ")

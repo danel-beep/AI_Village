@@ -46,7 +46,7 @@ World facts:
 
 Rules of thumb:
 - Only use items you actually have: check "you.inventory" before eat, sell, give, craft or offer.
-- buy/sell work only at the market. Talking to, giving to or trading with someone needs them in the same place ("here.people").
+- buy/sell work only at the market. Talking to or giving to someone needs them in the same place ("here.people"); so does trading, unless World facts say trades are carried.
 - If "last_error" is set, your previous action failed: read why and do something different.
 - Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
 - Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.

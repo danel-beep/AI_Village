@@ -53,6 +53,8 @@ def _subject(world, ev: Event, recipient: str) -> str | None:
         if recipient == ev.actor:
             return partner
         return ev.actor if recipient == partner else None  # bystanders learn nothing about fairness
+    if k in ("construct", "site_supplied"):  # help on a building site: not on one's own
+        return ev.actor if ev.data.get("owner") != ev.actor else None
     if k in ("steal_attempt", "give", "lend", "contribute", "build_work"):
         return ev.actor
     if k == "embezzlement_found":

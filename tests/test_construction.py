@@ -160,3 +160,33 @@ def test_fuzz_and_replay_with_construction_and_progress(tmp_path):
         assert found == set()
         assert replay(log).hash() == w.hash()
     assert evaluative(llm.world_facts(w.config)) == []
+
+
+def test_catalog_says_what_a_building_opens_only_with_stages():
+    on = world(progress={"enabled": True})
+    assert construction.effect_text(on.config, "market_square", 1).startswith("opens the trader at the market")
+    assert "opens" in construction.effect_text(on.config, "town_hall", 1)
+    assert "market_square (square; L1: " in construction.facts(on.config)
+    assert "-> opens the trader" in construction.facts(on.config)
+    off = world()  # everything is open from the start: nothing to announce
+    assert construction.effect_text(off.config, "market_square", 1) == ""
+    assert "opens" not in construction.effect_text(off.config, "town_hall", 1)
+
+
+def test_help_on_someone_elses_site_counts_as_help():
+    w = world()
+    assert not errors(act(w, "Anna", "start_building", kind="house"))
+    s = site_of(w, "house")
+    give(w, "Boris", wood=2)
+    w.agents["Boris"].location = "home_Anna"
+    assert not errors(act(w, "Boris", "bring_materials", site_id=s["id"], items={"wood": 2}))
+    feel = w.kin.feelings["Anna"]["Boris"]
+    assert feel == w.config["family"]["on_event"]["site_supplied"][1]
+    act(w, "Boris", "construct", site_id=s["id"])
+    assert w.kin.feelings["Anna"]["Boris"] > feel
+    assert w.agents["Anna"].reputation["Boris"]["score"] == 2
+    # one's own site is not help: nobody's tally of Anna moves
+    give(w, "Anna", wood=2)
+    act(w, "Anna", "bring_materials", site_id=s["id"], items={"wood": 2})
+    act(w, "Anna", "construct", site_id=s["id"])
+    assert "Anna" not in w.agents["Boris"].reputation and "Anna" not in w.kin.feelings.get("Boris", {})
