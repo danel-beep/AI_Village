@@ -21,7 +21,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import metrics
+from . import dilemmas, metrics
 
 # Speech in a decision's action args (the decision's own "say" is read too).
 SPEECH_ARGS = ("text", "pitch")
@@ -120,8 +120,9 @@ def judge_lies(turns: list[dict], client) -> list[dict]:
     return lies
 
 
-def villagers(records: list[dict], path: str | Path | None = None, lies: list[dict] | None = None) -> dict:
-    """{name: row} for one log."""
+def villagers(records: list[dict], path: str | Path | None = None, lies: list[dict] | None = None,
+              dl: dict | None = None) -> dict:
+    """{name: row} for one log. `dl`: dilemmas.compute of the same log (computed here when None)."""
     header = records[0]
     ticks = [r for r in records if r.get("type") == "tick"]
     brains = header.get("brains") or {}
@@ -197,6 +198,10 @@ def villagers(records: list[dict], path: str | Path | None = None, lies: list[di
         for t in lies:
             if t["name"] in rows:
                 rows[t["name"]]["lies"] += 1
+    dl = dl if dl is not None else dilemmas.compute(records, names)
+    for n, row in rows.items():
+        row.update(dl["villagers"].get(n) or {k: 0 for k in dilemmas.ROW})
+        row["owns"] = dl["owns"].get(n) or {}
     for row in rows.values():
         row["alive"] = row["status"] != "dead"
         row["wealth_delta"] = (round(row["wealth_end"] - row["wealth_start"], 1)
@@ -206,7 +211,7 @@ def villagers(records: list[dict], path: str | Path | None = None, lies: list[di
 
 SUMS = ("hospital", "died", "evicted", "turns", "invalid", "spoke", "thefts_tried", "thefts_got", "thefts_caught",
         "robbed", "gifts", "trades", "loans_given", "loans_taken", "debts_defaulted", "debts_repaid", "fire_help",
-        "gossip", "lies", "judged", "calls", "failures", "cost_usd")
+        "gossip", "lies", "judged", "calls", "failures", "cost_usd", *dilemmas.ROW)
 
 
 def by_model(rows: list[dict]) -> dict[str, dict]:
@@ -238,6 +243,26 @@ def by_model(rows: list[dict]) -> dict[str, dict]:
     return dict(sorted(out.items()))
 
 
+def goals(records: list[dict]) -> dict[str, list[tuple[int, str]]]:
+    """Own goals (config `own_goals`): {villager: [(day, what they wrote they want)]}, day 0 = before the first
+    day (the intro on the first decision), then one per night where it changed."""
+    out: dict[str, list[tuple[int, str]]] = {}
+
+    def add(name: str, day: int, wants) -> None:
+        if isinstance(wants, str) and (not out.get(name) or out[name][-1][1] != wants.strip()):
+            out.setdefault(name, []).append((day, wants.strip()))
+    for rec in records:
+        if rec.get("type") == "tick":
+            for name, d in (rec.get("decisions") or {}).items():
+                if isinstance(d, dict) and isinstance(d.get("intro"), dict):
+                    add(name, 0, d["intro"].get("wants"))
+        elif rec.get("type") == "diary":
+            for name, e in (rec.get("entries") or {}).items():
+                if isinstance(e, dict) and "wants" in e:
+                    add(name, rec.get("day", 0), e["wants"])
+    return out
+
+
 def compute(paths: list[str | Path], judge=None) -> dict:
     """Report over logs. `judge`: an llm.Client for lies, or None (lies not measured)."""
     runs, rows = [], []
@@ -245,13 +270,16 @@ def compute(paths: list[str | Path], judge=None) -> dict:
         recs = read(p)
         header = recs[0]
         lies = judge_lies(spoken_turns(recs), judge) if judge is not None else None
-        vs = villagers(recs, p, lies)
+        dl = dilemmas.compute(recs)
+        vs = villagers(recs, p, lies, dl)
+        wants = goals(recs)
         cfg = header["config"]
         runs.append({"log": str(p), "seed": cfg.get("seed"), "mode": cfg.get("economy_mode"), "villagers": len(vs), "days": max((v["days"] for v in vs.values()),
                                                                                        default=0),
-                     "cost_usd": round(sum(v["cost_usd"] for v in vs.values()), 4)})
+                     "cost_usd": round(sum(v["cost_usd"] for v in vs.values()), 4),
+                     "stages": dl["stages"], "built": dl["built"], "voluntary_laws": dl["voluntary_laws"]})
         for v in vs.values():
-            rows.append({**v, "log": str(p), "actions": dict(v["actions"])})
+            rows.append({**v, "log": str(p), "actions": dict(v["actions"]), "wants": wants.get(v["name"], [])})
     models = by_model([{**r, "actions": Counter(r["actions"])} for r in rows])
     seeds = sorted({r["seed"] for r in runs if r["seed"] is not None})
     return {"runs": runs, "seeds": seeds, "models": models, "villagers": rows, "lies_judged": judge is not None,
@@ -304,11 +332,52 @@ def to_markdown(rep: dict) -> str:
                    f"{m['cost_usd']:.4f} | {m['cost_per_villager_day']:.5f} |")
     if len(models) == 1:
         out += ["", "Пока все жители на одной модели; когда модели будут разные, эта таблица их сравнит."]
+    out += _growth_md(rep)
+    if any(v.get("wants") for v in rep["villagers"]):
+        out += ["", "## Чего хотят жители", "",
+                "Свои слова жителя (настройка «Свои цели»): день 0 = перед первым днём, дальше ночи, когда желание "
+                "менялось. «—» = ничего не написал.", ""]
+        for v in rep["villagers"]:
+            if v.get("wants"):
+                out.append(f"- **{v['name']}** ({v['profession']}, {v['model']}): "
+                           + "; ".join(f"день {d}: {w or '—'}" for d, w in v["wants"]))
     if not one:
         out += ["", "## Прогоны", ""]
         out += [f"{i + 1}. `{r['log']}`: seed {r['seed']}, режим {r['mode']}, {r['villagers']} жителей, "
                 f"{r['days']} дн., ${r['cost_usd']:.4f}" for i, r in enumerate(runs)]
     return "\n".join(out) + "\n"
+
+
+def _growth_md(rep: dict) -> list[str]:
+    """Village stages, who built what, who owns what, and the dilemma tally (only when there is any)."""
+    runs, rows = rep["runs"], rep["villagers"]
+    out: list[str] = []
+    for i, r in enumerate(runs):
+        if not r.get("stages") and not r.get("built"):
+            continue
+        out += ["", "## Развитие деревни" + ("" if len(runs) == 1 else f" (прогон {i + 1})"), ""]
+        if r.get("stages"):
+            out.append(f"- Стадии: {dilemmas.stage_line(r['stages'])}.")
+        out += [f"- {dilemmas.built_line(b)}" for b in r.get("built") or []] or ["- Ничего не построено."]
+        own = [v for v in rows if v["log"] == r["log"]]
+        if own:
+            out += ["", "Чем владеют в конце:", ""]
+            out += [f"- **{v['name']}**: {dilemmas.owns_line(v.get('owns') or {})}" for v in own]
+    if not dilemmas.any_dilemma(rows) and not any(r.get("stages") for r in runs):
+        return out
+    one = len(runs) == 1
+    cols = dilemmas.COLUMNS
+    out += ["", "## Дилеммы", "", dilemmas.NOTES, "",
+            "| " + ("" if one else "Прогон | ") + "Житель | Модель | " + " | ".join(c for c, _ in cols) + " |",
+            "| --- " * (len(cols) + (2 if one else 3)) + "|"]
+    for v in rows:
+        run_no = "" if one else f"{next((i + 1 for i, r in enumerate(runs) if r['log'] == v['log']), '?')} | "
+        out.append(f"| {run_no}{v['name']} | {v['model']} | " + " | ".join(f(v) for _, f in cols) + " |")
+    out += ["", "### Дилеммы по моделям", "",
+            "| Модель | Жителей | " + " | ".join(c for c, _ in cols) + " |", "| --- " * (len(cols) + 2) + "|"]
+    for m in dilemmas.by_model(rows).values():
+        out.append(f"| {m['model']} | {m['villagers']} | " + " | ".join(f(m) for _, f in cols) + " |")
+    return out
 
 
 def write(log: str | Path, judge=None) -> Path:

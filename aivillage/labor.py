@@ -12,6 +12,10 @@ with the trader as the only partner. This module makes neighbours necessary thro
 - a limited trader: each day he buys at most `trader_buys_per_day` of each item from the whole village and
   sells at most `trader_sells_per_day` (per 5 villagers), first come first served.
 
+With village stages on (progress.py, the «С нуля» mode) the trader comes once a market square stands
+(`feature:trader`): until then there are no trader prices or limits in the observation, so the only trade is
+between villagers (the buy/sell actions are locked by progress itself).
+
 State: `Agent.worked_today`, `Agent.skill_hours`, `World.trader_day` (reset at dawn by `new_day`).
 """
 
@@ -19,10 +23,25 @@ from __future__ import annotations
 
 import math
 
-from . import population
+from . import population, progress
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
 from .state import Agent, World
+
+
+TRADER = "feature:trader"  # progress.DEFAULT_UNLOCKS: a market_square
+
+
+def trader_here(world: World) -> bool:
+    """Has the trader come to the village? Always with village stages off."""
+    return progress.unlocked(world, TRADER)
+
+
+def trader_fact(cfg: dict) -> str:
+    from .governance import opens_note  # governance -> actions -> labor: import here
+    return (f"- The trader{opens_note(cfg, TRADER)} is only at the market. trader_prices \"a/b\" means you BUY from the "
+            "trader at a coins, SELL to the trader at b coins. Coins only enter the village when someone sells to the "
+            "trader.")
 
 
 def enabled(cfg: dict) -> bool:
@@ -140,6 +159,21 @@ def trader_deal(world: World, item: str, qty: int, side: str) -> None:
     book[item] = book.get(item, 0) + qty
 
 
+def workshop_trades(ctx: Ctx, owned: list[tuple[str, str]]) -> None:
+    """crafting.end_of_hour: the owner of a workshop who has no trade yet takes the workshop's trade
+    (config `crafting.workshops`: smithy -> smith ...). The first workshop in `owned` order decides."""
+    c = ctx.cfg["crafting"]
+    untrained = set(c.get("untrained", []))
+    for owner, kind in owned:
+        a = ctx.world.agents.get(owner)
+        trade = c["workshops"].get(kind)
+        if not trade or a is None or a.status == "dead" or (a.profession or "") not in untrained:
+            continue
+        a.profession, a.skill_hours = trade, 0
+        ctx.emit("trade_changed", f"{a.name} took the {trade} trade with the {kind}.", actor=a.name,
+                 profession=trade, workshop=kind)
+
+
 def new_day(world: World) -> None:
     world.trader_day = {"bought": {}, "sold": {}}
     for a in world.agents.values():
@@ -163,11 +197,11 @@ def observe(world: World, name: str) -> dict:
         return {}
     a = world.agents[name]
     items = [i for i, v in cfg["items"].items() if v.get("tradable", True)]
-    return {
-        "work_today": {"hours_left": hours_left(cfg, a), "your_skill": skill_info(cfg, a)},
-        "trader_today": {"will_buy": {i: trader_left(world, i, "buy") for i in items},
-                         "has_for_sale": {i: trader_left(world, i, "sell") for i in items}},
-    }
+    out = {"work_today": {"hours_left": hours_left(cfg, a), "your_skill": skill_info(cfg, a)}}
+    if trader_here(world):
+        out["trader_today"] = {"will_buy": {i: trader_left(world, i, "buy") for i in items},
+                               "has_for_sale": {i: trader_left(world, i, "sell") for i in items}}
+    return out
 
 
 def facts(cfg: dict) -> str:

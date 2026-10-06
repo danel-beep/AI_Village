@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops, seasons, works
+from . import crafting, ops, seasons, works
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Plot, World
@@ -34,6 +34,15 @@ def enabled(cfg: dict) -> bool:
 
 def _p(cfg: dict) -> dict:
     return cfg["plots"]
+
+
+def _spec(cfg: dict, kind: str) -> dict:
+    """A yard building's spec; {} for buildings raised on a site (construction.py: no cells, no stock)."""
+    return _p(cfg)["buildings"].get(kind, {})
+
+
+def _hand_built(cfg: dict) -> bool:
+    return bool((cfg.get("construction") or {}).get("enabled"))
 
 
 # ---------- setup and queries ----------
@@ -81,8 +90,7 @@ def _add_building(world: World, plot: Plot, kind: str, built_day: int) -> dict:
 
 
 def used_cells(cfg: dict, plot: Plot) -> int:
-    specs = _p(cfg)["buildings"]
-    return sum(specs[b["kind"]]["cells"] for b in plot.buildings)
+    return sum(_spec(cfg, b["kind"]).get("cells", 0) for b in plot.buildings)
 
 
 def may_use(world: World, name: str, plot: Plot) -> bool:
@@ -235,8 +243,7 @@ def can_sow(ctx: Ctx, a: Agent) -> bool:
 
 
 def _free_beds(cfg: dict, plot: Plot) -> list[dict]:
-    specs = _p(cfg)["buildings"]
-    return [b for b in plot.buildings if "crop" in specs[b["kind"]] and b["crop"] is None and not b["items"]]
+    return [b for b in plot.buildings if "crop" in _spec(cfg, b["kind"]) and b["crop"] is None and not b["items"]]
 
 
 def sow(ctx: Ctx, a: Agent, crop: str | None) -> None:
@@ -245,7 +252,7 @@ def sow(ctx: Ctx, a: Agent, crop: str | None) -> None:
     specs = _p(ctx.cfg)["buildings"]
     beds = _free_beds(ctx.cfg, plot)
     if not beds:
-        if not any("crop" in specs[b["kind"]] for b in plot.buildings):
+        if not any("crop" in _spec(ctx.cfg, b["kind"]) for b in plot.buildings):
             raise ActionError("your plot has no garden_bed; build one first")
         raise ActionError("every garden bed on your plot is sown or ripe (collect first)")
     b = beds[0]
@@ -259,7 +266,12 @@ def sow(ctx: Ctx, a: Agent, crop: str | None) -> None:
         raise ActionError(f"you need {spec['seed']} {crop} in your inventory as seed")
     ops.burn(ctx.world, a.inventory, crop, spec["seed"])
     b["crop"], b["ripe_day"] = crop, ctx.world.day + spec["days"]
-    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=ops.count(a.inventory, "tool") > 0)
+    if crafting.enabled(ctx.cfg):  # a hoe (or the generic tool) gives the bonus and wears an hour
+        tool = crafting.tool_for(ctx.cfg, a, crop)[0]
+        crafting.wear(ctx, a, tool)
+    else:
+        tool = "tool" if ops.count(a.inventory, "tool") > 0 else None
+    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=tool is not None)
     where = "at home" if plot.kind == "home" else f"at {ctx.world.locations[plot.home].name}"
     ctx.emit("plant", f"{a.name} planted {crop} in a garden bed {where} (ripe on day {b['ripe_day']}).",
              actor=a.name, location=plot.home, visibility="location", resource=crop, building=b["id"],
@@ -376,7 +388,7 @@ def after_night(ctx: Ctx) -> None:
         chest = w.chests.get(f"chest_{plot.owner}")
         hungry: list[str] = []
         for b in plot.buildings:
-            spec = specs[b["kind"]]
+            spec = specs.get(b["kind"], {})
             if "crop" in spec:
                 if b["crop"] and w.day >= b["ripe_day"]:
                     n = b.pop("amount", spec["yield"])
@@ -428,7 +440,7 @@ ops.EVENT_HOOKS.append(_on_event)
 # ---------- observation, prompt, log ----------
 
 def _building_obs(cfg: dict, b: dict) -> dict:
-    out = {"id": b["id"], "kind": b["kind"]}
+    out = {"id": b["id"], "kind": b["kind"], **({"level": b["level"]} if "level" in b else {})}
     if b["items"]:
         out["ready"] = dict(b["items"])
     if b.get("crop"):
@@ -447,7 +459,8 @@ def observe(world: World, name: str) -> dict:
     mine = next((p for p in world.plots.values() if p.home == a.home and may_use(world, name, p)), None) \
         or next((p for p in world.plots.values() if p.owner == name and p.kind == "home"), None)
     if mine:
-        up = upgrade_cost(cfg, mine)
+        # with construction on, houses are built on a site at the catalog's price (upgrade_house is refused)
+        up = None if _hand_built(cfg) else upgrade_cost(cfg, mine)
         out["plot"] = {
             "home": mine.home, "cells": mine.cells, "free_cells": mine.cells - used_cells(cfg, mine),
             "house_level": mine.house, "buildings": [_building_obs(cfg, b) for b in mine.buildings],
@@ -487,8 +500,9 @@ def facts(cfg: dict) -> str:
     return (f"- Your plot: the yard at your home, {p['start_cells']} cells at start. Grain grows only in garden "
             "beds. build there (or on a lot you own): "
             + "; ".join(parts) + ". collect takes what is ready. expand_plot buys +" + str(p["expand_cells"])
-            + " cells (price grows); upgrade_house gives +" + str(p["house_bonus_cells"]) + " cells and more health"
-            " at night." + (" Coins paid go to the treasury." if cfg.get("governance", {}).get("enabled") else "")
+            + " cells (price grows); " + ("a bigger house" if _hand_built(cfg) else "upgrade_house") + " gives +"
+            + str(p["house_bonus_cells"]) + " cells and more health at night."
+            + (" Houses are built on a building site (Building)." if _hand_built(cfg) else "") + (" Coins paid go to the treasury." if cfg.get("governance", {}).get("enabled") else "")
             + " Others' yards can be robbed with steal_from_plot.")
 
 
@@ -497,6 +511,7 @@ def view(world: World) -> dict:
     return {h: {"owner": p.owner, "cells": p.cells, "house": p.house,
                 **({"kind": "lot", "price": p.price, "for_sale": not p.owner} if p.kind == "lot" else {}),
                 "buildings": [{"id": b["id"], "kind": b["kind"], "items": dict(b["items"]),
+                               **({"level": b["level"]} if "level" in b else {}),
                                **({"crop": b["crop"], "ripe_day": b["ripe_day"]} if b.get("crop") else {})}
                               for b in p.buildings]}
             for h, p in world.plots.items()}

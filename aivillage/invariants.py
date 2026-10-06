@@ -25,6 +25,7 @@ def holdings(world: World) -> Counter:
     for loc in world.locations.values():
         total.update(loc.ground)
     total["coins"] += world.governance.coins
+    total["coins"] += sum(p["coins"] for p in world.polities.values())  # polity treasuries
     total.update(plot_holdings(world))
     total.update(debt_holdings(world))
     return total
@@ -72,7 +73,7 @@ def check(world: World) -> None:
             errors.append(f"agent {a.name}: bad location {a.location}")
         if a.status == "active" and a.health == 0:
             errors.append(f"agent {a.name}: active with 0 health")
-        if a.task is not None and a.task.get("kind") not in ("move", "work"):
+        if a.task is not None and a.task.get("kind") not in ("move", "work", "craft"):
             errors.append(f"agent {a.name}: bad task {a.task}")
     for c in world.chests.values():
         bag(f"chest {c.id}", c.items)
@@ -96,6 +97,9 @@ def check(world: World) -> None:
     g = world.governance
     if g.coins < 0:
         errors.append(f"treasury: coins {g.coins}")
+    for pid, p in world.polities.items():
+        if p["coins"] < 0:
+            errors.append(f"polity {pid}: coins {p['coins']}")
     for n in [g.mayor, *g.candidates, *g.votes, *g.exiled]:
         if n is not None and n not in world.agents:
             errors.append(f"governance: unknown villager {n}")

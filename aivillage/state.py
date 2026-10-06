@@ -29,6 +29,11 @@ class Agent:
     task: dict | None = None
     busy_until: int = 0  # tick at which the current action (or task step) is over; not asked before it
     tool_wear: int = 0
+    tool_wear_by: dict[str, int] = field(default_factory=dict)  # crafting.py: hours of use per tool kind
+    # crafting.py secret recipes: recipes this agent knows beyond the common ones, and lessons offered to it
+    # ({"teacher", "recipe", "price", "expires_tick"})
+    known_recipes: list[str] = field(default_factory=list)
+    lesson_offers: list[dict] = field(default_factory=list)
     status: str = "active"  # active | hospital | dead
     status_until_day: int = 0
     sick_until_day: int = 0
@@ -44,6 +49,7 @@ class Agent:
     trade_since_day: int = 0  # day the current trade place was taken with change_trade (0 = from the start)
     earned_since_tax: int = 0  # coins from the trader and council orders since the last tax day (taxes.py)
     skill_hours: int = 0
+    feast_day: int = 0  # luxury.py: last day this villager hosted a feast
     harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
     # dice.py: an open challenge {"to", "stake", "expires_tick"}
     dice_offer: dict | None = None
@@ -280,6 +286,7 @@ class World:
     plots: dict[str, Plot] = field(default_factory=dict)  # home or lot location id -> plot
     crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
     threats: list[dict] = field(default_factory=list)  # raids, beasts, travelers: coming, here, finished (threats.py)
+    animals: dict[str, Any] = field(default_factory=dict)  # animals.py: herds, caps, hunting pressure, hunt parties
     # labor.py: what the trader bought from / sold to villagers today, per item (reset at dawn)
     trader_day: dict[str, dict[str, int]] = field(default_factory=lambda: {"bought": {}, "sold": {}})
     trader_stock: dict[str, int] = field(default_factory=dict)  # pricing.py: what villagers sold the trader lately
@@ -290,6 +297,12 @@ class World:
     # spoilage.py: owner -> item -> [[expire_day, qty], ...] oldest first, as of the last dawn
     spoilage: dict[str, dict[str, list]] = field(default_factory=dict)
     explore: dict[str, list[str]] = field(default_factory=dict)  # explore.py: villager -> places they know
+    # construction.py: {"sites": {id: site}, "buildings": [common buildings]}
+    construction: dict[str, Any] = field(default_factory=dict)
+    polities: dict[str, Any] = field(default_factory=dict)  # polity.py: polity id -> polity
+    # transport.py: {"animals": {id: animal}, "wild": {loc: {kind: n}}, "pace": {name: credit}, "sold": {kind: n}}
+    transport: dict[str, Any] = field(default_factory=dict)
+    hire: dict[str, Any] = field(default_factory=dict)  # hire.py: {"jobs": {id: job}, "npcs": [outsider]}
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -302,7 +315,16 @@ class World:
 
     # ---- serialization ----
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        if not d["animals"]:  # animals off: same dict and hash as before the field existed (old logs, saves)
+            del d["animals"]
+        if not d["polities"]:  # polities off or none founded: same dict and hash as before the field existed
+            del d["polities"]
+        if not d["transport"]:  # transport off: same dict and hash as before the field existed
+            del d["transport"]
+        if not d["hire"]:  # hiring off or unused: same dict and hash as before the field existed
+            del d["hire"]
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "World":
@@ -327,6 +349,7 @@ class World:
             plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
             crises=d.get("crises", []),
             threats=d.get("threats", []),
+            animals=d.get("animals", {}),
             trader_day=d.get("trader_day", {"bought": {}, "sold": {}}),
             trader_stock=d.get("trader_stock", {}),
             graves=d.get("graves", []),
@@ -335,6 +358,10 @@ class World:
             progress=d.get("progress", {}),
             spoilage=d.get("spoilage", {}),
             explore=d.get("explore", {}),
+            construction=d.get("construction", {}),
+            polities=d.get("polities", {}),
+            transport=d.get("transport", {}),
+            hire=d.get("hire", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

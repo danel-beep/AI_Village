@@ -65,6 +65,8 @@ MODES: dict[str, dict[str, Any]] = {
             "places": {"enabled": True},
             # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
             "chronicle": {"enabled": True},
+            # feasts and goods on view: things worth having beyond food (luxury.py, wants research idea 3)
+            "luxury": {"enabled": True},
         },
     },
     "peaceful": {
@@ -158,11 +160,29 @@ MODES: dict[str, dict[str, Any]] = {
 MODES["survival"] = {
     "title": "С нуля",
     "about": "Деревню строят сами жители. На старте нет домов, денег, профессий, рынка и кузницы: всё добывается "
-             "руками, карманы пустые. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
+             "руками, карманы пустые. "
+             "Инструменты делают сами: каменные руками, железные в кузнице; руду голыми руками не добыть. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
-                                                   "explore": {"enabled": True}}),
+                                              "animals": {"enabled": True},
+                                              # each town hall founds a polity (polity.py), so a
+                                              # second one may stand at any common place
+                                              "polity": {"enabled": True},
+                                              "construction": {"enabled": True,
+                                                               "catalog": {"town_hall": {"at": []}}},
+                                              "transport": {"enabled": True},
+                                              "hire": {"enabled": True},
+                                              "explore": {"enabled": True},
+                                              "crafting": {"enabled": True, "secrets": {"enabled": True}},
+                                              # clay for bricks a short walk away on every map (the clay hills
+                                              # of a large map are far): a clay bank at the mine
+                                              # and wild grain in the forest: there is no field and no trader
+                                              # before the market square, so garden beds need seed from somewhere
+                                              "locations": {"mine": {"resources": {"clay": {
+                                                  "start": 20, "max": 20, "regen": 8, "slots": 3}}},
+                                                            "forest": {"resources": {"grain": {
+                                                  "start": 12, "max": 12, "regen": 4, "slots": 3}}}}}),
 }
 
 DEFAULT_MODE = "crafts"
@@ -173,7 +193,8 @@ def bare_start(cfg: dict) -> None:
 
     Does nothing unless `bare_start.enabled`, progress is on and the start stage is before
     `bare_start.until_stage`. Then: houses at level 0, no coins, empty pockets and yards, everyone a
-    laborer who may gather anything by hand, no trade places."""
+    laborer who may gather anything by hand, no trade places. A start before `coins_from_stage` (the stage
+    whose buildings bring the trader) has no coins either, even when it is the ready village."""
     from . import progress
     b = cfg.get("bare_start") or {}
     if not b.get("enabled") or b.get("applied") or not progress.enabled(cfg):
@@ -181,8 +202,14 @@ def bare_start(cfg: dict) -> None:
     ids = progress.stage_ids(cfg)
     start = cfg["progress"].get("start_stage", 0)
     idx = ids.index(start) if isinstance(start, str) else int(start)
+    coins_from = b.get("coins_from_stage")
+    if coins_from in ids and idx < ids.index(coins_from):  # no market yet: nobody has coins
+        cfg["start_coins"] = 0
+        for st in cfg["map"].get("start", {}).values():
+            st["coins"] = 0
     until = b.get("until_stage")
     if until in ids and idx >= ids.index(until):
+        b["applied"] = True
         return
     cfg["start_coins"] = 0
     cfg["start_items"] = {k: 0 for k in cfg.get("start_items", {})}

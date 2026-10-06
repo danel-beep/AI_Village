@@ -40,7 +40,8 @@ def test_villager_prompts_are_neutral_in_every_mode():
         a = next(iter(agents.values()))
         system, user = (m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False)))
         reflect = llm.REFLECT.format(name=a.name, profession=a.profession, words=llm.DIARY_WORDS, character="")
-        for text in (system, user, reflect):
+        intro = llm.INTRO.format(words=llm.ABOUT_ME_WORDS)
+        for text in (system, user, reflect, reflect + llm.REFLECT_GOALS, intro):
             assert evaluative(text) == [], (mode, evaluative(text))
 
 

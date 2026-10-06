@@ -47,6 +47,8 @@ OWED = ("open", "defaulted")
 # a villager, so these bills are only paid with pay_bill and never collected (no late fee, no seizing).
 TREASURY = "treasury"
 BILL_KINDS = ("tax", "fine")
+# fn(world, debt) -> treasury holder or None: a bill owed to another treasury than the village's (polity.py)
+BILL_PAYEES: list = []
 
 
 def _cfg(cfg: dict) -> dict:
@@ -348,7 +350,10 @@ def settle_bill(ctx: Ctx, a: Agent, d: Debt, coins: int | None) -> None:
     n = min(coins or d.coins_owed, d.coins_owed)
     if a.coins < n:
         raise ActionError(f"you only have {a.coins} coins (the bill is {d.coins_owed})")
-    if d.kind == "tax":
+    payee = next((h for f in BILL_PAYEES if (h := f(ctx.world, d)) is not None), None)
+    if payee is not None:
+        ops.move_coins(a, payee, n)
+    elif d.kind == "tax":
         taxes.pay(ctx.world, a, n)
     else:
         governance.pay_tax(ctx.world, a, n)

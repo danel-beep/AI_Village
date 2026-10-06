@@ -14,8 +14,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Villager prompt (handbook.py, llm.py). craft_hint: the observation lists recipes the villager's own goods cover
     # now (`you.can_craft_now`) and marks raw goods that are not food (`you.not_edible`). characters: "off" = every
     # villager gets the same neutral prompt, per-villager characters included (experiments); "default" = neutral
-    # unless a villager has its own character; "random" = a seeded preset each.
+    # unless a villager has its own character; "random" = a seeded preset each. own_goals: before its first turn
+    # the villager writes who it is and what it wants, every night it may rewrite that and plans tomorrow, and every
+    # turn shows those words first (llm.INTRO / REFLECT_GOALS); asked, never told.
     "craft_hint": True,
+    "own_goals": True,
     "characters": "default",
     # Time: one tick = tick_minutes game minutes (clock.py). Agents act from day_start to day_end, then
     # night runs. 60 is the old hourly mode the engine tests use; the CLI, live server and launcher run 15.
@@ -33,7 +36,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
             "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
-            "propose_build", "fund_project", "embezzle", "defend", "help_stranger", "chase_stranger", "care")},
+            "propose_build", "fund_project", "embezzle", "start_building", "bring_materials",
+            "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care",
+            "join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
+            "give_to_polity", "polity_embezzle", "polity_audit",
+            "take_animal", "leave_animal", "lend_animal", "return_animal", "give_animal", "feed_animal", "buy_animal")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -343,8 +350,31 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "start": {"theft_fine": 0, "mayor_salary": 0},
         "crime_memory_days": 7,  # a witnessed theft can be reported for this many days
     },
+    # Polities (aivillage/polity.py), off by default; on in the «С нуля» mode. A finished town_hall founds a polity:
+    # its builders are the first members, anyone may join_polity / leave_polity. Members vote for its name, the
+    # name of its coins (one physical coin, a treasury per polity) and its form of government; each further
+    # town_hall founds another polity. With polities on, the village-wide mayor, elections and law votes are off:
+    # each polity makes its own laws the way its form says, and taxes only its members (laws.enforcement: auto
+    # takes the tax, voluntary writes a bill in the debt book).
+    "polity": {
+        "enabled": False,
+        "vote_hours": 24,  # a founding or leader ballot closes this many hours after it opens (or later, until a vote)
+        "law_vote_hours": 24,
+        "council_size": 3,
+        "max_open_proposals": 3,
+        "expel_days": 7,  # an expelled villager may not join that polity again for this many days
+        "limits": {"tax": [0, 50], "grant": [1, 500], "fine": [1, 200]},
+        "max_name_len": 30,
+        # The treasury holder (ruler; most voted councillor; an assembly's treasurer) can take coins unnoticed
+        # (polity_embezzle) until polity_audit at the town hall or, with audit_on_handover, a change of holder.
+        "embezzle": True,
+        "audit_on_handover": True,
+    },
     # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
     # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.
+    # Feasts and goods on view (aivillage/luxury.py): a host shares food with everyone awake here (each guest's
+    # feeling about the host: family.on_event.feast); here.people shows the visible_items each person carries.
+    "luxury": {"enabled": False, "min_guests": 2, "min_food_each": 15, "visible_items": ["ring", "spear", "club", "tool"]},
     "family": {
         "feeling_max": 100,
         "friend_at": 30,      # label "friend" at or above, "enemy" at or below -friend_at
@@ -364,7 +394,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "give": ["to", 5], "lend": ["to", 4], "repay": ["lender", 4], "trade": ["both", 2],
             "whisper": ["both", 1], "letter": ["to", 1], "decline": ["to", -1],
             "steal_attempt": ["to", -20], "witness": ["to", -10], "default": ["lender", -15],
-            "fire_out": ["owner", 10], "extinguish": ["owner", 4],
+            "fire_out": ["owner", 10], "extinguish": ["owner", 4], "feast": ["to", 6],
+            # help on a building site in someone's yard (construction.py): per hour worked / per delivery
+            "construct": ["owner", 2], "site_supplied": ["owner", 3],
         },
     },
     # Reputation and rumors (aivillage/reputation.py). Each agent keeps its own tally of deeds it saw or
@@ -397,6 +429,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "trade": 1,           # completed a trade with you
             "contribute": 1,      # gave to a village project (public)
             "build_work": 1,      # worked on a village project (public)
+            "construct": 1,       # worked an hour on someone else's or the village's building site (seen there)
+            "site_supplied": 1,   # brought materials to someone else's or the village's building site (seen there)
             "embezzlement_found": -5,  # the books show the mayor took treasury coins (public)
         },
     },
@@ -466,6 +500,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "loot_coins_max": 10,
         "weapons": {"tool": {"attack": 1, "damage": 2}, "club": {"attack": 0, "damage": 3},
                     "spear": {"attack": 2, "damage": 5}},
+        # Weapon tiers and armor (conflict.py, «С нуля» plan task 9). Works only with crafting on (the recipes
+        # are rows of crafting.recipes) and `enabled`. `weapons` join the ones above (club -> spear / bow ->
+        # sword); `hunt` adds to the to-hit roll against animals (animals.py) only. `armor`: the best one worn
+        # takes `block` off every hit its wearer takes (a hit still hurts at least 1), in fights, from big game
+        # and from raiders or the beast. `uses`: fights / hunts / defends an item lasts before it breaks (the
+        # weapon or armor used counts one use each time; items not listed never break). Everyone sees the
+        # weapon and armor of the people next to them (`here.people[].gear`).
+        "gear": {
+            "enabled": True,
+            "weapons": {"bow": {"attack": 1, "damage": 3, "hunt": 5}, "sword": {"attack": 3, "damage": 7}},
+            "hunt": {"spear": 1},
+            "armor": {"leather_armor": {"block": 2}, "iron_armor": {"block": 4}},
+            "uses": {"club": 8, "spear": 15, "bow": 15, "sword": 30, "leather_armor": 12, "iron_armor": 30},
+        },
         # feelings (family.py) and reputation (reputation.py) toward the attacker / arsonist
         "feelings": {"victim": -30, "witness": -10},
         "reputation": {"victim": -5, "witness": -3},
@@ -553,7 +601,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Empty start of the «С нуля» mode (modes.bare_start). On, and with progress starting below `until_stage`:
     # no houses (level 0), no coins, empty pockets, no buildings in the yards, everyone a laborer who may
     # gather anything by hand (no trade places). From `until_stage` on, the start is the ready village.
-    "bare_start": {"enabled": False, "until_stage": "hamlet"},
+    "bare_start": {"enabled": False, "until_stage": "hamlet", "coins_from_stage": "village"},
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with
@@ -568,6 +616,37 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (`seen_show` lines; co-presence and events with a place update it).
     "market": {"enabled": True, "remote": True, "place": "square", "sale_hours": 24, "max_sale_hours": 72,
                "max_own_sales": 3, "show": 10, "seen_show": 10},
+    # Game animals and hunting (aivillage/animals.py), off here (the "from scratch" mode turns it on).
+    # Herds per place: `habitats` {loc: {species: count}} if set (the map may fill it), else every place
+    # with the species' `lives_by` resource, only those of its `biomes` if the map has any (big maps: mapgen's
+    # `deep_forest`, `lake`); otherwise `far` species only in the farther half of those (road hops from
+    # `center`), `farthest` only in the farthest. Counts and caps scale with villagers / `base_size`.
+    # Small game (`min_hunters` 1): one roll d`combat.die` + weapon attack >= `hit_at` catches one.
+    # Big game: a hunt party at the place; at the end of the hour (party open `party_hours`), with
+    # `min_hunters` present, up to `rounds` rounds of strikes (combat dice vs `hit_at`, d`combat.damage_die` +
+    # weapon damage) against `hp`; `attack` set = it strikes back (d`damage_die`). The killing blow takes `loot`.
+    # Night: a place hunted `flee_after` times that day loses `flee_share` of each herd to the calmest other
+    # habitat; herds grow by `breed` x n x (1 - n/cap) (n >= 2); hunting pressure halves; an emptied habitat
+    # gets `stray_count` animals from the wild with `stray_chance` a night.
+    "animals": {
+        "enabled": False, "center": "square", "base_size": 5, "party_hours": 1, "rounds": 4,
+        "flee_after": 3, "flee_share": 0.5, "stray_chance": 0.5, "stray_count": 3, "habitats": {},
+        "items": {"meat": {"value": 4, "food": 40}, "hide": {"value": 3}},
+        "species": {
+            "hare": {"lives_by": "wood", "start": 10, "cap": 18, "breed": 0.8, "min_hunters": 1, "hit_at": 11,
+                     "loot": {"meat": 1, "hide": 1}},
+            "duck": {"lives_by": "fish", "start": 8, "cap": 14, "breed": 0.7, "min_hunters": 1, "hit_at": 12,
+                     "loot": {"meat": 1}},
+            "deer": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 3, "cap": 5, "breed": 0.3,
+                     "min_hunters": 2, "hit_at": 10, "hp": 16, "loot": {"meat": 6, "hide": 2}},
+            "boar": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 2, "cap": 4, "breed": 0.35,
+                     "min_hunters": 2, "hit_at": 11, "hp": 20, "attack": 3, "damage_die": 6,
+                     "loot": {"meat": 6, "hide": 1}},
+            "elk": {"lives_by": "wood", "biomes": ["deep_forest"], "farthest": True, "start": 2, "cap": 3,
+                    "breed": 0.25, "min_hunters": 3, "hit_at": 10, "hp": 30, "attack": 2, "damage_die": 8,
+                    "loot": {"meat": 12, "hide": 3}},
+        },
+    },
     # Food goes bad (aivillage/spoilage.py). Off here; a mode or the start screen turns it on.
     # `days`: how many days a unit keeps from the day it reached its owner (bag + own chests + own market
     # listings count as one store, so moving food between them does not refresh it); items not listed never
@@ -578,6 +657,223 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Exploration (aivillage/explore.py). Off here: everyone sees the whole map. On: a villager knows the places
     # they have stood in, plus at the start their home, `center` and every place within `start_radius` roads of it.
     "explore": {"enabled": False, "center": "square", "start_radius": 1},
+    # Crafting chains and tools (aivillage/crafting.py, docs/specs/survival.md). Off here: recipes and the one
+    # generic `tool` work as before. On, `items` and `recipes` below join the global tables (a recipe here
+    # replaces the one of the same id), recipes may need a workshop where the crafter stands, tools speed up
+    # the resources they fit and wear out, and the owner of a workshop takes its trade (labor.py).
+    "crafting": {
+        "enabled": False,
+        # workshop building kind -> the trade its owner takes ("" = none); built ones come from plots / sources
+        "workshops": {"workbench": "carpenter", "smithy": "smith", "kiln": "potter", "mill": "miller",
+                      "tannery": "tanner", "smokehouse": "", "campfire": "", "weaving_shed": ""},
+        "owner_takes_trade": True,
+        "untrained": ["", "none", "laborer"],   # professions that count as "no trade yet"
+        "home_also_at": ["campfire"],           # recipes made "at home" can also be made by a campfire
+        "items": {
+            "clay": {"value": 2}, "hay": {"value": 1},  # meat and hide: animals.items
+            "plank": {"value": 5}, "brick": {"value": 5}, "iron": {"value": 12}, "leather": {"value": 10},
+            "flour": {"value": 3},
+            "stone_axe": {"value": 6}, "stone_pick": {"value": 6}, "iron_axe": {"value": 24},
+            "iron_pick": {"value": 26}, "hoe": {"value": 12}, "fishing_rod": {"value": 6},
+            "smoked_meat": {"value": 9, "food": 35},
+            # weapons and armor (combat.gear, conflict.py)
+            "bow": {"value": 10}, "sword": {"value": 40}, "leather_armor": {"value": 25}, "iron_armor": {"value": 60},
+            "clothes": {"value": 26},
+        },
+        # inputs -> output; `building`: a workshop of that kind must stand where the crafter is (None = by hand,
+        # anywhere); `more_at` {kind: output}: the same recipe gives more at that workshop; `hours`: per batch (0 = the whole action fits in one hour).
+        "recipes": {
+            # materials
+            "plank": {"inputs": {"wood": 2}, "output": 1, "more_at": {"workbench": 3}},
+            "brick": {"inputs": {"clay": 2, "wood": 1}, "output": 2, "building": "kiln"},
+            "iron": {"inputs": {"ore": 2, "wood": 1}, "output": 1, "building": "smithy", "hours": 2},
+            "leather": {"inputs": {"hide": 1, "water": 1}, "output": 1, "more_at": {"tannery": 2}},
+            "flour": {"inputs": {"grain": 2}, "output": 1, "more_at": {"mill": 3}},
+            # tools: stone ones by hand, iron ones at the smithy
+            "stone_axe": {"inputs": {"wood": 1, "stone": 2}, "output": 1},
+            "stone_pick": {"inputs": {"wood": 1, "stone": 2}, "output": 1},
+            "fishing_rod": {"inputs": {"wood": 2}, "output": 1, "building": "workbench"},
+            "hoe": {"inputs": {"plank": 1, "stone": 1}, "output": 1, "building": "workbench"},
+            "iron_axe": {"inputs": {"plank": 1, "iron": 1}, "output": 1, "building": "smithy"},
+            "iron_pick": {"inputs": {"plank": 1, "iron": 2}, "output": 1, "building": "smithy"},
+            "tool": {"inputs": {"plank": 1, "iron": 1}},  # the generic tool: any resource, x2
+            # food: bread now goes through flour; meat keeps longer smoked
+            "bread": {"inputs": {"flour": 1, "wood": 1}, "output": 1, "where": "home"},
+            "smoked_meat": {"inputs": {"meat": 2, "wood": 1}, "output": 2, "building": "smokehouse"},
+            # weapons and armor (combat.gear): club by hand (above), spear and bow at a workbench, iron at the smithy
+            "spear": {"inputs": {"plank": 1, "stone": 1}, "building": "workbench", "profession": None},
+            "bow": {"inputs": {"plank": 1, "hide": 1}, "output": 1, "building": "workbench"},
+            "leather_armor": {"inputs": {"leather": 3}, "output": 1, "building": "workbench"},
+            "sword": {"inputs": {"iron": 2, "plank": 1}, "output": 1, "building": "smithy", "hours": 2},
+            "iron_armor": {"inputs": {"iron": 4, "leather": 1}, "output": 1, "building": "smithy", "hours": 3},
+            # clothes: leather sewn at a weaving shed (construction.py, task 10)
+            "clothes": {"inputs": {"leather": 2}, "output": 1, "building": "weaving_shed"},
+        },
+        # Tools: carried, the one with the highest `multiplier` that fits the resource is used for an hour of
+        # work and wears out after `hours` hours of use. "*" fits everything (`tool`: hours = tool_durability_hours).
+        # `hoe` fits grain: a sower carrying it gets the garden bed's tool bonus.
+        "tools": {
+            "tool": {"fits": ["*"], "multiplier": 2, "hours": None},
+            "stone_axe": {"fits": ["wood"], "multiplier": 1.5, "hours": 12},
+            "stone_pick": {"fits": ["stone", "ore", "clay"], "multiplier": 1.5, "hours": 12},
+            "iron_axe": {"fits": ["wood"], "multiplier": 2.5, "hours": 40},
+            "iron_pick": {"fits": ["stone", "ore", "clay", "gold"], "multiplier": 2.5, "hours": 40},
+            "fishing_rod": {"fits": ["fish"], "multiplier": 2, "hours": 20},
+            "hoe": {"fits": ["grain"], "multiplier": 1, "hours": 30},
+        },
+        # resources nobody gathers with bare hands
+        "needs_tool": ["ore", "gold"],
+        # Secret recipes («С нуля» plan task 19): a recipe not in `common` is known only to whoever worked it out
+        # (the first to make it while no living villager knows it, `discover_hours` more at the bench) or was
+        # taught it (teach / learn). `rediscover`: others may still work out a known recipe alone.
+        "secrets": {
+            "enabled": False,
+            "common": ["plank", "flour", "bread", "fish_soup", "stone_axe", "stone_pick", "club"],
+            "discover_hours": 3,
+            "rediscover": False,
+        },
+    },
+    # Building with your own hands (aivillage/construction.py, docs/specs/survival.md). Off here: houses are
+    # upgraded at once with upgrade_house. On, every building in `catalog` goes up on a site: start_building
+    # opens it, bring_materials delivers `items`, construct is one hour of work (`hours` in all). Work counts
+    # only while at least `min_workers` different villagers worked on the site within `team_window_minutes`;
+    # each extra co-worker in that window (up to `team_max`) adds `team_bonus` to everyone's hour.
+    # Catalog rows: `place` "home" (your yard; finished, it stands among the plot's buildings with a `level`;
+    # `house` sets the plot's house level) or "village" (common; `at`: allowed places, empty = any common
+    # place); `levels`: one row per level. Effects per level (what that level gives, not added up):
+    # `roof` (sleeping under a roof),
+    # `food_keeps_x` (food in the owner's store keeps that many times longer; `food_items` limits it),
+    # `sell_bonus` (the trader pays that much more), `defense` (added to the village defense), `workshop`
+    # (recipes that need this building; crafting.py). Which kinds can be started at which stage:
+    # progress.DEFAULT_UNLOCKS ("building:<kind>", "building:<kind>@<level>").
+    "construction": {
+        "enabled": False,
+        "team_window_minutes": 60,
+        "team_bonus": 0.25,
+        "team_max": 3,
+        "max_open_sites": 2,  # per villager who started them
+        "catalog": {
+            "shelter": {"name": "Shelter", "place": "home", "levels": [
+                {"items": {"wood": 4}, "hours": 2, "min_workers": 1, "roof": True}]},
+            "house": {"name": "House", "place": "home", "levels": [
+                {"items": {"wood": 8, "stone": 2}, "hours": 4, "min_workers": 1, "roof": True},
+                {"items": {"plank": 6, "stone": 10}, "hours": 8, "min_workers": 2, "roof": True},
+                {"items": {"plank": 8, "brick": 12, "iron": 2}, "hours": 10, "min_workers": 2, "roof": True}]},
+            "campfire": {"name": "Campfire", "place": "village", "levels": [
+                {"items": {"wood": 3, "stone": 3}, "hours": 1, "min_workers": 1},
+                {"items": {"stone": 8}, "hours": 3, "min_workers": 1}]},
+            "workbench": {"name": "Workbench", "place": "home", "levels": [
+                {"items": {"wood": 6, "stone": 2}, "hours": 3, "min_workers": 1, "workshop": True},
+                {"items": {"plank": 6, "iron": 1}, "hours": 3, "min_workers": 1, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "granary": {"name": "Granary", "place": "home", "levels": [
+                {"items": {"wood": 10, "stone": 4}, "hours": 5, "min_workers": 1, "food_keeps_x": 2},
+                {"items": {"plank": 6, "brick": 8}, "hours": 6, "min_workers": 2, "food_keeps_x": 3}]},
+            "smokehouse": {"name": "Smokehouse", "place": "home", "levels": [
+                {"items": {"wood": 8, "stone": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 3,
+                 "food_items": ["meat", "fish"], "workshop": True},
+                {"items": {"plank": 4, "brick": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 5,
+                 "food_items": ["meat", "fish", "smoked_meat"], "workshop": True, "extra_per_batch": 1}]},
+            "market_square": {"name": "Market square", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 15, "stone": 20}, "hours": 10, "min_workers": 2,
+                 "opens": "the trader at the market (buy, sell) and the market board (post_sale, buy_sale)"},
+                {"items": {"plank": 6, "brick": 15, "iron": 2}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
+            "smithy": {"name": "Smithy", "place": "home", "levels": [
+                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True,
+                 "opens": "locks (install_lock)"},
+                {"items": {"brick": 12, "iron": 3}, "hours": 8, "min_workers": 2, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "town_hall": {"name": "Town hall", "place": "village", "at": ["square"], "levels": [
+                {"items": {"plank": 12, "stone": 20, "brick": 10}, "hours": 14, "min_workers": 3,
+                 "opens": "a government with a treasury, laws and taxes, village projects, land sales (buy_land), "
+                          "hired outsiders (hire_npc)"}]},
+            "tavern": {"name": "Tavern", "place": "village", "at": ["square"], "levels": [
+                {"items": {"plank": 10, "stone": 10}, "hours": 8, "min_workers": 2, "opens": "dice"}]},
+            "palisade": {"name": "Palisade", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 25}, "hours": 8, "min_workers": 2, "defense": 1},
+                {"items": {"wood": 20, "stone": 15}, "hours": 10, "min_workers": 3, "defense": 2}]},
+            # task 10: workshops for crafting recipes, livestock, the stone wall
+            "kiln": {"name": "Kiln", "place": "home", "levels": [
+                {"items": {"stone": 10, "clay": 6}, "hours": 4, "min_workers": 1, "workshop": True},
+                {"items": {"brick": 10, "iron": 1}, "hours": 4, "min_workers": 1, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "mill": {"name": "Mill", "place": "home", "levels": [
+                {"items": {"plank": 8, "stone": 12}, "hours": 6, "min_workers": 2, "workshop": True},
+                {"items": {"plank": 6, "brick": 8, "iron": 1}, "hours": 6, "min_workers": 2, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "tannery": {"name": "Tannery", "place": "home", "levels": [
+                {"items": {"plank": 6, "stone": 4}, "hours": 4, "min_workers": 1, "workshop": True},
+                {"items": {"plank": 4, "brick": 6}, "hours": 4, "min_workers": 1, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "weaving_shed": {"name": "Weaving shed", "place": "home", "levels": [
+                {"items": {"plank": 8, "stone": 4}, "hours": 4, "min_workers": 1, "workshop": True}]},
+            "pen": {"name": "Pen", "place": "home", "levels": [
+                {"items": {"wood": 10}, "hours": 3, "min_workers": 1, "makes": {"egg": 2}, "feed": {"grain": 1},
+                 "cap": 9},
+                {"items": {"plank": 6, "stone": 4}, "hours": 4, "min_workers": 1, "makes": {"egg": 2, "milk": 3},
+                 "feed": {"grain": 2}, "cap": 9}]},
+            # task 17 (transport.py): `stalls` = animals that rest there at night
+            "stable": {"name": "Stable", "place": "home", "levels": [
+                {"items": {"wood": 12, "stone": 4}, "hours": 4, "min_workers": 1, "stalls": 2},
+                {"items": {"plank": 8, "stone": 6}, "hours": 4, "min_workers": 1, "stalls": 4}]},
+            "wall": {"name": "Stone wall", "place": "village", "at": ["square"], "levels": [
+                {"items": {"stone": 30, "plank": 10}, "hours": 12, "min_workers": 3, "defense": 3},
+                {"items": {"brick": 30, "iron": 4}, "hours": 14, "min_workers": 3, "defense": 5}]},
+        },
+        # without crafting chains (crafting.enabled off) crafted materials are asked as these raw ones
+        "raw_instead": {"plank": {"wood": 2}, "brick": {"stone": 1}, "iron": {"ore": 2}, "clay": {"stone": 1}},
+    },
+    # Riding and pack animals, carts and the carry limit (aivillage/transport.py, «С нуля» plan task 17). Off here.
+    # On (and, with progress on, from the village stage): more than `carry` items carried (coins do not count, a
+    # cart counts 0) makes every road take 1 / `overloaded_pace` times as long; a led animal walks `speed` roads an
+    # hour and carries `carry` more; weak (strength <= `weak_at`): a person's pace, half the carry. Animals are
+    # caught (`wild` per place of their `habitat` resources, `catch_chance` a try; `habitats` {loc: {kind: n}}
+    # overrides) or bought from the trader (`price`, `trader_per_day`). Each night one eats `eats_per_night` units
+    # from its trough (`food` units per item, `trough_max`) or grazes at a place with `graze_resources`; fed at
+    # the owner's home in a free stable stall it regains `stable_rest`, unfed it loses 1, at 0 it runs off.
+    "transport": {
+        "enabled": False,
+        "carry": 20,
+        "overloaded_pace": 0.5,
+        "lead_max": 1,
+        "kinds": {
+            "horse": {"speed": 2.0, "carry": 15, "price": 60, "catch_chance": 0.25, "wild": 2,
+                      "habitat": ["berries", "grain"]},
+            "donkey": {"speed": 1.5, "carry": 30, "price": 35, "catch_chance": 0.4, "wild": 2,
+                       "habitat": ["stone", "clay"]},
+        },
+        "habitats": None,
+        "strength_max": 4,
+        "strength_start": 3,
+        "weak_at": 1,
+        "stable_rest": 1,
+        "eats_per_night": 1,
+        "food": {"hay": 1, "grain": 1},
+        "trough_max": 6,
+        "graze_resources": ["berries", "grain"],
+        "hay_per_hour": 4,
+        "trader_per_day": 1,
+        "cart": {"carry_led": 40, "carry_hand": 10,
+                 "recipe": {"inputs": {"plank": 4, "wood": 2}, "output": 1, "building": "workbench"},
+                 "recipe_plain": {"inputs": {"wood": 12}, "output": 1, "where": "home", "profession": None}},
+        "items": {"hay": {"value": 1}, "cart": {"value": 30}},
+    },
+    # Hiring (aivillage/hire.py, «С нуля» plan task 18). Off here; the survival mode turns it on.
+    # Contracts between villagers (offer_job / accept_job, opened at the hamlet stage): `max_hours` per job,
+    # `deadline_days` to work them off (the day of signing counts), `pay_days` after the end before an unpaid
+    # share is announced, `offer_hours` an offer stays open, `max_open_offers` per employer.
+    # Outsiders hired at the town hall (hire_npc): dearer than a neighbour, their coins leave the village.
+    # worker: `per_hour` units of one resource a day-hour (taken from the place that has the most of it),
+    # `wage_per_hour` coins; guard: stands at the hirer's house for `days`, fights anyone who steals there, sets
+    # it on fire or attacks its family (`attack`/`damage` like a weapon, `health` for that fight only).
+    "hire": {
+        "enabled": False,
+        "max_hours": 12, "deadline_days": 2, "pay_days": 1, "offer_hours": 12, "max_open_offers": 3,
+        "keep_closed": 30,
+        "npc": {"max_per_person": 2, "max_in_village": 4,
+                "worker": {"per_hour": 2, "wage_per_hour": 4, "max_hours": 12},
+                "guard": {"wage_per_day": 12, "max_days": 5, "attack": 3, "damage": 4, "health": 40}},
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
@@ -599,5 +895,6 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def make_config(override: dict | None = None) -> dict:
+    from . import crafting
     from .population import resolve
-    return resolve(_merge(DEFAULT_CONFIG, override or {}))
+    return crafting.resolve(resolve(_merge(DEFAULT_CONFIG, override or {})))
