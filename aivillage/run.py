@@ -131,6 +131,7 @@ def usage_record(agents: dict, tick: int) -> dict:
     return {"type": "usage", "tick": tick,
             "agents": {n: {"model": getattr(ag.client, "model", "?"), "calls": ag.usage.calls,
                            "failures": ag.usage.failures, "prompt_tokens": ag.usage.prompt_tokens,
+                           "cached_tokens": ag.usage.cached_tokens,
                            "completion_tokens": ag.usage.completion_tokens, "cost_usd": round(ag.usage.cost_usd, 6),
                            "by_model": dict(ag.usage.by_model)} for n, ag in sorted(agents.items())}}
 
@@ -307,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, ag in agents.items():
         u = ag.usage
         print(f"  {name:8} {ag.client.model:30} calls={u.calls} fail={u.failures} "
-              f"tokens={u.prompt_tokens}+{u.completion_tokens} cost=${u.cost_usd:.4f}"
+              f"tokens={u.prompt_tokens}+{u.completion_tokens} cached={u.cached_tokens} cost=${u.cost_usd:.4f}"
               + (f" answered_by={u.by_model}" if len(u.by_model) > 1 else ""))
     from .llm import _GATES
     for model, g in _GATES.items():
@@ -356,7 +357,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
                              character=character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name),
-                             own_goals=bool(world.config.get("own_goals", True)))
+                             own_goals=bool(world.config.get("own_goals", True)),
+                             memory=world.config.get("llm_memory", "day"))
     return out
 
 

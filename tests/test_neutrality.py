@@ -38,10 +38,12 @@ def test_villager_prompts_are_neutral_in_every_mode():
     for mode in modes.MODES:
         w, agents = neutral_agents(mode, characters="off")
         a = next(iter(agents.values()))
-        system, user = (m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False)))
+        sent = [m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False))]
+        a.memory = "fresh" if a.memory == "day" else "day"  # both memory layouts
+        sent += [m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False))]
         reflect = llm.REFLECT.format(name=a.name, profession=a.profession, words=llm.DIARY_WORDS, character="")
         intro = llm.INTRO.format(words=llm.ABOUT_ME_WORDS)
-        for text in (system, user, reflect, reflect + llm.REFLECT_GOALS, intro):
+        for text in (*sent, reflect, reflect + llm.REFLECT_GOALS, intro):
             assert evaluative(text) == [], (mode, evaluative(text))
 
 

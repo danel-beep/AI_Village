@@ -30,8 +30,11 @@ DEFAULT_MODEL = "openai/gpt-6-luna"
 
 # Neutral on purpose: the run compares how different models behave, so the prompt states the rules of the
 # world and never suggests a strategy or a morality. A villager's character (CHARACTERS) is the only nudge.
-SYSTEM = """You are {name}, a {profession} living in a small village among other villagers. You are a person, not an assistant.
-How you live is up to you. Every action below is part of this world; none is forbidden or required.{goals}{character}
+# Layout for prompt caching (docs/specs/memory-and-cache.md): providers bill a repeated prompt prefix at a tenth of
+# the price, so everything the same for every villager comes first and the villager's own name, character and
+# goals last (SELF). A name on the first line made every villager's prompt different from its first token.
+SYSTEM = """You live in a small village among other villagers. You are a person, not an assistant.
+How you live is up to you. Every action below is part of this world; none is forbidden or required.
 
 Whenever you are free to act you get a JSON observation and answer with ONE JSON object and nothing else:
 {{"thought": "optional private thought, under 15 words; \"\" when nothing new is on your mind",
@@ -52,7 +55,9 @@ Rules of thumb:
 - Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.
 - Travel takes hours; work and craft give their result only when they are finished.
 
-Item maps look like {{"bread": 2, "coins": 5}}. A thought is optional."""
+Item maps look like {{"bread": 2, "coins": 5}}. A thought is optional.
+
+You are {name}, a {profession}.{goals}{character}"""
 
 REFLECT = """You are {name}, a {profession} in a small village.{character} The day is over and you are alone with your thoughts.
 Below is what you did, said and noticed today. Answer with ONE JSON object and nothing else:
@@ -113,6 +118,33 @@ ABOUT_ME_WORDS = 60
 GOAL_CHARS = 400  # "wants" and the day's plan, each
 DAY_LOG_LINES = 40
 PERSON_NOTE_CHARS = 300
+# Memory modes (config `llm_memory`, docs/specs/memory-and-cache.md):
+#   "day":   the villager's day is one conversation: each earlier turn today stays as a short line of what it saw
+#            plus its own answer, so it remembers who asked what and what it meant to do. The conversation only
+#            grows, so the provider's prompt cache bills all of it but the last turn at a tenth. Reset every night
+#            (the diary carries the day over).
+#   "fresh": every turn is a new chat with the last 3 actions and own notes (the old way).
+MEMORY_MODES = ("day", "fresh")
+DEFAULT_MEMORY = "day"
+DAY_TURNS = 48  # turns kept in the day conversation; past it the older half is dropped (one cache miss)
+# A message carrying this key is the end of a prefix worth caching. OpenAI (GPT-6) caches by itself only the system
+# prompt and the whole last prompt, so the client marks it as an explicit breakpoint; other routes drop the key.
+CACHE_POINT = "cache_point"
+DAY_DIARIES = 3  # "day" mode: diary entries of the last days shown (in the cached part of the prompt)
+
+
+def wire(messages: list[dict], breakpoints: bool) -> list[dict]:
+    """Messages as sent: CACHE_POINT becomes OpenAI's `prompt_cache_breakpoint` or is dropped."""
+    out = []
+    for m in messages:
+        if CACHE_POINT not in m:
+            out.append(m)
+            continue
+        m = {k: v for k, v in m.items() if k != CACHE_POINT}
+        if breakpoints:
+            m["content"] = [{"type": "text", "text": m["content"], "prompt_cache_breakpoint": {"mode": "explicit"}}]
+        out.append(m)
+    return out
 
 
 def world_facts(cfg: dict) -> str:
@@ -218,6 +250,7 @@ def world_facts(cfg: dict) -> str:
 @dataclass
 class Usage:
     prompt_tokens: int = 0
+    cached_tokens: int = 0  # part of prompt_tokens read from the provider's prompt cache (billed at ~1/10)
     completion_tokens: int = 0
     cost_usd: float = 0.0
     calls: int = 0
@@ -226,6 +259,7 @@ class Usage:
 
     def add(self, other: dict) -> None:
         self.prompt_tokens += int(other.get("prompt_tokens", 0))
+        self.cached_tokens += int((other.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
         self.completion_tokens += int(other.get("completion_tokens", 0))
         self.cost_usd += float(other.get("cost", 0.0) or 0.0)
         self.calls += 1
@@ -235,6 +269,9 @@ class Usage:
 
 class Client:
     model = "?"
+    # Routes calls with the same key to the same cache machine (OpenAI `prompt_cache_key`): one key per villager,
+    # so its own day-so-far prefix stays warm. Set by LLMAgent; helpers leave it None.
+    cache_key: str | None = None
 
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
         raise NotImplementedError
@@ -330,7 +367,7 @@ class OpenRouterClient(Client):
         return self.api_key or keys.get("openrouter_key")
 
     def _post(self, models: list[str], messages: list[dict]) -> tuple[str, dict]:
-        body = {"model": models[0], "messages": messages, "max_tokens": self.max_tokens, "usage": {"include": True},
+        body = {"model": models[0], "messages": wire(messages, False), "max_tokens": self.max_tokens, "usage": {"include": True},
                 "response_format": {"type": "json_object"}, "reasoning": self.reasoning}
         if self.temperature is not None:
             body["temperature"] = self.temperature
@@ -445,10 +482,12 @@ class OpenAIClient(Client):
         return self.api_key or keys.get("openai_key")
 
     def _post(self, messages: list[dict]) -> tuple[str, dict]:
-        body = {"model": self.name, "messages": messages, "max_completion_tokens": self.max_tokens,
+        body = {"model": self.name, "messages": wire(messages, True), "max_completion_tokens": self.max_tokens,
                 "response_format": {"type": "json_object"}, "reasoning_effort": self.effort}
         if self.temperature is not None:
             body["temperature"] = self.temperature
+        if self.cache_key:
+            body["prompt_cache_key"] = self.cache_key
         for p in _UNSUPPORTED.get(self.name, ()):
             body.pop(p, None)
         req = urllib.request.Request(self.URL, json.dumps(body).encode(),
@@ -502,7 +541,7 @@ class OpenAIClient(Client):
                 if e.code == 429 and "insufficient_quota" in msg:
                     raise ProviderDown(f"OpenAI: no credit on the account ({msg})") from e
                 if e.code == 400:
-                    bad = [p for p in ("temperature", "reasoning_effort", "response_format") if p in msg]
+                    bad = [p for p in ("temperature", "reasoning_effort", "response_format", "prompt_cache_key") if p in msg]
                     if bad and not set(bad) <= _UNSUPPORTED.get(self.name, set()):
                         _UNSUPPORTED.setdefault(self.name, set()).update(bad)
                         attempt += 1
@@ -533,6 +572,14 @@ class FallbackClient(Client):
         self.primary, self.backup = primary, backup
         self.model = primary.model
         self.down: str | None = None
+
+    @property
+    def cache_key(self) -> str | None:
+        return self.primary.cache_key
+
+    @cache_key.setter
+    def cache_key(self, key: str | None) -> None:
+        self.primary.cache_key = self.backup.cache_key = key
 
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
         if self.down is None:
@@ -692,6 +739,12 @@ class LLMAgent:
     wants: str = ""
     plan: str = ""  # what the villager meant to do today (INTRO "today", else last night's "tomorrow")
     introduced: bool = False
+    memory: str = DEFAULT_MEMORY  # MEMORY_MODES
+    turns: list[dict] = field(default_factory=list)  # "day" mode: today's turns as chat messages
+
+    def __post_init__(self):
+        if getattr(self.client, "cache_key", None) is None:
+            self.client.cache_key = f"aivillage-{self.name}"
 
     def system_prompt(self, obs: dict) -> str:
         off = self.disabled_actions | set(obs.get("locked_actions", ()))  # progress.py: not open yet
@@ -699,18 +752,55 @@ class LLMAgent:
                              facts=self.facts or "(none)", goals=GOALS if self.own_goals else "",
                              character="\n" + self.character if self.character else "")
 
-    def messages(self, obs: dict) -> list[dict]:
+    def long_memory(self) -> dict:
+        """What the villager carries from earlier days; changes only at night."""
         memory = {}
         if self.own_goals:  # the villager's own words first: what it wants and meant to do today
             memory = {"about_me": self.about_me or "(not written)", "what_you_want": self.wants or "(nothing written)",
                       "your_plan_for_today": self.plan or "(none)"}
-        memory |= {"notes": self.notes or "none", "your_last_actions": self.recent}
         if self.people:
             memory["people"] = self.people
-        if self.diary:
+        if self.diary and self.memory == "day":  # cached all day, so a few more days cost next to nothing
+            memory["your_diary"] = {f"day {e['day']}": e["text"] for e in self.diary[-DAY_DIARIES:]}
+        elif self.diary:
             memory["last_diary"] = self.diary[-1]["text"]
+        return memory
+
+    def messages(self, obs: dict) -> list[dict]:
+        if self.memory == "day":
+            # Stable all day first (world, self, earlier days), then today's turns, then only what is new.
+            system = self.system_prompt(obs) + "\n\nYour memory of earlier days: " + json.dumps(self.long_memory())
+            user = ("Observation (your notes: " + json.dumps(self.notes or "none") + "):\n"
+                    + json.dumps(compact_obs(obs)))
+            # The cache point marks where the next turn's prompt stops matching this one (only the full
+            # observation is replaced); without it the cache would hold only the system prompt.
+            return [{"role": "system", "content": system}, *self.turns,
+                    {"role": "user", "content": self.turn_line(obs), CACHE_POINT: True},
+                    {"role": "user", "content": user}]
+        memory = self.long_memory() | {"notes": self.notes or "none", "your_last_actions": self.recent}
         user = "Observation (your memory: " + json.dumps(memory) + "):\n" + json.dumps(compact_obs(obs))
         return [{"role": "system", "content": self.system_prompt(obs)}, {"role": "user", "content": user}]
+
+    @staticmethod
+    def turn_line(obs: dict) -> str:
+        """An earlier turn in the day conversation: when and where, and what was new then (the full observation
+        is only sent for the current turn)."""
+        t, you = obs.get("time", {}), obs.get("you", {})
+        line = (f"{t.get('hour', '?')}:{t.get('minute', 0):02d} at {you.get('location', '?')}, "
+                f"satiety {you.get('satiety', '?')}, health {you.get('health', '?')}, coins {you.get('coins', '?')}")
+        news = [str(n)[:300] for n in obs.get("news", [])]
+        if news:
+            line += "\nNews: " + " | ".join(news)
+        if obs.get("last_error"):
+            line += f"\nYour last action failed: {obs['last_error']}"
+        return line
+
+    def remember_in_day(self, obs: dict, dec: dict) -> None:
+        reply = {k: dec[k] for k in ("thought", "action", "say") if dec.get(k)}
+        self.turns += [{"role": "user", "content": self.turn_line(obs)},
+                       {"role": "assistant", "content": json.dumps(reply)}]
+        if len(self.turns) > 2 * DAY_TURNS:
+            del self.turns[: 2 * (DAY_TURNS // 2)]
 
     def introduce(self, obs: dict) -> dict | None:
         """Before the first turn: the villager writes who it is, what it wants and what it means to do today,
@@ -783,11 +873,14 @@ class LLMAgent:
         if isinstance(dec.get("notes"), str):
             self.notes = dec["notes"][:1000]
         self.remember_turn(obs, dec)
+        if self.memory == "day" and "parse_error" not in dec:
+            self.remember_in_day(obs, dec)
         return dec
 
     def reflect(self, day: int) -> dict | None:
         """Night: write a diary entry and update memory about people. Returns the entry, or None if the
         agent did nothing today or the model failed (memory is then left as it was)."""
+        self.turns = []  # a new day starts a new conversation; the diary carries this one over
         if not self.day_log:
             return None
         log, self.day_log = self.day_log, []

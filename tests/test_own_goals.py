@@ -35,9 +35,15 @@ def test_own_words_come_first_in_memory_and_night_prompt_asks(tmp_path):
     w = engine.new_world(runconfig.RunConfig(mode="standard").world_override())
     a = next(iter(llm_agents(w, {n: "stub" for n in w.agents}).values()))
     a.wants, a.plan = "Build a bigger house.", "Cut wood."
+    a.memory = "fresh"
     system, user = (m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False)))
     assert llm.GOALS.strip() in system
     memory = json.loads(user.split("(your memory: ", 1)[1].split("):\n", 1)[0])
+    assert list(memory)[:3] == ["about_me", "what_you_want", "your_plan_for_today"]
+    assert memory["what_you_want"] == "Build a bigger house."
+    a.memory = "day"  # the day conversation: own words open the memory of earlier days in the system prompt
+    system = a.messages(engine.observe(w, a.name, consume_inbox=False))[0]["content"]
+    memory = json.loads(system.split("Your memory of earlier days: ", 1)[1])
     assert list(memory)[:3] == ["about_me", "what_you_want", "your_plan_for_today"]
     assert memory["what_you_want"] == "Build a bigger house."
     sent = []
@@ -52,8 +58,8 @@ def test_off_means_the_old_prompt(tmp_path):
     w, agents, recs = stub_village(tmp_path, world={"own_goals": False})
     a = next(iter(agents.values()))
     assert not a.introduced and not a.wants
-    system, user = (m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False)))
-    assert llm.GOALS.strip() not in system and "what_you_want" not in user
+    sent = a.messages(engine.observe(w, a.name, consume_inbox=False))
+    assert llm.GOALS.strip() not in sent[0]["content"] and not any("what_you_want" in m["content"] for m in sent)
     assert not any("intro" in d for r in recs if r["type"] == "tick" for d in r["decisions"].values())
     assert all("wants" not in e for r in recs if r["type"] == "diary" for e in r["entries"].values())
 
