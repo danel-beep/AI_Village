@@ -12,6 +12,8 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
 - no `path`: a run option handled in `to_run()` (villagers, days, mode, pace, ...).
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
 - `only`: "llm" or "bots" shows the knob for that kind of village only; `mode`: shown in that economy mode only.
+- `hide_if`: {knob key: [values]}: hidden while every listed knob's value is in its list (tax rates with
+  polities on: each polity sets its own; start coins at a camp start: there are none).
 - `roster` (not a knob): optional list of {name, profession, character} from "Жители по одному".
 - `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
 - `sets` (on a choice): {option: {knob key: slider value}}, a preset. Picking the option moves those sliders;
@@ -33,6 +35,9 @@ BOT_MIXES = {
     "thieves": ["thief", "worker"],
     "homestead": ["homestead", "worker"],
 }
+
+# With polities on, whether there is a tax, how much and how often is up to each polity (polity.py): no world rate.
+NO_WORLD_TAX = {"polities": [True]}
 
 KNOBS: list[dict[str, Any]] = [
     # --- village ---
@@ -95,17 +100,21 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "0: у всех одинаковые участки, деньги и дорога до работы. 10: у кого-то большой участок и "
              "запасы, у кого-то клочок земли и пустой карман."},
     {"key": "start_coins", "path": "start_coins", "group": "Правила", "type": "range", "label": "Монет на старте",
-     "min": 0, "max": 200, "step": 5},
+     "min": 0, "max": 200, "step": 5, "hide_if": {"mode": ["survival"], "start_stage": ["camp", "hamlet"]},
+     "hint": "В «С нуля» монеты появляются с рынком (стадия «Деревня»): при старте с лагеря или хутора их нет ни у кого."},
     {"key": "tax_amount", "path": "tax_amount", "group": "Правила", "type": "range", "label": "Налог на землю",
-     "min": 0, "max": 100, "step": 5, "unit": " мон."},
+     "min": 0, "max": 100, "step": 5, "unit": " мон.", "hide_if": NO_WORLD_TAX},
     {"key": "sales_pct", "path": "taxes.sales_pct", "group": "Правила", "type": "range",
-     "label": "Налог с продаж торговцу и совету", "min": 0, "max": 30, "step": 1, "unit": "%"},
+     "label": "Налог с продаж торговцу и совету", "min": 0, "max": 30, "step": 1, "unit": "%",
+     "hide_if": NO_WORLD_TAX},
     {"key": "wealth_pct", "path": "taxes.wealth_pct", "group": "Правила", "type": "range",
-     "label": "Налог с богатства (с монет сверх 100)", "min": 0, "max": 20, "step": 1, "unit": "%"},
+     "label": "Налог с богатства (с монет сверх 100)", "min": 0, "max": 20, "step": 1, "unit": "%",
+     "hide_if": NO_WORLD_TAX},
     {"key": "burn_pct", "path": "taxes.burn_pct", "group": "Правила", "type": "range",
-     "label": "Доля налогов, которая уходит из игры", "min": 0, "max": 100, "step": 5, "unit": "%"},
+     "label": "Доля налогов, которая уходит из игры", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hide_if": NO_WORLD_TAX},
     {"key": "tax_every_days", "path": "tax_every_days", "group": "Правила", "type": "range",
-     "label": "Налог раз в", "min": 1, "max": 14, "step": 1, "unit": " дн."},
+     "label": "Налог раз в", "min": 1, "max": 14, "step": 1, "unit": " дн.", "hide_if": NO_WORLD_TAX},
     {"key": "law_enforcement", "path": "laws.enforcement", "group": "Правила", "type": "choice",
      "label": "Налоги и штрафы", "options": [["auto", "🏛 Забираются сами"], ["voluntary", "🤝 По желанию"]],
      "hint": "По желанию: налог и штраф становятся счётом в книге долгов, житель сам решает, платить ли. "

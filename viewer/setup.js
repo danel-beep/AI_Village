@@ -207,7 +207,9 @@
         r.val.classList.toggle('changed', !!k.path && v !== base(values.mode)[k.key]);
       }
       r.about.textContent = [k.about ? k.about[v] : '', k.hint || ''].filter(Boolean).join(' ');
-      r.el.style.display = (k.only && k.only !== values.brains) || (k.mode && k.mode !== values.mode) ? 'none' : '';
+      // hide_if: hidden while every listed knob holds one of the listed values (knobs.py)
+      const hidden = k.hide_if && Object.entries(k.hide_if).every(([c, vs]) => vs.includes(values[c]));
+      r.el.style.display = (k.only && k.only !== values.brains) || (k.mode && k.mode !== values.mode) || hidden ? 'none' : '';
     }
 
     function set(k, v) {

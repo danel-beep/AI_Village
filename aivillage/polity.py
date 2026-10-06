@@ -11,14 +11,18 @@ Rules, in the order a villager meets them:
 - Forms: assembly (every member votes on laws; yes from more than half of the members passes one), council
   (the `council_size` most voted members; yes from more than half of the council), ruler (the most voted member;
   the ruler's own proposals pass at once).
-- Laws (polity_propose / polity_vote_law): tax (coins per member every tax day), fine (a member owes the
-  treasury), grant (treasury coins to a member), payout (the treasury split among the members), expel (a member
-  leaves and may not join again for `expel_days`).
+- Laws (polity_propose / polity_vote_law): tax (coins per member every tax day), income_tax (percent of the coins
+  a member got from the trader and orders since the polity's last tax day), wealth_tax (percent of a member's coins
+  on tax day), tax_every (days between the polity's tax days; the village's `tax_every_days` until a law sets it),
+  fine (a member owes the treasury), grant (treasury coins to a member), payout (the treasury split among the
+  members), expel (a member leaves and may not join again for `expel_days`). A new polity taxes nothing: whether
+  there is a tax, how much and how often is only what its laws say (no world rule taxes anyone).
 - sign_petition(form): when more than half of the members signed for the same form, the polity takes it (open
   proposals lapse) and elects its council or ruler anew. So no form lasts unless the members keep it.
-- Tax day (the village's `tax_every_days`): laws.enforcement "auto" takes each member's tax (what they lack stays
-  unpaid, said in public); "voluntary" writes a bill in the debt book owed to the polity's treasury, paid with
-  pay_bill or left unpaid (public when overdue). Nobody outside a polity pays it. give_to_polity is a gift.
+- Tax day (every `tax_every` days per polity): a member's bill is tax + income_tax% + wealth_tax%;
+  laws.enforcement "auto" takes it (what they lack stays unpaid, said in public); "voluntary" writes a bill in
+  the debt book owed to the polity's treasury, paid with pay_bill or left unpaid (public when overdue). Nobody
+  outside a polity pays it; income from before joining is not taxed. give_to_polity is a gift.
 - One physical coin: a polity's coin name is only what its members call the coins.
 - The treasury holder (the ruler, the most voted councillor, or the member an assembly elects as treasurer) can
   polity_embezzle: coins leave unnoticed, the books still show them. polity_audit at the town hall, or a change of
@@ -51,7 +55,8 @@ from .state import Agent, Debt, World
 HALL = "town_hall"
 FORMS = ("assembly", "council", "ruler")
 TOPICS = ("name", "coin", "form", "leader")
-LAWS = ("tax", "fine", "grant", "payout", "expel", "title")
+TAX_LAWS = ("tax", "income_tax", "wealth_tax", "tax_every")  # numbers kept in p["laws"]
+LAWS = TAX_LAWS + ("fine", "grant", "payout", "expel", "title")
 ACTION_NAMES = ("join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
                 "give_to_polity", "polity_embezzle", "polity_audit")
 for _n in ACTION_NAMES:
@@ -183,6 +188,8 @@ def _found(ctx: Ctx, hall: dict) -> dict:
          "closes": w.tick + clock.hours(cfg, _c(cfg)["vote_hours"]), "proposals": {}, "petition": {},
          "expelled": {}, "bills": []}
     w.polities[p["id"]] = p
+    for n in members:  # income from before the polity is not its to tax
+        w.agents[n].earned_since_tax = 0
     where = w.locations[hall["location"]].name if hall["location"] in w.locations else hall["location"]
     ctx.emit("polity_founded", f"The town hall at {where} founds a polity ({p['id']}). Members: "
              f"{', '.join(members) or 'nobody yet (join_polity)'}. Members vote with polity_vote on its name, the name "
@@ -247,6 +254,7 @@ def join_polity(ctx: Ctx, a: Agent, args: JoinArgs) -> None:
         ctx.emit("polity_left", f"{a.name} leaves {title(old)} ({len(old['members'])} members now).", actor=a.name,
                  visibility="public", polity=old["id"])
     p["members"].append(a.name)
+    a.earned_since_tax = 0  # income from before joining is not this polity's to tax
     ctx.emit("polity_joined", f"{a.name} joins {title(p)} ({len(p['members'])} members now).", actor=a.name,
              visibility="public", polity=p["id"])
 
@@ -459,8 +467,9 @@ def handover(ctx: Ctx, p: dict, old: str) -> None:
 # ---------- laws ----------
 
 class ProposeArgs(BaseModel):
-    law: Literal["tax", "fine", "grant", "payout", "expel", "title"]
-    value: int | None = Field(None, description="coins: tax per member each tax day, fine, grant")
+    law: Literal["tax", "income_tax", "wealth_tax", "tax_every", "fine", "grant", "payout", "expel", "title"]
+    value: int | None = Field(None, description="tax: coins per member each tax day; income_tax, wealth_tax: "
+                                                "percent; tax_every: days; fine, grant: coins")
     person: str | None = Field(None, description="a member, for fine/grant/expel/title")
     text: str | None = Field(None, description="for title: the title's words")
 
@@ -468,6 +477,10 @@ class ProposeArgs(BaseModel):
 def _describe(p: dict, pr: dict) -> str:
     coin = coin_name(p)
     return {"tax": f"tax = {pr['value']} {coin} per member every tax day",
+            "income_tax": f"income tax = {pr['value']}% of the coins a member got from the trader and orders "
+                          "since the last tax day",
+            "wealth_tax": f"wealth tax = {pr['value']}% of a member's coins on tax day",
+            "tax_every": f"tax day every {pr['value']} days",
             "fine": f"fine {pr['person']} {pr['value']} {coin}",
             "grant": f"grant {pr['value']} {coin} from the treasury to {pr['person']}",
             "payout": "split the treasury equally among the members",
@@ -477,7 +490,8 @@ def _describe(p: dict, pr: dict) -> str:
 
 @ACTIONS.action("polity_propose", "Put a law to your polity, the way its form of government says (assembly: any "
                 "member proposes, all members vote; council: a council member proposes, the council votes; ruler: "
-                "the ruler's law passes at once). tax/fine/grant need value (coins); fine/grant/expel need person "
+                "the ruler's law passes at once). tax/fine/grant need value (coins), income_tax/wealth_tax value "
+                "(percent), tax_every value (days); 0 for a tax law means no such tax; fine/grant/expel need person "
                 "(a member); payout splits the treasury among the members; title needs person (a member) and text (a "
                 "title on the honor board, where World facts list it).", ProposeArgs,
                 available=lambda c, a: enabled(c.cfg) and a.name in deciders(of(c.world, a.name) or
@@ -495,7 +509,7 @@ def polity_propose(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
         raise ActionError(f"at most {c['max_open_proposals']} proposals can be open at once")
     value = person = None
     text = honors.check_title(ctx, args.text) if args.law == "title" else None
-    if args.law in ("tax", "fine", "grant"):
+    if args.law in ("tax", "income_tax", "wealth_tax", "tax_every", "fine", "grant"):
         lo, hi = c["limits"][args.law]
         if args.value is None or not lo <= args.value <= hi:
             raise ActionError(f"{args.law} needs value between {lo} and {hi}")
@@ -565,8 +579,8 @@ def _maybe_resolve(ctx: Ctx, p: dict, pr: dict, closing: bool = False) -> None:
 def _apply(ctx: Ctx, p: dict, pr: dict) -> str:
     w, purse = ctx.world, _Purse(p)
     target = w.agents.get(pr["person"]) if pr["person"] else None
-    if pr["law"] == "tax":
-        p["laws"]["tax"] = pr["value"]
+    if pr["law"] in TAX_LAWS:
+        p["laws"][pr["law"]] = pr["value"]
         return ""
     if pr["law"] != "payout" and (target is None or target.status == "dead" or target.name not in p["members"]):
         return f" {pr['person']} is not a member any more; nothing happens."
@@ -640,36 +654,76 @@ def end_of_hour(ctx: Ctx) -> None:
             _maybe_resolve(ctx, p, pr, closing=w.tick + 1 >= pr["closes"])
 
 
+def every(cfg: dict, p: dict) -> int:
+    """Days between the polity's tax days: its tax_every law, else the village's `tax_every_days`."""
+    return int(p["laws"].get("tax_every") or cfg["tax_every_days"])
+
+
+def next_tax_day(world: World, p: dict) -> int:
+    n = every(world.config, p)
+    return ((world.day - 1) // n + 1) * n + 1
+
+
+def bill(world: World, p: dict, a: Agent) -> dict:
+    """What member `a` owes `p` on its next tax day if nothing changes until then: the flat tax, income_tax% of
+    what they got from the trader and orders since the last tax day, wealth_tax% of the coins they hold."""
+    laws = p["laws"]
+    out = {"per_member": laws.get("tax", 0),
+           "income": a.earned_since_tax * laws.get("income_tax", 0) // 100,
+           "wealth": a.coins * laws.get("wealth_tax", 0) // 100}
+    return {"total": sum(out.values()), **{k: v for k, v in out.items() if v}}
+
+
+def _parts(b: dict) -> str:
+    parts = [f"{k.replace('_', ' ')} {v}" for k, v in b.items() if k != "total"]
+    return f" ({', '.join(parts)})" if len(parts) > 1 else ""
+
+
+def set_laws(ctx: Ctx, p: dict, laws: dict[str, int]) -> None:
+    """Tax laws set from outside the polity's own vote (god mode): public, like any law in force."""
+    p["laws"].update(laws)
+    said = "; ".join(_describe(p, {"law": k, "value": v, "person": None}) for k, v in laws.items())
+    ctx.emit("polity_tax_set", f"The tax law of {title(p)} is now: {said}.", visibility="public", polity=p["id"],
+             laws=dict(laws))
+
+
 def after_night(ctx: Ctx) -> None:
-    """Tax day: every polity with a tax takes it from its members, or writes bills (laws voluntary)."""
+    """Tax day of each polity (its own tax_every): members pay their bill, or get it in the debt book (laws
+    voluntary). The base of the income tax starts again from zero for every member."""
     w, cfg = ctx.world, ctx.cfg
-    if not enabled(cfg) or (w.day - 1) % cfg["tax_every_days"] != 0:
+    if not enabled(cfg):
         return
     for pid in sorted(w.polities):
         p = w.polities[pid]
-        tax = p["laws"].get("tax", 0)
+        if (w.day - 1) % every(cfg, p) != 0:
+            continue
         names = sorted(n for n in p["members"] if w.agents[n].status != "dead")
-        if not tax or not names:
+        bills = {n: bill(w, p, w.agents[n]) for n in names}
+        for n in names:
+            w.agents[n].earned_since_tax = 0
+        bills = {n: b for n, b in bills.items() if b["total"] > 0}
+        if not bills:
             continue
         if governance.voluntary(cfg):
             rows = []
-            for n in names:
-                d = debts.write_bill(ctx, n, tax, "tax", note=f"{title(p)} ({pid}) tax, day {w.day}")
+            for n, b in bills.items():
+                d = debts.write_bill(ctx, n, b["total"], "tax", note=f"{title(p)} ({pid}) tax, day {w.day}"
+                                     + _parts(b))
                 p["bills"].append(d.id)
-                rows.append(f"{n} ({d.id})")
+                rows.append(f"{n} {b['total']} ({d.id})")
             due = w.day + max(1, int((cfg.get("laws") or {}).get("bill_days", 3))) - 1
-            ctx.emit("polity_tax_bills", f"Tax day in {title(p)}: bills of {tax} {coin_name(p)} to its treasury are "
+            ctx.emit("polity_tax_bills", f"Tax day in {title(p)}: bills in {coin_name(p)} to its treasury are "
                      f"written in the debt book, due by day {due}: {', '.join(rows)}.", visibility="public",
-                     polity=pid, tax=tax, due_day=due)
+                     polity=pid, bills={n: b["total"] for n, b in bills.items()}, due_day=due)
             continue
         short = []
-        for n in names:
-            a = w.agents[n]
+        for n, b in bills.items():
+            a, tax = w.agents[n], b["total"]
             paid = min(tax, a.coins)
             if paid:
                 ops.move_coins(a, _Purse(p), paid)
-            ctx.emit("polity_tax", f"You paid {paid} of {tax} {coin_name(p)} of tax to {title(p)}.", to=[n],
-                     polity=pid, paid=paid, tax=tax)
+            ctx.emit("polity_tax", f"You paid {paid} of {tax} {coin_name(p)} of tax to {title(p)}{_parts(b)}.",
+                     to=[n], polity=pid, paid=paid, tax=tax)
             if paid < tax:
                 short.append(f"{n} {tax - paid}")
         if short:
@@ -687,7 +741,11 @@ def observe(world: World, name: str) -> dict:
                "members": list(p["members"]), "form": p["form"],
                # only the holder sees what is really in the treasury; everyone else sees the books
                "treasury": p["coins"] if p.get("keeper") == name else books(p), "treasury_held_by": p.get("keeper"),
-               "tax_per_member": p["laws"].get("tax", 0)}
+               "tax_per_member": p["laws"].get("tax", 0), "tax_every_days": every(cfg, p),
+               "next_tax_day": next_tax_day(world, p)}
+        for law in ("income_tax", "wealth_tax"):
+            if p["laws"].get(law):
+                row[f"{law}_pct"] = p["laws"][law]
         if p["form"] == "council":
             row["council"] = list(p["rulers"])
         elif p["form"] == "ruler":
@@ -696,6 +754,8 @@ def observe(world: World, name: str) -> dict:
             row["treasury_books"], row["you_took_unnoticed"] = books(p), p["embezzled"].get(name, 0)
         if name in p["members"]:
             row["you_are_member"] = True
+            if any(p["laws"].get(k) for k in ("tax", "income_tax", "wealth_tax")):
+                row["your_tax_so_far"] = bill(world, p, world.agents[name])
             if p["ballot"]:
                 ballot = {t: {"votes": dict(Counter(v.values())), "your_vote": v.get(name)}
                           for t, v in p["ballot"].items()}
@@ -713,8 +773,7 @@ def observe(world: World, name: str) -> dict:
                 row["votes_on_laws"] = deciders(p)
                 row["signatures_to_change_form"] = len(p["members"]) // 2 + 1
         out.append(row)
-    every = cfg["tax_every_days"]
-    res = {"polities": out, "next_tax_day": ((world.day - 1) // every + 1) * every + 1} if out else {}
+    res = {"polities": out} if out else {}
     # the village-wide government's actions are off: keep them out of the handbook too (llm.LLMAgent)
     res["locked_actions"] = sorted(set(progress.locked_actions(world)) | set(governance.REPLACED))
     return res
@@ -730,10 +789,12 @@ def facts(cfg: dict) -> str:
             f"polity's name, its coin name (the coins are the same everywhere), its form of government and who "
             f"leads it; the ballot closes after {c['vote_hours']} hours. Forms: assembly ({form_text(cfg, 'assembly')}); "
             f"council ({form_text(cfg, 'council')}); ruler ({form_text(cfg, 'ruler')}). More than half of the "
-            "members can change the form with sign_petition. Laws: tax (per member every tax day), fine, grant, "
-            f"payout, expel (no rejoining for {c['expel_days']} days)" + (", title" if honors.enabled(cfg) else "")
-            + ". On tax day members pay their own polity "
-            f"only; {how}. Non-members pay no polity tax."
+            "members can change the form with sign_petition. Laws: tax (coins per member every tax day), income_tax "
+            "(percent of the coins a member got from the trader and orders since the last tax day), wealth_tax "
+            "(percent of a member's coins on tax day), tax_every (days between tax days, "
+            f"{cfg['tax_every_days']} until a law sets it), fine, grant, payout, expel (no rejoining for {c['expel_days']} days)" + (", title" if honors.enabled(cfg) else "")
+            + ". A new polity has no tax until a law sets one. On tax day members pay their own polity "
+            f"only; {how}. Non-members pay no polity tax, and income from before joining is not taxed."
             + (" The treasury holder can polity_embezzle (take coins unnoticed: the books still show them); anyone at "
                "a polity's town hall can polity_audit it, and it is counted whenever the holder changes; then the "
                "missing coins and who took them become public." if embezzle_on(cfg) else ""))

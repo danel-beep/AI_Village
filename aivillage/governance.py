@@ -115,7 +115,8 @@ def _rates_on(cfg: dict) -> bool:
 
 
 def tax_amount(world: World) -> int:
-    return law(world, "tax") if enabled(world.config) else world.config["tax_amount"]
+    # a law (or god mode's set_tax) overrides the config even without a mayor
+    return law(world, "tax") if enabled(world.config) or "tax" in world.governance.laws else world.config["tax_amount"]
 
 
 def pay_tax(world: World, a: Agent, n: int) -> None:
