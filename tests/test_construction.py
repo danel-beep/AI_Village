@@ -160,3 +160,29 @@ def test_fuzz_and_replay_with_construction_and_progress(tmp_path):
         assert found == set()
         assert replay(log).hash() == w.hash()
     assert evaluative(llm.world_facts(w.config)) == []
+
+
+def test_team_site_shows_who_worked_on_it_within_the_hour():
+    w = world(tick_minutes=15)
+    w.agents["Anna"].location = "square"
+    act(w, "Anna", "start_building", kind="market_square")
+    s = site_of(w, "market_square")
+    obs_site = lambda: next(x for x in engine.observe(w, "Boris", consume_inbox=False)["building_sites"]  # noqa: E731
+                            if x["id"] == s["id"])
+    assert "worked_on_it_within_the_hour" not in obs_site()
+    act(w, "Anna", "construct", site_id=s["id"])
+    assert obs_site()["worked_on_it_within_the_hour"] == ["Anna"]
+    for _ in range(4):  # the window passes: nobody's hour is waiting any more
+        engine.step(w, {})
+    assert "worked_on_it_within_the_hour" not in obs_site()
+
+
+def test_upgrade_house_left_out_of_the_handbook_with_construction():
+    from aivillage.run import llm_agents
+    w = world()
+    agent = llm_agents(w, {"Anna": "stub"})["Anna"]
+    system = agent.messages(engine.observe(w, "Anna", consume_inbox=False))[0]["content"]
+    assert "upgrade_house(" not in system and "start_building(" in system
+    w = engine.new_world({"seed": 1})  # houses upgraded at once: the action stays
+    agent = llm_agents(w, {"Anna": "stub"})["Anna"]
+    assert "upgrade_house(" in agent.messages(engine.observe(w, "Anna", consume_inbox=False))[0]["content"]

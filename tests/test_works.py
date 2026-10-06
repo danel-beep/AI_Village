@@ -190,3 +190,15 @@ def test_bots_run_with_works_and_replay(tmp_path):
     w = engine.new_world({"seed": 3})
     run(w, bots_decider(w, ["random", "worker", "random", "thief", "random"], seed=3), days=4, log_path=log)
     replay(log)
+
+
+def test_before_a_town_hall_nothing_is_offered_to_start():
+    """«С нуля»: the well was listed as startable at camp, and a villager carried stone for it for days."""
+    from aivillage import modes
+    from aivillage.config import make_config
+    world = engine.new_world(modes.world_override("survival"))
+    vs = engine.observe(world, "Anna", consume_inbox=False)["village_structures"]
+    assert "can_start" not in vs and "you_can_start" not in vs
+    assert "town_hall" in vs["not_yet"] and vs["built"]["well"] == 0
+    assert "(once a town_hall stands in the village)" in works.facts(make_config(modes.world_override("survival")))
+    assert "can_start" in engine.observe(engine.new_world({"seed": 1}), "Anna", consume_inbox=False)["village_structures"]

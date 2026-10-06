@@ -43,6 +43,8 @@ API for other modules:
 - Unlocks are sticky; the stage never drops. Starting at a later stage, the buildings that stage and the
   earlier ones require count as standing (`world.progress.prebuilt`).
 - Observation (progress on): `village_stage: {stage, next_stage, next_stage_needs_standing: {kind: "have/need"}}`.
+  Rules line `progress.facts(cfg)`: what each stage needs standing (from the config). Before `feature:works`,
+  `village_structures` shows `built` and `not_yet` only (no `can_start`).
 - Log: public event `village_stage` with `stage` (id) and `index`. State `world.progress`
   (`stage`, `reached: {id: day}`, `unlocked: [keys]`).
 
@@ -79,7 +81,9 @@ not added up). `raw_instead` maps crafted materials to raw ones when crafting is
 - Actions: `start_building(kind)` (here: own yard for "home" kinds, a common place for "village" ones),
   `bring_materials(site_id, items)`, `construct(site_id)` (one hour). With `min_workers` > 1 an hour counts only
   while that many different villagers worked on the site within the window (same day); lone hours older than the
-  window are lost (`site_work_lost`). `upgrade_house` is refused while construction is on.
+  window are lost (`site_work_lost`). `upgrade_house` is refused while construction is on and left out of the handbook
+  (`construction.hidden_actions`). A site with `min_workers` > 1 shows `worked_on_it_within_the_hour`: [names] in
+  `building_sites` while someone's hour there still waits for co-workers.
 - Unlock keys: `building:<kind>` and `building:<kind>@<level>` (registered in `progress.DEFAULT_UNLOCKS`).
 - Finished "home" buildings are plot building dicts with `level` (`house` sets `plot.house`); "village" ones are
   `world.construction["buildings"]` (`{id, kind, level, location, owner: None, built_day, builders}`), counted

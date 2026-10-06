@@ -25,6 +25,8 @@ from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Project, World
 
+WORKS = "feature:works"  # progress.DEFAULT_UNLOCKS: a town_hall
+
 SITE = "square"
 NOT_ITEMS = ("labor", "coins")
 
@@ -292,7 +294,7 @@ def after_night(ctx: Ctx) -> None:
         return
     w = ctx.world
     apply_level(w, "well")  # the well refills overnight
-    if not progress.unlocked(w, "feature:works"):  # «С нуля»: no village projects before a town hall
+    if not progress.unlocked(w, WORKS):  # «С нуля»: no village projects before a town hall
         return
     if open_projects(w):
         w.works.quiet_since = w.day
@@ -317,6 +319,12 @@ def board(world: World) -> list[dict]:
 def observe(world: World, name: str) -> dict:
     if not enabled(world.config):
         return {}
+    if not progress.unlocked(world, WORKS):  # «С нуля»: nothing can be started yet, so nothing is offered
+        from .governance import opens_when  # governance -> actions -> works: import here
+        return {"village_structures": {
+            "built": {s: level(world, s) for s in catalog(world.config)},
+            "not_yet": f"village projects (propose_build, contribute, build_work) start {opens_when(world.config, WORKS)}",
+        }}
     return {"village_structures": {
         "built": {s: level(world, s) for s in catalog(world.config)},
         "can_start": {s: {"level": lvl, "needs": needs_for(world.config, s, lvl),
@@ -327,7 +335,8 @@ def observe(world: World, name: str) -> dict:
 
 
 def facts(cfg: dict) -> str:
-    return ("- Village structures: the mayor (anyone while there is no mayor) can propose_build a well, bridge, "
+    from .governance import opens_note
+    return (f"- Village structures{opens_note(cfg, WORKS)}: the mayor (anyone while there is no mayor) can propose_build a well, bridge, "
             "watchtower or wall, or upgrade one (levels 1-3). Each needs items, coins and labor: contribute items "
             "and coins and build_work (one hour) at the square; the mayor can fund_project from the treasury. "
             "Everyone sees who helped and who did not. Finished levels stay: well = water at the square, slower "

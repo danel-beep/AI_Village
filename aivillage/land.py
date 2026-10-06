@@ -154,7 +154,9 @@ def observe(world: World, name: str) -> dict:
 def facts(cfg: dict) -> str:
     sale = [(lid, s["lot"]) for lid, s in cfg["locations"].items() if s.get("lot")]
     listed = ", ".join(f"{lid} ({lot['cells']} cells, {lot['price']} coins)" for lid, lot in sale)
-    return (f"- Land: there is no common field. Empty lots can be bought with buy_land while standing on them: "
+    from .governance import opens_note  # governance -> actions -> land: import here
+    return (f"- Land: there is no common field. Empty lots can be bought{opens_note(cfg, 'action:buy_land')} with "
+            f"buy_land while standing on them: "
             f"{listed}. A lot you own works like your yard (build, plant, collect; others can steal from it). "
             "sell_land offers your lot to someone for coins.")
 

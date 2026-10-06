@@ -264,6 +264,25 @@ def end_of_hour(ctx: Ctx) -> None:
     _refresh(w)
 
 
+def _need_text(kind: str, n: int) -> str:
+    base, _, lvl = kind.partition("@")
+    return f"{n} {base}" + (f" (level {lvl}+)" if lvl else "")
+
+
+def facts(cfg: dict) -> str:
+    """The rules line on stages: what each stage needs standing (from the config, the same all run)."""
+    if not enabled(cfg) or len(stages(cfg)) < 2:
+        return ""
+    steps = [f"a {stages(cfg)[0]['id']} at first"]
+    for i in range(1, len(stages(cfg))):
+        needs = " and ".join(_need_text(k, n) for k, n in _needs(cfg, i).items())
+        steps.append(f"a {stages(cfg)[i]['id']} once {needs} stand in it")
+    return ("- Village stages: the village is " + ", ".join(steps) + ". Every building in the village counts, "
+            "whoever owns it; a stage once reached stays. \"village_stage\" shows the stage and what the next one "
+            "still needs. Some buildings and actions open only at a stage or once a building stands; the rules "
+            "above and below say which.")
+
+
 def observe(world: World, name: str) -> dict:
     if not enabled(world.config):
         return {}

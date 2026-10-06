@@ -571,13 +571,23 @@ def _guard(ctx: Ctx, actor: Agent, name: str) -> str | None:
 ACTIONS.guards.append(_guard)
 
 
+def hidden_actions(cfg: dict) -> frozenset[str]:
+    """Actions to leave out of the handbook: with houses built on a site, upgrade_house is always refused."""
+    return frozenset({"upgrade_house"}) if enabled(cfg) and "house" in catalog(cfg) else frozenset()
+
+
 # ---------- observation, prompt, log ----------
 
 def _site_obs(world: World, s: dict) -> dict:
-    return {"id": s["id"], "building": s["kind"], "level": s["level"], "at": s["location"],
-            "for": s["owner"] or "the village", "still_needs": remaining(s), "work_left_hours": work_left(s),
-            "people_needed_within_an_hour": s["min_workers"], "work_done_by": dict(s["workers"]),
-            "materials_by": dict(s["givers"])}
+    out = {"id": s["id"], "building": s["kind"], "level": s["level"], "at": s["location"],
+           "for": s["owner"] or "the village", "still_needs": remaining(s), "work_left_hours": work_left(s),
+           "people_needed_within_an_hour": s["min_workers"], "work_done_by": dict(s["workers"]),
+           "materials_by": dict(s["givers"])}
+    if s["min_workers"] > 1:  # who an hour of work here now would count with
+        since = _since(world)
+        if now := sorted({n for t, n in s["recent"] if t >= since}):
+            out["worked_on_it_within_the_hour"] = now
+    return out
 
 
 def observe(world: World, name: str) -> dict:

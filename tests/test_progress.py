@@ -114,3 +114,14 @@ def test_leveled_kinds_counted():
 
 def test_guard_registered_once():
     assert sum(1 for g in ACTIONS.guards if g is progress._guard) == 1
+
+
+def test_rules_line_lists_what_each_stage_needs():
+    from aivillage import modes
+    from aivillage.config import make_config
+    text = progress.facts(make_config(modes.world_override("survival")))
+    assert "a hamlet once 3 house and 1 workbench stand" in text
+    assert "a village once 1 market_square and 1 smithy stand" in text
+    assert "3 house (level 2+)" in text
+    assert progress.facts(make_config(modes.world_override("crafts"))) == ""
+    assert text in llm.world_facts(make_config(modes.world_override("survival")))
