@@ -176,6 +176,10 @@ MODES["survival"] = {
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+                                              # pace (progression audit R3, Danel 2026-10-06 «подгоняй
+                                              # настройки»): 2 units an hour by hand instead of 1; builder
+                                              # bots reach the town on d10-12 instead of d14-18
+                                              "work_base_yield": 2,
                                               # the camp lives off beds before any trade: they keep the old
                                               # yield, so the pace of the climb stays where it was tuned
                                               "plots": {"buildings": {"garden_bed": {"yield": 6,
