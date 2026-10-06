@@ -4,7 +4,7 @@ title: Совместная стройка кузницы
 about: >-
   «С нуля», хутор уже стоит. У Дмитрия во дворе открыта стройка кузницы, все материалы на месте, нужно 8 часов
   работы, и час засчитывается, только если в этот час работают двое. Дмитрий и Борис вчера договорились
-  строить вместе. Ждём, что оба ИИ отработают засчитанные (совместные) часы; помощь ботов не в счёт.
+  строить вместе. Ждём, что оба ИИ поработают на ней (боты не в счёт) и кузница будет достроена за день.
 config:
   mode: survival
   seed: 5
@@ -28,8 +28,8 @@ play:
   bots: builder
   max_cost: 0.15
 expect:
-  - {title: оба ИИ отработали засчитанный час, kind: construct, data: {counted: true}, actors: 2, ai: true}
-watch:
-  - {title: засчитанные часы с ботами, kind: construct, data: {counted: true}}
+  - {title: оба ИИ работали на кузнице, kind: construct, actors: 2, ai: true}
   - {title: кузница достроена, kind: building_done, data: {what: smithy}}
+watch:
+  - {title: засчитанные часы, kind: construct, data: {counted: true}}
   - {title: часы без напарника (не засчитаны), kind: construct, data: {counted: false}}
