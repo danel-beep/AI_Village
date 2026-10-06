@@ -111,6 +111,7 @@ class Fire:
     ticks_left: int  # hours until the house burns down
     water_needed: int  # buckets still needed; grows while nobody fights the fire
     hours: int = 0  # how long it has been burning
+    spread: bool = False  # already jumped to a neighbour (config fire_spread_hours)
 
 
 @dataclass
@@ -222,6 +223,7 @@ class World:
     governance: Governance = field(default_factory=Governance)
     plots: dict[str, Plot] = field(default_factory=dict)  # home or lot location id -> plot
     crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
+    threats: list[dict] = field(default_factory=list)  # raids, beasts, travelers: coming, here, finished (threats.py)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -257,6 +259,7 @@ class World:
             governance=Governance.from_dict(d.get("governance", {})),
             plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
             crises=d.get("crises", []),
+            threats=d.get("threats", []),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

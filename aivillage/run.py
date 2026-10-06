@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import clock, crises, engine, mapgen, modes, plots, tiles
+from . import clock, crises, engine, mapgen, modes, plots, threats, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -152,6 +152,7 @@ def view(world: World) -> dict:
                        for a in world.agents.values() if a.reputation or a.rumors},
             "plots": plots.view(world),
             "crises": crises.view(world),  # active world crises (crises.py)
+            "threats": threats.view(world),  # raids, beasts, travelers here or warned (threats.py)
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
