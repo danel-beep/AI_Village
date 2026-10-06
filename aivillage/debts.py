@@ -43,6 +43,10 @@ from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, World
 
 OWED = ("open", "defaulted")
+# Lender of the tax and fine bills written when laws are voluntary (governance.voluntary): the treasury is not
+# a villager, so these bills are only paid with pay_bill and never collected (no late fee, no seizing).
+TREASURY = "treasury"
+BILL_KINDS = ("tax", "fine")
 
 
 def _cfg(cfg: dict) -> dict:
@@ -76,6 +80,16 @@ def write(ctx: Ctx, lender: str, borrower: str, coins: int, due_day: int, *, kin
              pledge=dict(pledge or {}), day=ctx.world.day)
     ctx.world.debts[d.id] = d
     return d
+
+
+def is_bill(d: Debt) -> bool:
+    return d.lender == TREASURY
+
+
+def write_bill(ctx: Ctx, borrower: str, coins: int, kind: str, note: str = "") -> Debt:
+    """A tax or fine bill owed to the treasury, due in `laws.bill_days` days (voluntary laws)."""
+    days = int((ctx.cfg.get("laws") or {}).get("bill_days", 3))
+    return write(ctx, TREASURY, borrower, coins, ctx.world.day + max(1, days) - 1, kind=kind, note=note)
 
 
 def board(world: World) -> list[dict]:
@@ -117,7 +131,8 @@ def fact(cfg: dict) -> str:
         s += f" An overdue debt without a pledge grows by {c['late_fee_pct']}% each night."
     if auto_on(cfg):
         pct = c.get("seize_pct", 50)
-        s += (f" Every night after the due day, an unpaid debt without a pledge is collected by the village: up to "
+        s += (f" Every night after the due day, an unpaid debt without a pledge"
+              + (" (tax and fine bills excepted)" if governance.voluntary(cfg) else "") + f" is collected by the village: up to "
               f"{pct}% of the debtor's coins (pocket, then chest), then goods up to {pct}% of their value at "
               f"the trader's price; food is never taken. Until it is paid, {pct}% of any coins the debtor "
               f"receives go to the lender.")
@@ -309,6 +324,42 @@ def rule_debt(ctx: Ctx, a: Agent, args: RuleArgs) -> None:
              coins=take, fee=fee)
 
 
+class PayBillArgs(BaseModel):
+    debt_id: str = Field(description="the bill's id in board.debts")
+    coins: int | None = Field(None, gt=0, description="pay only part of it; leave out to pay it all")
+
+
+@ACTIONS.action("pay_bill", "Pay a tax or fine bill you owe the treasury (board.debts, lender treasury), in full "
+                "or in part, from anywhere.", PayBillArgs,
+                available=lambda c, a: any(d.borrower == a.name and is_bill(d) and d.status in OWED
+                                           for d in c.world.debts.values()))
+def pay_bill(ctx: Ctx, a: Agent, args: PayBillArgs) -> None:
+    d = ctx.world.debts.get(args.debt_id.strip())
+    if d is None or d.borrower != a.name or not is_bill(d):
+        raise ActionError(f"you have no bill '{args.debt_id}'")
+    settle_bill(ctx, a, d, args.coins)
+
+
+def settle_bill(ctx: Ctx, a: Agent, d: Debt, coins: int | None) -> None:
+    """`a` pays `coins` (or all) of bill `d`: a tax is split like any tax (taxes.pay), a fine goes to the treasury."""
+    from . import taxes
+    if d.status not in OWED:
+        raise ActionError(f"that bill is already closed ({d.status})")
+    n = min(coins or d.coins_owed, d.coins_owed)
+    if a.coins < n:
+        raise ActionError(f"you only have {a.coins} coins (the bill is {d.coins_owed})")
+    if d.kind == "tax":
+        taxes.pay(ctx.world, a, n)
+    else:
+        governance.pay_tax(ctx.world, a, n)
+    d.coins_owed -= n
+    if d.coins_owed == 0:
+        d.status, d.claim = "repaid", None
+        on_repaid(ctx, d)
+    ctx.emit("bill_paid", f"{a.name} paid {n} coins of their {d.kind} bill to the treasury ({d.id}, "
+             f"{d.coins_owed} left).", actor=a.name, visibility="public", debt=d.id, coins=n, bill_kind=d.kind)
+
+
 # ---------- night ----------
 
 def night(ctx: Ctx) -> None:
@@ -317,11 +368,16 @@ def night(ctx: Ctx) -> None:
     w = ctx.world
     pct = int(_cfg(ctx.cfg).get("late_fee_pct", 0))
     for d in w.debts.values():
-        if d.status == "defaulted" and pct and not d.pledge:
+        if d.status == "defaulted" and pct and not d.pledge and not is_bill(d):
             d.coins_owed += ceil(d.coins_owed * pct / 100)
         if d.status != "open" or w.day <= d.due_day:
             continue
-        if d.pledge:
+        if is_bill(d):  # not a "default": no reputation rule, nobody collects it
+            d.status = "defaulted"
+            ctx.emit("bill_overdue", f"{d.borrower} has not paid their {d.kind} bill to the treasury by day "
+                     f"{d.due_day} ({d.coins_owed} coins, {d.id}).", visibility="public", debt=d.id,
+                     borrower=d.borrower, bill_kind=d.kind, coins=d.coins_owed)
+        elif d.pledge:
             what = _return_pledge(ctx, d, d.lender)
             d.status = "forfeited"
             ctx.emit("pledge_forfeited", f"{d.borrower} did not repay {d.lender} on time ({d.coins_owed} coins, "
@@ -339,7 +395,7 @@ def night(ctx: Ctx) -> None:
 def _overdue(world: World, name: str) -> list[Debt]:
     """Defaulted debts the village collects from this debtor, oldest due day first."""
     out = [d for d in world.debts.values() if d.borrower == name and d.status == "defaulted" and not d.pledge
-           and world.agents[d.lender].status != "dead"]
+           and not is_bill(d) and world.agents[d.lender].status != "dead"]
     return sorted(out, key=lambda d: (d.due_day, d.day, d.id))
 
 
@@ -356,7 +412,7 @@ def coin_snapshot(world: World) -> dict[str, int]:
     """Coins (pocket + chest) of every debtor in default, taken at the start of a tick."""
     if not auto_on(world.config):
         return {}
-    names = {d.borrower for d in world.debts.values() if d.status == "defaulted" and not d.pledge}
+    names = {d.borrower for d in world.debts.values() if d.status == "defaulted" and not d.pledge and not is_bill(d)}
     return {n: world.agents[n].coins + _chest_coins(world, n) for n in sorted(names)}
 
 
@@ -407,7 +463,7 @@ def seize(ctx: Ctx) -> None:
     """Night: each debtor in default loses up to `seize_pct` of their coins, then of their goods' value."""
     w = ctx.world
     pct = int(_cfg(ctx.cfg).get("seize_pct", 50))
-    for name in sorted({d.borrower for d in w.debts.values() if d.status == "defaulted"}):
+    for name in sorted({d.borrower for d in w.debts.values() if d.status == "defaulted" and not is_bill(d)}):
         debtor = w.agents[name]
         if debtor.status == "dead":
             continue

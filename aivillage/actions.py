@@ -367,6 +367,9 @@ def repay(ctx: Ctx, a: Agent, args: RepayArgs) -> None:
         raise ActionError(f"you have no debt '{args.debt_id}'")
     if d.status not in ("open", "defaulted"):
         raise ActionError(f"that debt is already closed ({d.status})")
+    if d.lender not in ctx.world.agents:  # a tax or fine bill owed to the treasury (debts.pay_bill)
+        from . import debts
+        return debts.settle_bill(ctx, a, d, args.coins)
     pay = min(args.coins, d.coins_owed)
     if a.coins < pay:
         raise ActionError(f"you only have {a.coins} coins")

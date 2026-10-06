@@ -616,6 +616,7 @@ def compact_obs(obs: dict) -> dict:
     """Drop what the agent does not need every hour, to save tokens."""
     o = json.loads(json.dumps(obs))
     o["board"].pop("recipes", None)
+    o.pop("locked_actions", None)  # progress.py: goes into the handbook instead
     o["board"]["trader_prices"] = {k: f"{v['buy']}/{v['sell']}" for k, v in o["board"]["trader_prices"].items()}
     for k in ("fires", "offers_to_you", "your_offers"):
         if not o[k]:
@@ -646,7 +647,8 @@ class LLMAgent:
     character: str = ""  # character_text(); "" = neutral default
 
     def messages(self, obs: dict) -> list[dict]:
-        system = SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(self.disabled_actions),
+        off = self.disabled_actions | set(obs.get("locked_actions", ()))  # progress.py: not open yet
+        system = SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(off),
                                facts=self.facts or "(none)", character="\n" + self.character if self.character else "")
         memory = {"notes": self.notes or "none", "your_last_actions": self.recent}
         if self.people:

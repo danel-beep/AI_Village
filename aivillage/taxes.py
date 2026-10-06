@@ -88,6 +88,8 @@ def pay(world: World, a: Agent, n: int) -> int:
 def collect(ctx: Ctx) -> None:
     """Tax day: every living villager pays their bill; who cannot pay gives all coins and is evicted."""
     w, cfg = ctx.world, ctx.cfg
+    if governance.voluntary(cfg):
+        return write_bills(ctx)
     for a in w.agents.values():
         if a.status == "dead":
             continue
@@ -104,6 +106,28 @@ def collect(ctx: Ctx) -> None:
             a.evicted_until_day = w.day + cfg["eviction_days"]
             ctx.emit("evicted", f"{a.name} could not pay the tax and is locked out of their house "
                      f"for {cfg['eviction_days']} days.", visibility="public")
+
+
+def write_bills(ctx: Ctx) -> None:
+    """Tax day with voluntary laws: nothing is taken; every villager gets a tax bill in the debt book, owed to
+    the treasury, which they pay with pay_bill (or do not). The list is public, and so is every payment."""
+    from . import debts
+    w = ctx.world
+    rows = []
+    for a in w.agents.values():
+        if a.status == "dead":
+            continue
+        b = bill(w, a)
+        a.earned_since_tax = 0
+        if b["total"] <= 0:
+            continue
+        note = ", ".join(f"{k} {b[k]}" for k in ("land", "sales", "wealth") if b.get(k))
+        d = debts.write_bill(ctx, a.name, b["total"], "tax", note=f"day {w.day}" + (f": {note}" if note else ""))
+        rows.append(f"{a.name} {b['total']} ({d.id})")
+    if rows:
+        due = w.day + max(1, int((ctx.cfg.get("laws") or {}).get("bill_days", 3))) - 1
+        ctx.emit("tax_bills", f"Tax day: bills to the treasury are written in the debt book, due by day {due}: "
+                 + ", ".join(rows) + ".", visibility="public", due_day=due)
 
 
 # ---------- treasury spending ----------
@@ -303,8 +327,14 @@ def observe(world: World, name: str) -> dict:
 
 
 def facts(cfg: dict) -> str:
-    base = (f"- Tax: every {cfg['tax_every_days']} days. If you cannot pay, it takes all your coins and you are "
-            f"locked out of your house for {cfg['eviction_days']} days.")
+    if governance.voluntary(cfg):
+        days = (cfg.get("laws") or {}).get("bill_days", 3)
+        base = (f"- Tax: every {cfg['tax_every_days']} days. Nobody takes it: each villager gets a tax bill in the "
+                f"debt book (board.debts, lender treasury), due in {days} days, and pays it with pay_bill (in part or "
+                "in full) or leaves it unpaid. Bills, payments and unpaid bills are public; there is no eviction.")
+    else:
+        base = (f"- Tax: every {cfg['tax_every_days']} days. If you cannot pay, it takes all your coins and you are "
+                f"locked out of your house for {cfg['eviction_days']} days.")
     if not enabled(cfg):
         return base.replace("- Tax:", f"- Tax: {cfg['tax_amount']} coins", 1)
     t = _t(cfg)

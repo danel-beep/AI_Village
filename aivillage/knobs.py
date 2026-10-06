@@ -81,6 +81,10 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Доля налогов, которая уходит из игры", "min": 0, "max": 100, "step": 5, "unit": "%"},
     {"key": "tax_every_days", "path": "tax_every_days", "group": "Правила", "type": "range",
      "label": "Налог раз в", "min": 1, "max": 14, "step": 1, "unit": " дн."},
+    {"key": "law_enforcement", "path": "laws.enforcement", "group": "Правила", "type": "choice",
+     "label": "Налоги и штрафы", "options": [["auto", "🏛 Забираются сами"], ["voluntary", "🤝 По желанию"]],
+     "hint": "По желанию: налог и штраф становятся счётом в книге долгов, житель сам решает, платить ли. "
+             "Все видят, кто заплатил, а кто нет. Выселения за неуплату нет."},
     {"key": "eviction_days", "path": "eviction_days", "group": "Правила", "type": "range",
      "label": "Выселение за долг по налогу на", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "satiety_loss_per_hour", "path": "satiety_loss_per_hour", "group": "Правила", "type": "range",
