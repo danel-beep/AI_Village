@@ -171,6 +171,7 @@ MODES["survival"] = {
                                               "polity": {"enabled": True},
                                               "construction": {"enabled": True,
                                                                "catalog": {"town_hall": {"at": []}}},
+                                              "transport": {"enabled": True},
                                               "hire": {"enabled": True},
                                               "crafting": {"enabled": True, "secrets": {"enabled": True}},
                                               # clay for bricks a short walk away on every map (the clay hills
