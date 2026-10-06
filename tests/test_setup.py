@@ -17,6 +17,25 @@ def test_every_mode_has_a_slider_position_for_every_config_knob():
     assert knobs.mode_defaults("standard")["steal_notice_chance"] == round(DEFAULT_CONFIG["steal_notice_chance"] * 100)
 
 
+def test_start_screen_layout_main_on_top_every_knob_placed_with_a_hint():
+    s = knobs.schema()
+    keys = [k["key"] for k in s["knobs"]]
+    assert sorted(keys) == sorted(k["key"] for k in knobs.active())  # nothing lost, nothing doubled
+    main = [k["key"] for k in s["knobs"] if k["section"] == "main"]
+    assert main == [k for k in knobs.MAIN if k in keys] and keys[:len(main)] == main
+    titles = [sec["title"] for sec in s["sections"]]
+    assert {k["section"] for k in s["knobs"]} - {"main"} == set(titles)
+    assert all(k["hint"] for k in s["knobs"]), [k["key"] for k in s["knobs"] if not k["hint"]]
+    listed = set(knobs.MAIN) | {key for _, _, ks in knobs.SECTIONS for key in ks}
+    assert listed <= {k["key"] for k in knobs.KNOBS}  # no typos in the layout
+
+
+def test_a_knob_missing_from_the_layout_falls_back_to_its_group():
+    extra = {"key": "x", "group": "Новое", "type": "toggle", "label": "X"}
+    ordered, sections = knobs.layout(knobs.active() + [extra])
+    assert ordered[-1]["key"] == "x" and ordered[-1]["section"] == "Новое" and sections[-1]["title"] == "Новое"
+
+
 def test_to_run_defaults_follow_the_mode_and_answers_win():
     r = knobs.to_run({"mode": "peaceful"})
     assert r["llm"] and r["days"] == 3 and r["override"]["population"] == {"size": 5}
