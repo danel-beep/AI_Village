@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (clock, conflict, crises, dice, family, governance, graves, illness, labor, land, mapgen, ops, plots,
+from . import (clock, conflict, crises, dice, family, governance, graves, illness, labor, land, mapgen, market, ops, plots,
                reputation, seasons, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
@@ -154,6 +154,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(labor.observe(world, name))
     obs.update(graves.observe(world, name))
     obs.update(dice.observe(world, name))
+    obs.update(market.observe(world, name))
     obs.update(works.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
@@ -208,6 +209,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
         elif a.task is not None and world.tick >= a.busy_until:
             continue_task(ctx, a)
             a.busy_until = world.tick + clock.per_hour(world.config)
+    market.note_presence(world)
 
     wake_busy_agents(ctx)
     minutes = clock.tick_minutes(world.config)
@@ -344,6 +346,7 @@ def end_of_hour(ctx: Ctx) -> None:
         if o.expires_tick <= w.tick:
             del w.offers[o.id]
     land.expire_offers(w)
+    market.expire(ctx)
     check_health(ctx)
     family.after_hour(ctx)
 
