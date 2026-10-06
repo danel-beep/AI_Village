@@ -8,10 +8,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import clock, crises, ops, plots, seasons, tiles
+from . import clock, crises, labor, ops, plots, seasons, tiles
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
-from .state import Agent, Debt, Letter, Offer
+from .state import Agent, Debt, Letter, Offer, Order
 
 Qty = Annotated[int, Field(gt=0, le=1000)]
 ItemMap = dict[str, Qty]
@@ -115,9 +115,13 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
     if ctx.world.day < a.sick_until_day:
         ctx.emit("work", "You are sick and cannot work.", to=[a.name])
         return 0
+    if (left := labor.hours_left(cfg, a)) is not None and left <= 0 and resource != "water":
+        ctx.emit("work", "You are too tired to work any more today.", to=[a.name])
+        return 0
     amount = cfg["work_base_yield"]
     if resource in cfg["professions"].get(a.profession, []):
         amount *= cfg["work_profession_multiplier"]
+    amount += labor.bonus(cfg, a, resource)
     using_tool = resource != "water" and ops.count(a.inventory, "tool") > 0
     if using_tool:
         amount *= cfg["work_tool_multiplier"]
@@ -135,6 +139,7 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
             ctx.emit("slot_empty", f"{a.name} {USED_UP.get(resource, 'used up a ' + resource + ' spot')} at the "
                      f"{loc.name}.", actor=a.name,
                      location=loc.id, resource=resource, slot=slot)
+    labor.after_work_hour(ctx, a, resource)
     if using_tool:
         a.tool_wear += 1
         if a.tool_wear >= cfg["tool_durability_hours"]:
@@ -185,10 +190,19 @@ def work(ctx: Ctx, a: Agent, args: WorkArgs) -> None:
     res = args.resource
     if res is None:
         mine = [r for r in ctx.cfg["professions"].get(a.profession, []) if r in loc.resources]
-        res = mine[0] if mine else next(iter(loc.resources))
+        free = labor.free_goods(ctx.cfg, a, list(loc.resources))
+        res = mine[0] if mine else (free[0] if free else next(iter(loc.resources)))
     if res not in loc.resources:
         raise ActionError(f"there is no {res} here; available: {', '.join(loc.resources)}")
+    if why := labor.may_gather(ctx.cfg, a, res):
+        free = labor.free_goods(ctx.cfg, a, list(loc.resources))
+        raise ActionError(why + (f"; here you can gather: {', '.join(free)}" if free else "; nothing here is yours to gather"))
     hours = min(args.hours, ctx.cfg["max_work_hours"])
+    if res != "water" and (left := labor.hours_left(ctx.cfg, a)) is not None:
+        if left <= 0:
+            raise ActionError(f"you already worked {a.worked_today} hours today, the most anyone can; "
+                              "you can work again tomorrow")
+        hours = min(hours, left)
     work_hour(ctx, a, res)
     a.task = {"kind": "work", "resource": res, "hours_left": hours - 1} if hours > 1 else None
 
@@ -467,6 +481,7 @@ def buy(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     cost = _price(ctx, args.item, "buy") * args.qty
     if a.coins < cost:
         raise ActionError(f"that costs {cost} coins, you have {a.coins}")
+    labor.trader_deal(ctx.world, args.item, args.qty, "sell")
     ops.burn_coins(ctx.world, a, cost)
     ops.mint(ctx.world, a.inventory, args.item, args.qty)
     ctx.emit("buy", f"{a.name} bought {args.qty} {args.item} from the trader for {cost} coins.", actor=a.name,
@@ -480,6 +495,7 @@ def sell(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
         raise ActionError("the trader is at the market")
     price = _price(ctx, args.item, "sell")
     _need(a.inventory, {args.item: args.qty})
+    labor.trader_deal(ctx.world, args.item, args.qty, "buy")
     ops.burn(ctx.world, a.inventory, args.item, args.qty)
     ops.mint_coins(ctx.world, a, price * args.qty)
     ctx.emit("sell", f"{a.name} sold {args.qty} {args.item} to the trader for {price * args.qty} coins.",
@@ -691,13 +707,47 @@ def fulfill_order(ctx: Ctx, a: Agent, args: OrderArgs) -> None:
     o = ctx.world.orders.get(args.order_id)
     if o is None or o.status != "open":
         raise ActionError(f"no open order '{args.order_id}'")
+    if o.by == a.name:
+        raise ActionError("that is your own order")
     _need(a.inventory, o.needs)
+    buyer = ctx.world.agents.get(o.by)
     for k, v in o.needs.items():
-        ops.burn(ctx.world, a.inventory, k, v)
+        if buyer is not None:  # a villager's order: the goods are carried to them wherever they are
+            ops.move_items(a.inventory, buyer.inventory, {k: v})
+        else:
+            ops.burn(ctx.world, a.inventory, k, v)
     ops.mint_coins(ctx.world, a, o.reward)
     o.status, o.fulfilled_by = "fulfilled", a.name
-    ctx.emit("order_done", f"{a.name} fulfilled order {o.id} and received {o.reward} coins.", actor=a.name,
-             visibility="public", order=o.id)
+    ctx.emit("order_done", f"{a.name} fulfilled order {o.id}{' for ' + o.by if o.by else ''} and received "
+             f"{o.reward} coins.", actor=a.name, visibility="public", order=o.id, buyer=o.by)
+    if buyer is not None:
+        ctx.emit("order_delivered", f"{a.name} delivered your order {o.id}: you received {fmt_items(o.needs)}.",
+                 actor=a.name, to=[buyer.name], order=o.id)
+
+
+class PostOrderArgs(BaseModel):
+    needs: ItemMap = Field(description="items you want delivered")
+    reward: int = Field(gt=0, le=1000, description="coins you pay to whoever delivers them")
+    days: int = Field(2, ge=1, le=7, description="how many days the order stays on the board")
+
+
+@ACTIONS.action("post_order", "Put your own order on the board at the square, from anywhere: the coins are held by "
+                "the board, the first villager to deliver the items at the square gets them, and the items are "
+                "carried to you. Unclaimed coins come back when it expires.", PostOrderArgs)
+def post_order(ctx: Ctx, a: Agent, args: PostOrderArgs) -> None:
+    _items_known(ctx, args.needs)
+    if "coins" in args.needs:
+        raise ActionError("an order asks for items, not coins")
+    if a.coins < args.reward:
+        raise ActionError(f"you have {a.coins} coins, the reward is {args.reward}")
+    mine = [o for o in ctx.world.orders.values() if o.by == a.name and o.status == "open"]
+    if len(mine) >= ctx.cfg.get("max_own_orders", 3):
+        raise ActionError(f"you already have {len(mine)} open orders on the board")
+    ops.burn_coins(ctx.world, a, args.reward)  # held by the board: comes back as new coins on delivery / expiry
+    o = Order(ctx.world.new_id("order"), dict(args.needs), args.reward, ctx.world.day + args.days - 1, by=a.name)
+    ctx.world.orders[o.id] = o
+    ctx.emit("order", f"{a.name} put an order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
+             f"until day {o.expires_day}.", actor=a.name, visibility="public", order=o.id, buyer=a.name)
 
 
 @ACTIONS.action("extinguish", "Pour all the water you carry on a fire here (as much as it still needs).",

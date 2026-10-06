@@ -12,7 +12,7 @@ def _keys_known(override: dict, base: dict, path: str = "") -> list[str]:
     for k, v in override.items():
         if k not in base:
             bad.append(path + k)
-        elif isinstance(v, dict) and isinstance(base[k], dict) and k not in ("items", "locations"):
+        elif isinstance(v, dict) and isinstance(base[k], dict) and k not in ("items", "locations", "inputs"):
             bad += _keys_known(v, base[k], path + k + ".")
     return bad
 

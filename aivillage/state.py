@@ -38,6 +38,10 @@ class Agent:
     # reputation.py: own tally of what this agent saw others do, and rumors it heard
     reputation: dict[str, dict] = field(default_factory=dict)
     rumors: list[dict] = field(default_factory=list)
+    # labor.py: hours of work done today (reset at dawn) and hours ever worked at one's own trade (skill)
+    worked_today: int = 0
+    skill_hours: int = 0
+    harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
 
 
 @dataclass
@@ -93,6 +97,7 @@ class Order:
     expires_day: int
     status: str = "open"  # open | fulfilled | expired
     fulfilled_by: str | None = None
+    by: str = ""  # a villager's own order (post_order): the coins are held by the board until delivery
 
 
 @dataclass
@@ -222,6 +227,9 @@ class World:
     governance: Governance = field(default_factory=Governance)
     plots: dict[str, Plot] = field(default_factory=dict)  # home or lot location id -> plot
     crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
+    # labor.py: what the trader bought from / sold to villagers today, per item (reset at dawn)
+    trader_day: dict[str, dict[str, int]] = field(default_factory=lambda: {"bought": {}, "sold": {}})
+    graves: list[dict] = field(default_factory=list)  # graves.py: one per dead villager
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -257,6 +265,8 @@ class World:
             governance=Governance.from_dict(d.get("governance", {})),
             plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
             crises=d.get("crises", []),
+            trader_day=d.get("trader_day", {"bought": {}, "sold": {}}),
+            graves=d.get("graves", []),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

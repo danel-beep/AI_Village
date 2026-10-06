@@ -61,6 +61,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "inbox_size": 30,
     "order_every_days": 3,
     "order_ttl_days": 3,
+    "max_own_orders": 3,  # open orders one villager may have on the board at once (post_order)
     "orders_per_post": 1,  # orders posted at once; scaled with the population (coins for tax)
     # Fire: burns fire_ticks hours, then the house and chest are lost. Every fire_grow_hours it needs
     # one more bucket (up to fire_water_max). Night counts as fire_night_hours of burning.
@@ -344,6 +345,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Random fires (engine night): each dawn a random house catches fire with this chance
     # (0 = only the god or an arsonist starts fires). Shown as a setting in the app.
     "random_fires": {"per_day": 0.0},
+    # Division of labour (aivillage/labor.py). Off by default; the "crafts" economy mode turns it on.
+    "labor": {
+        "enabled": False,
+        # Only a villager of the right profession gathers (or sows) the goods in `professions`;
+        # anything no profession owns (berries, water) stays open to everyone.
+        "own_trade_only": True,
+        "work_hours_per_day": 6,      # hours of work (gathering) a day; 0 = no limit
+        "skill_levels": [6, 18, 36],  # hours worked at your own trade to reach level 1, 2, 3
+        "skill_bonus": 1,             # extra units per hour of work for each level
+        # The trader deals in limited amounts each day, for the whole village, per 5 villagers
+        # (population scales them): how many of each item he buys from villagers / has for sale.
+        "trader_buys_per_day": {"default": 6, "gold": 2},
+        "trader_sells_per_day": {"default": 2},
+    },
+    # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
+    "graves": {"enabled": True},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

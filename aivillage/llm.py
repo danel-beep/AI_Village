@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, conflict, crises, governance, keys, land, plots
+from . import clock, conflict, crises, governance, graves, keys, labor, land, plots
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -141,10 +141,14 @@ def world_facts(cfg: dict) -> str:
         lines.append(crisis)
     if land.enabled(cfg):
         lines.append(land.facts(cfg))
+    if labor.enabled(cfg):
+        lines.append(labor.facts(cfg))
+    if death := graves.facts(cfg):
+        lines.append(death)
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:
-        lines.append(f"- Slow digging: {', '.join(caps)}, whatever your profession and tools.")
+        lines.append(f"- Slow digging: {', '.join(caps)}, whatever your skill and tools.")
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
     return "\n".join(lines)

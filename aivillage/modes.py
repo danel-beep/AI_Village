@@ -34,6 +34,18 @@ MODES: dict[str, dict[str, Any]] = {
         "about": "Текущие правила без изменений, точка отсчёта для сравнения.",
         "world": {},
     },
+    "crafts": {
+        "title": "Ремёсла",
+        "about": "Каждый добывает только своё: рыбу ловит рыбак, лес рубит лесоруб, зерно сеет фермер, камень, руду "
+                 "и золото копает шахтёр; ягоды и вода общие. Работать можно 6 часов в день, мастерство растёт "
+                 "с часами работы. Хлеб и уха готовятся на дровах. Торговец каждый день покупает и продаёт понемногу, на всю деревню. "
+                 "Остальное как в обычном режиме.",
+        "world": {
+            "labor": {"enabled": True},
+            # cooking needs firewood: grain is not edible raw, so bread needs a woodcutter too
+            "recipes": {"bread": {"inputs": {"grain": 2, "wood": 1}}, "fish_soup": {"inputs": {"fish": 2, "wood": 1}}},
+        },
+    },
     "peaceful": {
         "title": "Мирный",
         "about": "Грядки и природа дают больше еды, налог вдвое ниже, больше денег на старте; "
@@ -118,7 +130,7 @@ MODES: dict[str, dict[str, Any]] = {
     },
 }
 
-DEFAULT_MODE = "standard"
+DEFAULT_MODE = "crafts"
 
 
 def check(mode: str) -> None:
