@@ -44,7 +44,8 @@ god events ─┐
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient`; `RateGate` per model (max parallel calls, shared cooldown after 429, env `AIVILLAGE_MAX_PARALLEL`), fallback models (`AIVILLAGE_FALLBACK_MODELS`, `--fallback`, YAML `fallback_models`); `OpenAIClient` + `FallbackClient`; build clients only with `make_client(model)` (provider from keys.py) |
 | `aivillage/keys.py` | keys, provider, model, parallel limit in `<home>/settings.json` on the player's computer (file wins over env); `public()` = masked view for the viewer |
-| `aivillage/run.py` | run loop (parallel decisions), JSONL log, `replay`, CLI |
+| `aivillage/run.py` | run loop (parallel decisions), JSONL log (header `brains` = who plays whom, `usage` records = tokens and cost per LLM villager), `replay`, CLI |
+| `aivillage/scorecard.py` | end-of-run scorecard from a log: per villager (survival, wealth, thefts, gifts, trades, loans, defaults, fire help, gossip, invalid actions, top actions, cost; optional lie judge), also added up per brain; `run.main` writes `<log>.scorecard.md/.json` |
 | `aivillage/runconfig.py` | YAML run config (`--config`): validated up front, resolves to a world override, per-agent brains, god script; `mechanics.disabled` → world `disabled_actions`, enforced in `registry` |
 | `aivillage/modes.py` | economy modes: named world-rule presets (`mode:` in YAML, `--mode`, start screen). Partial world config + disabled actions, applied under the run config's `world:`; recorded as `config.economy_mode`. The prompt is the same in every mode, only `world_facts` numbers differ. `scripts/compare_modes.py` runs all modes and compares behaviour |
 | `aivillage/translate.py` | post-processes a finished log into a `<log>.ru.json` sidecar for spectators (never touches the log) |
