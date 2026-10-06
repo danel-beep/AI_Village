@@ -161,7 +161,8 @@ MODES["survival"] = {
              "руками, карманы пустые. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
-    "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True}}),
+    "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+                                                   "explore": {"enabled": True}}),
 }
 
 DEFAULT_MODE = "crafts"
