@@ -12,8 +12,8 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (clock, conflict, crises, dice, family, governance, graves, illness, labor, land, mapgen, market, ops, plots,
-               reputation, seasons, threats, tiles, works)
+from . import (clock, conflict, crises, debts, dice, family, governance, graves, illness, labor, land, mapgen, market,
+               ops, plots, reputation, seasons, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -128,7 +128,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "offers_to_you": [vars(o) for o in world.offers.values() if o.to == name],
         "your_offers": [vars(o) for o in world.offers.values() if o.sender == name],
         "board": {
-            "debts": [vars(d) for d in world.debts.values() if d.status != "repaid"],
+            "debts": debts.board(world),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": works.board(world),
             "trader_prices": {i: {"buy": max(1, int(v["value"] * cfg["npc_sell_ratio"]
@@ -151,6 +151,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(crises.observe(world, name))
     obs.update(threats.observe(world, name))
     obs.update(land.observe(world, name))
+    obs.update(debts.observe(world, name))
     obs.update(labor.observe(world, name))
     obs.update(graves.observe(world, name))
     obs.update(dice.observe(world, name))
@@ -195,6 +196,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
         check_health(ctx)  # lightning: the struck villager falls at once, before acting this tick
 
     deliver_mail(ctx)
+    debtors = debts.coin_snapshot(world)
 
     order = sorted(world.agents)
     ctx.rng.shuffle(order)
@@ -216,6 +218,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
     hour_over = world.minute + minutes >= 60
     if hour_over:
         end_of_hour(ctx)
+    debts.collect_income(ctx, debtors)
     world.tick += 1
     if not hour_over:
         world.minute += minutes
@@ -489,11 +492,7 @@ def night(ctx: Ctx) -> None:
                 ctx.emit("evicted", f"{a.name} could not pay the tax and is locked out of their house "
                          f"for {cfg['eviction_days']} days.", visibility="public")
     # Debts
-    for d in w.debts.values():
-        if d.status == "open" and w.day > d.due_day:
-            d.status = "defaulted"
-            ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({d.coins_owed} coins, "
-                     f"{d.id}).", visibility="public", debt=d.id)
+    debts.night(ctx)
     # Orders
     for o in w.orders.values():
         if o.status == "open" and w.day > o.expires_day:

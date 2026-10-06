@@ -90,7 +90,13 @@ class Debt:
     borrower: str
     coins_owed: int
     due_day: int
-    status: str = "open"  # open | repaid | defaulted
+    status: str = "open"  # open | defaulted (still owed) | repaid | forgiven | forfeited (debts.py)
+    kind: str = "loan"  # loan (lend) | iou (promise) | anything other modules write (debts.write)
+    note: str = ""
+    pledge: dict[str, int] = field(default_factory=dict)  # items held by the book until repaid
+    claim: dict | None = None  # the lender asked the mayor to collect: {"tick", "day"}
+    claim_day: int = 0  # day the mayor last ruled on it
+    day: int = 0  # day it was written
 
 
 @dataclass

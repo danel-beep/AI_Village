@@ -207,8 +207,8 @@ def summary(world: World, stats: dict) -> str:
         chest = world.chests[f"chest_{a.name}"]
         lines.append(f"  {a.name:8} {a.profession:10} {a.status:8} hp={a.health:3} food={a.satiety:3} "
                      f"coins={a.coins:4} chest_coins={chest.coins:3} inv={a.inventory}")
-    keys = ["trade", "give", "steal", "witness", "lend", "repay", "default", "order_done", "contribute",
-            "project_done", "fire_out", "house_burned", "hospital", "evicted", "error"]
+    keys = ["trade", "give", "steal", "witness", "lend", "promise", "repay", "default", "debt_collected", "debt_seized",
+            "order_done", "contribute", "project_done", "fire_out", "house_burned", "hospital", "evicted", "error"]
     lines.append("  events: " + ", ".join(f"{k}={stats.get(k, 0)}" for k in keys))
     return "\n".join(lines)
 

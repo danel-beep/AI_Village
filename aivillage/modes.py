@@ -84,13 +84,14 @@ MODES: dict[str, dict[str, Any]] = {
     "debt": {
         "title": "Долговая яма",
         "about": "Налог 12 монет каждые 2 дня (вдвое тяжелее обычного), мало денег на старте, за неуплату выгоняют "
-                 "из дома на 3 дня. Без займов не выжить, а возврат никто не обеспечивает.",
+                 "из дома на 3 дня. Без займов не выжить; просроченный долг растёт на 10% за ночь и взыскивается каждую ночь.",
         "world": {
             "map": {"unfairness": 0.6},  # start fairness of the generated village (mapgen.py)
             "start_coins": 10,
             "tax_every_days": 2,
             "tax_amount": 12,
             "eviction_days": 3,
+            "debts": {"late_fee_pct": 10},  # an unpaid debt grows 10% a night
             # money is the problem: price spikes and caravans matter more than lost food
             "crises": {"kinds": {"shortage": {"weight": 3}, "caravan": {"weight": 3}}},
         },
@@ -118,7 +119,7 @@ MODES: dict[str, dict[str, Any]] = {
     "lawless": {
         "title": "Беззаконие",
         "about": "Кража удаётся почти всегда, свидетели замечают её редко, за раз можно унести "
-                 "10 вещей, замков нет, жаловаться на воров некому.",
+                 "10 вещей, замков нет, жаловаться на воров некому, долги никто не взыскивает.",
         "world": {
             "map": {"unfairness": 0.5},  # start fairness of the generated village (mapgen.py)
             "steal_notice_chance": 0.05,
@@ -127,8 +128,9 @@ MODES: dict[str, dict[str, Any]] = {
             # want gives thieves a motive: frequent crises, rats hit most houses
             "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
                        "kinds": {"rats": {"weight": 3, "share": 0.6}}},
+            "debts": {"auto_collect": False},  # nobody collects debts
         },
-        "disabled": ["install_lock", "report_theft"],
+        "disabled": ["install_lock", "report_theft", "demand_debt", "rule_debt"],
     },
 }
 
