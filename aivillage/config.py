@@ -515,6 +515,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "trader_buys_per_day": {"default": 6, "gold": 2},
         "trader_sells_per_day": {"default": 2, "tool": 2},
     },
+    # Trade places (aivillage/places.py). Off here; the crafts mode turns them on. Each trade has
+    # ceil(spare x villagers x its share of population.profession_weights) places; no work at one's trade
+    # for `idle_days` days loses the place at dawn (the villager becomes a laborer).
+    "places": {"enabled": False, "spare": 1.25, "idle_days": 3, "change_cooldown_days": 2},
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with

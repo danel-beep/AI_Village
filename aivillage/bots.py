@@ -118,6 +118,8 @@ class RandomBot(Bot):
         elif name in ("build_work", "fund_project"):
             projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
             args = {"project_id": r.choice(projs), **({"coins": r.randint(-2, 50)} if name == "fund_project" else {})}
+        elif name == "change_trade":
+            args = {"profession": r.choice(["farmer", "fisher", "woodcutter", "miner", "smith", "laborer", "king"])}
         elif name == "treasury_order":
             projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
             args = {"project_id": r.choice(projs), "needs": {r.choice(["wood", "stone", "ore", pick_item()]): r.randint(1, 6)},
@@ -141,7 +143,7 @@ class RandomBot(Bot):
         elif name in ("vote", "report_theft"):
             args = {"candidate" if name == "vote" else "person": r.choice(people + ["Nobody"])}
         elif name == "propose_law":
-            args = {"law": r.choice(["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "payout",
+            args = {"law": r.choice(["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "revoke_place", "payout",
                                      "grant", "bogus"]),
                     "value": r.randint(-5, 70), "person": r.choice(people)}
         elif name == "vote_law":
@@ -250,15 +252,18 @@ class WorkerBot(Bot):
             return decision("sell", {"item": "tool"}) if loc == "market" else go("market", "sell tools")
 
         # Sell surplus (gold is worth the walk sooner)
+        will_buy = (obs.get("trader_today") or {}).get("will_buy") or {}  # crafts: the trader buys a limited amount
         surplus = [k for k, v in inv.items() if (v >= 12 or (k == "gold" and v >= 3))
-                   and k not in FOODS + ["water", "tool"]]
+                   and k not in FOODS + ["water", "tool"] and will_buy.get(k, 1) != 0]
         if surplus:
             k = surplus[0]
             qty = inv[k] if k == "gold" else inv[k] - 4
+            if will_buy.get(k) is not None:
+                qty = min(qty, will_buy[k])
             return decision("sell", {"item": k, "qty": qty}) if loc == "market" else go("market", "sell")
 
         # Work
-        spot = WORK_SPOT[me["profession"]]
+        spot = WORK_SPOT.get(me["profession"], "forest")
         if me["profession"] == "smith" and inv.get("wood", 0) >= 2:
             spot = "mine"
         if loc == spot:

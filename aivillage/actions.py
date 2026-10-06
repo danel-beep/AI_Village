@@ -232,7 +232,7 @@ def craft(ctx: Ctx, a: Agent, args: CraftArgs) -> None:
     out = r["output"] * args.times
     ops.mint(ctx.world, a.inventory, args.recipe, out)
     ctx.emit("craft", f"{a.name} made {out} {args.recipe}.", actor=a.name, location=a.location,
-             visibility="location")
+             visibility="location", recipe=args.recipe)
 
 
 class EatArgs(BaseModel):

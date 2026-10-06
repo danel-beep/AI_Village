@@ -40,6 +40,8 @@ class Agent:
     rumors: list[dict] = field(default_factory=list)
     # labor.py: hours of work done today (reset at dawn) and hours ever worked at one's own trade (skill)
     worked_today: int = 0
+    trade_day: int = 0  # last day of work at one's own trade (places.py)
+    trade_since_day: int = 0  # day the current trade place was taken with change_trade (0 = from the start)
     earned_since_tax: int = 0  # coins from the trader and council orders since the last tax day (taxes.py)
     skill_hours: int = 0
     harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
