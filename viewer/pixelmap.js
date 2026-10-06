@@ -697,9 +697,12 @@ const PixelMap = (() => {
     labels(ctx, t, shown, selected, sec);
     Actors.noteTick(t, frac, dt);
     const heads = shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y + 8 - ((sheets[a.n] || {}).fh || 16)); return { n: a.n, sx, sy }; });
-    Actors.badges(ctx, heads, t);
-    Actors.bubbles(ctx, heads,
-                   selected, tr || String, W * S);
+    // Bubbles and icons grow with the zoom too, but less than the map (x1 at the whole village, up to x1.7).
+    const k = Math.max(1, Math.min(1.7, Math.pow(cam.z, .45))), hk = heads.map(h => ({ n: h.n, sx: h.sx / k, sy: h.sy / k }));
+    ctx.save(); ctx.scale(k, k);
+    Actors.badges(ctx, hk, t);
+    Actors.bubbles(ctx, hk, selected, tr || String, W * S / k);
+    ctx.restore();
   }
 
   // ---------- full-resolution text (placed through the camera, constant size at any zoom) ----------

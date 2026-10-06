@@ -67,9 +67,12 @@
 <script src="camera.js"></script>
 <script src="omens.js"></script>
 <script src="digest.js"></script>
+<script src="replay.js"></script>
 <script src="dossier.js"></script>
 <script src="highlights.js"></script>
+<script src="mp4_muxer.js"></script>
 <script src="clip.js"></script>
+<script src="reel.js"></script>
 <script src="sound.js"></script>
 <script>
 const COLORS = ['#f2c14e','#e4572e','#76b041','#17bebb','#c47ac0','#ff9f1c','#2ec4b6','#e71d36','#a3c4f3','#ffbf69'];
@@ -220,6 +223,7 @@ function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': 
 
 let seenLen = 0, gap = 0, lastArrive = 0, live = false, hourSec = 2, rate = 0, arrivals = 0;
 function loop(ts) {
+  if (window.Clip && Clip.busy()) { last = ts; requestAnimationFrame(loop); return; }   // a clip is drawing the map (viewer/clip.js)
   const speed = +document.getElementById('speed').value, dt = Math.min(.1, (ts - last) / 1000); last = ts;
   // Usual gap between live ticks; the backlog burst on connect and quick runs of ticks (night) are not counted.
   if (ticks.length > seenLen) { const now = ts / 1000, d = now - lastArrive;

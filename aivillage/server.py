@@ -38,6 +38,7 @@ from .state import World
 
 ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "viewer"
+CLIP_MAX_BYTES = 300 * 1024 * 1024  # highlight clips; a week's reel is a few MB
 VIEW_LAG_MINUTES = 30  # two quarter-hour ticks of buffer: smooth, and a god click lands half an hour later
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
 
@@ -781,6 +782,40 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if host.reveal_reports:
             reports.reveal(path)
         return {"ok": True, "path": str(path), "name": path.name}
+
+    # --- highlight clips (viewer/clip.js, viewer/reel.js): kept in AIVillage/videos, next to the reports folder ---
+    def clips_of(sim: LiveSim) -> tuple[Path, str]:
+        return Path(sim.reports_dir).parent / "videos", Path(sim.log_path or "live").stem + "-"
+
+    @app.get("/api/clips")
+    def clips() -> dict:
+        folder, prefix = clips_of(need())
+        found = sorted(folder.glob(prefix + "*.mp4")) if folder.is_dir() else []
+        return {"folder": str(folder), "clips": [{"key": f.stem.removeprefix(prefix), "file": f.name,
+                                                  "kb": f.stat().st_size // 1024} for f in found]}
+
+    @app.post("/api/clips/{key}")
+    async def save_clip(key: str, request: Request) -> dict:
+        local_only(request)
+        if not (0 < len(key) <= 40 and key.replace("-", "").isalnum() and key.isascii()):
+            raise HTTPException(400, "bad clip name")
+        data = await request.body()
+        if not data or len(data) > CLIP_MAX_BYTES:
+            raise HTTPException(413, "clip is empty or too big")
+        folder, prefix = clips_of(need())
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{prefix}{key}.mp4"
+        path.write_bytes(data)
+        return {"ok": True, "folder": str(folder), "file": path.name, "path": str(path)}
+
+    @app.get("/clips/{name}")
+    def clip_file(name: str, request: Request) -> FileResponse:
+        local_only(request)
+        folder, _ = clips_of(need())
+        path = folder / name
+        if not name.endswith(".mp4") or "/" in name or "\\" in name or name.startswith(".") or not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="video/mp4")
 
     # --- sessions: "🏁 Завершить сессию", the summary page and past sessions (aivillage/session.py) ---
     @app.post("/api/end")

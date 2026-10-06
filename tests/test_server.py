@@ -71,6 +71,26 @@ def test_viewer_scripts_served(tmp_path):
     assert client.get("/missing.js").status_code == 404
     assert 'src="dossier.js"' in client.get("/").text
 
+def test_highlight_clips_saved_and_listed(tmp_path):
+    sim, client = make(tmp_path)
+    page = client.get("/").text
+    assert 'src="mp4_muxer.js"' in page and 'src="reel.js"' in page
+    assert "Mp4Muxer" in client.get("/mp4_muxer.js").text and "Reel" in client.get("/reel.js").text
+    assert client.get("/api/clips").json()["clips"] == []
+    saved = client.post("/api/clips/nedelya-1", content=b"\x00\x00\x00\x18ftypmp42",
+                        headers={"Content-Type": "video/mp4"}).json()
+    folder = tmp_path / "videos"
+    assert saved["file"] == "live-nedelya-1.mp4" and saved["folder"] == str(folder)
+    assert (folder / "live-nedelya-1.mp4").read_bytes().endswith(b"ftypmp42")
+    assert client.get("/api/clips").json()["clips"] == [{"key": "nedelya-1", "file": "live-nedelya-1.mp4", "kb": 0}]
+    assert client.get("/clips/live-nedelya-1.mp4").content.endswith(b"ftypmp42")
+    for bad in ("../x", "a b", "x" * 41, "день-1"):
+        assert client.post(f"/api/clips/{bad}", content=b"1").status_code in (400, 404)
+    assert client.post("/api/clips/den-1", content=b"").status_code == 413
+    assert client.get("/clips/..%2Fsettings.json").status_code == 404
+    assert client.get("/clips/live.jsonl").status_code == 404
+
+
 def test_recaps_and_problem_report(tmp_path):
     import zipfile
     from aivillage.summary import StubSummaryClient, Summarizer
