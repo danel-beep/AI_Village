@@ -137,5 +137,5 @@ const Camera = (() => {
     if (box) box.style.top = (cv.offsetTop + cv.offsetHeight - 38) + 'px';
   }
 
-  return { attach, update, direct, view, toWorld, toScreen, setDirector };
+  return { attach, update, direct, view, toWorld, toScreen, setDirector, score, label };
 })();

@@ -343,5 +343,24 @@ const Actors = (() => {
     }
   }
 
-  return { activities, workSpot, wander, paint, place, noteTick, bubbles };
+  // ---------- status icons next to each head (full-resolution canvas): fighting, angry, starving/hungry, wounded ----------
+  // Simple emoji badges for now (art may replace them later); `t._mood` comes from index.html push().
+  function badges(ctx, shown, t) {
+    const mood = t._mood || {};
+    ctx.font = '13px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const a of shown) {
+      const v = t.view.agents[a.n]; if (!v) continue;
+      const m = mood[a.n] || {}, icons = [];
+      if (m.fight) icons.push('⚔️'); else if (m.angry) icons.push('😠');
+      if (v.satiety <= 0) icons.push('🦴'); else if (v.satiety < 25) icons.push('🍞');
+      if (v.health < 50) icons.push('🩹');
+      icons.forEach((ic, j) => {
+        const x = a.sx + 12 + j * 17, y = a.sy + 6;
+        ctx.fillStyle = 'rgba(27,27,36,.75)'; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.fillText(ic, x, y + 1);
+      });
+    }
+  }
+
+  return { activities, workSpot, wander, paint, place, noteTick, bubbles, badges };
 })();
