@@ -11,7 +11,7 @@ from aivillage.config import DEFAULT_CONFIG
 def test_every_mode_has_a_slider_position_for_every_config_knob():
     for m in modes.MODES:
         d = knobs.mode_defaults(m)
-        assert set(d) == {k["key"] for k in knobs.active() if "path" in k}
+        assert set(d) == {k["key"] for k in knobs.active() if "path" in k or "action" in k}
     assert knobs.mode_defaults("peaceful")["start_coins"] == 40
     assert knobs.mode_defaults("peaceful")["unfairness"] == 1  # 0.1 on a 0..10 slider
     assert knobs.mode_defaults("standard")["steal_notice_chance"] == round(DEFAULT_CONFIG["steal_notice_chance"] * 100)
@@ -142,3 +142,17 @@ def test_tick_minutes_from_start_screen(tmp_path, monkeypatch):
     host.start({"brains": "bots", "villagers": 2, "days": 1, "pace": 0})
     assert host.sim.world.config["tick_minutes"] == 15
     host.stop()
+
+
+def test_fires_fights_land_and_gold_knobs():
+    from aivillage import engine
+    r = knobs.to_run({"brains": "bots", "random_fires": 40, "allow_arson": False, "combat": False, "gold": 50,
+                      "land_price": 12})
+    o = r["override"]
+    assert o["random_fires"]["per_day"] == 0.4 and "set_fire" in o["disabled_actions"]
+    assert o["combat"]["enabled"] is False and o["land"]["price_per_cell"] == 12
+    w = engine.new_world({**o, "seed": 2})
+    gold = w.config["locations"]["mine"]["resources"]["gold"]
+    assert gold["start"] == gold["max"] and 35 <= gold["start"] <= 70 and w.config["random_fires"]["per_day"] == 0.4
+    assert "set_fire" not in knobs.to_run({})["override"].get("disabled_actions", [])
+    assert knobs.mode_defaults("standard")["allow_arson"] is True

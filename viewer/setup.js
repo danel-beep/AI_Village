@@ -135,12 +135,13 @@
     const start = Object.assign({}, info.defaults, info.last || {}, saved);
     if (!(start.mode in info.mode_defaults)) start.mode = info.defaults.mode;
     const modeVals = m => info.mode_defaults[m] || {};
+    const follows = k => k.key in modeVals(info.defaults.mode);  // config/action knobs move with the mode
     // Config knobs follow the mode until the user moves them; `touched` keeps what they set by hand.
     let touched = new Set(Object.keys(saved.__touched || {}));
     const values = {};
     for (const k of knobs) {
       const fromMode = modeVals(start.mode)[k.key];
-      values[k.key] = k.path ? (touched.has(k.key) && k.key in start ? start[k.key] : fromMode)
+      values[k.key] = follows(k) ? (touched.has(k.key) && k.key in start ? start[k.key] : fromMode)
                              : (k.key in start ? start[k.key] : k.default);
     }
 
@@ -201,7 +202,7 @@
       else for (const b of r.control.children) b.classList.toggle('on', b.dataset.v === String(v));
       if (r.val.isConnected) {
         r.val.textContent = fmt(k, v);
-        r.val.classList.toggle('changed', !!k.path && v !== modeVals(values.mode)[k.key]);
+        r.val.classList.toggle('changed', follows(k) && v !== modeVals(values.mode)[k.key]);
       }
       r.about.textContent = [k.about ? k.about[v] : '', k.hint || ''].filter(Boolean).join(' ');
       r.el.style.display = k.only && k.only !== values.brains ? 'none' : '';
@@ -209,9 +210,9 @@
 
     function set(k, v) {
       values[k.key] = v;
-      if (k.path) touched.add(k.key);
+      if (follows(k)) touched.add(k.key);
       if (k.key === 'mode') {  // the mode moves every slider the user has not set by hand
-        for (const c of knobs) if (c.path && !touched.has(c.key)) values[c.key] = modeVals(v)[c.key];
+        for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = modeVals(v)[c.key];
       }
       knobs.forEach(paint);
       keyLine();
