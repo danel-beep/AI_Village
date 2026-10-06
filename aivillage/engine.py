@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import clock, conflict, crises, family, governance, land, mapgen, ops, plots, reputation, seasons, tiles
+from . import clock, conflict, crises, debts, family, governance, land, mapgen, ops, plots, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -125,7 +125,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "offers_to_you": [vars(o) for o in world.offers.values() if o.to == name],
         "your_offers": [vars(o) for o in world.offers.values() if o.sender == name],
         "board": {
-            "debts": [vars(d) for d in world.debts.values() if d.status != "repaid"],
+            "debts": debts.board(world),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": [{"id": p.id, "name": p.name, "needs": p.needs, "contributed": p.contributed}
                          for p in world.projects.values() if not p.done],
@@ -146,6 +146,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))
     obs.update(land.observe(world, name))
+    obs.update(debts.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -442,11 +443,7 @@ def night(ctx: Ctx) -> None:
                 ctx.emit("evicted", f"{a.name} could not pay the tax and is locked out of their house "
                          f"for {cfg['eviction_days']} days.", visibility="public")
     # Debts
-    for d in w.debts.values():
-        if d.status == "open" and w.day > d.due_day:
-            d.status = "defaulted"
-            ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({d.coins_owed} coins, "
-                     f"{d.id}).", visibility="public", debt=d.id)
+    debts.night(ctx)
     # Orders
     for o in w.orders.values():
         if o.status == "open" and w.day > o.expires_day:

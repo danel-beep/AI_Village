@@ -87,6 +87,16 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
 
+    # --- debts (aivillage/debts.py) ---
+    {"key": "debt_collection", "path": "debts.collection", "group": "Долги", "type": "toggle",
+     "label": "Мэр может взыскивать долги",
+     "hint": "Должник не вернул вовремя: заимодавец просит мэра, мэр решает, забрать ли монеты у должника."},
+    {"key": "debt_collect_fee", "path": "debts.collect_fee_pct", "group": "Долги", "type": "range",
+     "label": "Доля мэра (в казну) со взысканного", "min": 0, "max": 50, "step": 5, "unit": "%"},
+    {"key": "debt_late_fee", "path": "debts.late_fee_pct", "group": "Долги", "type": "range",
+     "label": "Пеня за просрочку в ночь", "min": 0, "max": 30, "step": 5, "unit": "%",
+     "hint": "0: долг не растёт. Рекомендуем 0 для честного прогона, 10 для жёсткого."},
+
     # --- crises (aivillage/crises.py) ---
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
      "hint": "Неурожай, засуха, крысы, нехватка у торговца, караван: бьют по жителям неравномерно."},

@@ -211,6 +211,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "scale_orders": True,  # more council orders at once: they are the main coin source besides the trader
         "profession_weights": {"farmer": 1.2, "fisher": 1.2, "woodcutter": 1, "miner": 1, "smith": 0.6},
     },
+    # The debt book (aivillage/debts.py): IOUs with pledges, late fees, collection through the mayor.
+    "debts": {
+        "collection": True,  # demand_debt / rule_debt (needs governance and a mayor)
+        "collect_fee_pct": 10,  # share of what the mayor collects that goes to the treasury
+        "late_fee_pct": 0,  # an overdue debt without a pledge grows by this % each night
+        "max_promise": 500,  # coins per IOU
+    },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
     "governance": {

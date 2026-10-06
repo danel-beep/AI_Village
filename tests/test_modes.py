@@ -35,7 +35,7 @@ def test_user_world_overrides_mode_and_disabled_merge():
     rc = runconfig.parse({"mode": "lawless", "world": {"max_steal_qty": 2}, "mechanics": {"disabled": ["lend"]}})
     cfg = engine.new_world(rc.world_override()).config
     assert cfg["max_steal_qty"] == 2 and cfg["steal_notice_chance"] == modes.MODES["lawless"]["world"]["steal_notice_chance"]
-    assert cfg["disabled_actions"] == ["install_lock", "lend", "report_theft"]
+    assert cfg["disabled_actions"] == ["demand_debt", "install_lock", "lend", "report_theft", "rule_debt"]
 
 
 def test_partial_location_override_keeps_other_resources():
