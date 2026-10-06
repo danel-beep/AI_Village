@@ -211,3 +211,26 @@ def test_word_of_mouth_fuzz_replay(tmp_path, seed):
     assert replay(log).hash() == w.hash()
     rumors = [x for a in w.agents.values() for x in a.rumors]
     assert max(x["retold"] for x in rumors) >= 2 and any(x.get("overheard") for x in rumors)
+
+
+def test_announce_reaches_everyone_and_costs_coins(w):
+    cost = w.config["reputation"]["announce_cost"]
+    put(w, "square", "Anna")
+    put(w, "river", "Boris")
+    w.agents["Clara"].asleep = True
+    coins = w.agents["Anna"].coins
+    assert "announce" in engine.observe(w, "Anna", consume_inbox=False)["available_actions"]
+    act(w, "Anna", "announce", text="Funeral for old Ivan tomorrow at noon, square")
+    assert w.agents["Anna"].coins == coins - cost
+    for n in w.agents:
+        assert any("NOTICE from Anna" in x and "Funeral" in x for x in w.agents[n].inbox), n
+    assert engine.observe(w, "Boris")["notice_board"] == {"at": "square", "notice_cost": cost}
+
+
+def test_announce_errors(w):
+    put(w, "river", "Anna")
+    assert any(e.kind == "error" for e in act(w, "Anna", "announce", text="hi"))  # not at the board
+    put(w, "square", "Anna")
+    ops.burn_coins(w, w.agents["Anna"], w.agents["Anna"].coins)
+    assert "announce" not in engine.observe(w, "Anna")["available_actions"]
+    assert any(e.kind == "error" for e in act(w, "Anna", "announce", text="hi"))

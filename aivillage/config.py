@@ -26,7 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip", "buy_land", "sell_land", "attack", "set_fire")},
+            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -264,6 +264,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "mishear_number": 0.25,
         "mishear_name": 0.05,
         "overhear": 0.15,
+        # Notice board: `announce(text)` at this location pays `announce_cost` coins (treasury or burned)
+        # and every villager gets the notice at once.
+        "announce_cost": 5,
+        "announce_at": "square",
         "deltas": {
             "witness": -3,        # saw someone steal
             "steal_attempt": -4,  # caught someone stealing from you

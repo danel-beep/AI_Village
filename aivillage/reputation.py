@@ -19,7 +19,7 @@ import re
 
 from pydantic import BaseModel, Field
 
-from . import ops
+from . import governance, ops
 from .actions import _agent, _text
 from .ops import Ctx, Event
 from .registry import ACTIONS, ActionError
@@ -185,6 +185,8 @@ def observe(world, name: str) -> dict:
         out["reputation"] = {k: dict(v, seen=list(v["seen"])) for k, v in sorted(a.reputation.items())}
     if a.rumors:
         out["rumors"] = [dict(r) for r in a.rumors]
+    if "announce_cost" in _cfg(world):
+        out["notice_board"] = {"at": _cfg(world)["announce_at"], "notice_cost": _cfg(world)["announce_cost"]}
     return out
 
 
@@ -282,3 +284,34 @@ def gossip(ctx: Ctx, a: Agent, args: GossipArgs) -> None:
                           misheard=changed, **chain)
             keep(w.agents[name], ev.day, a.name, chain, h_about, h_text, overheard=True)
             del w.agents[name].rumors[: -_cfg(w)["rumors_kept"]]
+
+
+# ---- notice board: paid, public, exact ----
+# The opposite of a rumor: it costs coins, but every villager learns it at once, word for word,
+# under the author's name. Villagers use it for whatever they make up (a wedding, a funeral, a sale).
+
+class AnnounceArgs(BaseModel):
+    text: str = Field(description="the notice, seen by every villager at once under your name")
+
+
+def _can_announce(ctx: Ctx, a: Agent) -> bool:
+    cfg = _cfg(ctx.world)
+    return "announce_cost" in cfg and a.location == cfg["announce_at"] and a.coins >= cfg["announce_cost"]
+
+
+@ACTIONS.action("announce", "Pin a notice on the village board: every villager reads it at once. Costs coins "
+                "(see the board's notice_cost).", AnnounceArgs, available=_can_announce)
+def announce(ctx: Ctx, a: Agent, args: AnnounceArgs) -> None:
+    w = ctx.world
+    cfg = _cfg(w)
+    if "announce_cost" not in cfg:
+        raise ActionError("there is no notice board in this village")
+    if a.location != cfg["announce_at"]:
+        raise ActionError(f"the notice board is at {cfg['announce_at']}")
+    cost = cfg["announce_cost"]
+    if a.coins < cost:
+        raise ActionError(f"a notice costs {cost} coins, you have {a.coins}")
+    t = _text(ctx, args.text)
+    governance.pay_tax(w, a, cost)  # to the treasury when there is a government, else burned
+    ctx.emit("announcement", f'NOTICE from {a.name}: "{t}"', actor=a.name, location=a.location,
+             visibility="public", text_raw=t, cost=cost)

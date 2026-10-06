@@ -101,6 +101,10 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Сколько пересказов помнят автора слуха", "min": 1, "max": 10, "step": 1, "unit": "",
      "hint": "Дальше слух идёт как «кто-то говорил»."},
 
+    {"key": "announce_cost", "path": "reputation.announce_cost", "group": "Слухи", "type": "range",
+     "label": "Цена объявления на доске", "min": 0, "max": 50, "step": 1, "unit": " мон.",
+     "hint": "Объявление на площади сразу читают все жители, слово в слово. Деньги идут в казну. Рекомендуем 5."},
+
     # --- crises (aivillage/crises.py) ---
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
      "hint": "Неурожай, засуха, крысы, нехватка у торговца, караван: бьют по жителям неравномерно."},
