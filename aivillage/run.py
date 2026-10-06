@@ -170,6 +170,7 @@ def view(world: World) -> dict:
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
             **({"known": k} if (k := explore.view(world)) is not None else {}),  # explore.py: places someone knows
+            **explore.view_by(world),  # explore.py: what each villager knows, on ticks where it changed
             **settle.view(world),  # settle.py: house sites taken, trails walked (camp start)
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
                     for l in world.locations.values() if l.slots},

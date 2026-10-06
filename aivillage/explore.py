@@ -17,6 +17,7 @@ Spec: docs/specs/survival.md.
 
 from __future__ import annotations
 
+import weakref
 from collections import deque
 
 from . import actions
@@ -81,6 +82,25 @@ def view(world: World) -> list[str] | None:
     if not enabled(world.config):
         return None
     return sorted({lid for ids in world.explore.values() for lid in ids})
+
+
+_LAST_BY: dict[int, tuple] = {}  # id(world) -> (weak reference to it, known_by last written)
+
+
+def view_by(world: World) -> dict:
+    """Log field `view.known_by` = {villager: [places they know]} for the viewer (a picked villager's own fog),
+    written only on ticks where someone's knowledge changed since the last view of this world; the viewer
+    carries it forward. Empty when exploration is off or nothing changed."""
+    if not enabled(world.config):
+        return {}
+    now = {n: list(ids) for n, ids in world.explore.items()}
+    ref, last = _LAST_BY.get(id(world), (None, None))
+    if ref is not None and ref() is world and last == now:
+        return {}
+    for k in [k for k, (r, _) in _LAST_BY.items() if r() is None]:
+        del _LAST_BY[k]
+    _LAST_BY[id(world)] = (weakref.ref(world), now)
+    return {"known_by": now}
 
 
 def facts(cfg: dict) -> str:
