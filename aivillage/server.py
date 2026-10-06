@@ -441,6 +441,8 @@ class LiveSim:
         w = self.world
         return {"agents": sorted(w.agents), "locations": {l.id: l.name for l in w.locations.values()},
                 "items": sorted(w.config["items"]),
+                # polities for the god panel's tax form (they appear during play: the panel asks again)
+                "polities": {pid: p["name"] or pid for pid, p in sorted(w.polities.items())},
                 "god": {n: {"description": s.description, "schema": s.schema()} for n, s in GOD.specs.items()},
                 **self.status()}
 
