@@ -21,7 +21,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from . import modes
+from . import modes, seasons
 from .config import DEFAULT_CONFIG, make_config
 
 BOT_MIXES = {
@@ -77,7 +77,14 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "hospital_days", "path": "hospital_days", "group": "Правила", "type": "range",
      "label": "Дней в больнице", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "seasons", "path": "seasons.enabled", "group": "Правила", "type": "toggle", "label": "Времена года",
-     "hint": "Зимой поле не растёт, ягод нет, рыбы меньше."},
+     "hint": "Зимой грядки не засеять, что не дозрело, замерзает, ягод нет, рыбы меньше."},
+    {"key": "season_days", "group": "Правила", "type": "choice", "label": "Длина сезона", "default": 0,
+     "options": [[0, "Авто"], [1, "1 день"], [2, "2 дня"], [3, "3 дня"], [7, "Неделя"], [14, "2 недели"]],
+     "hint": "Авто: весь год укладывается в прогон и последним идёт зима (3 дня = лето, осень, зима)."},
+    {"key": "season_start", "group": "Правила", "type": "choice", "label": "С какого сезона начать", "default": "auto",
+     "options": [["auto", "Авто"], ["spring", "🌱 Весна"], ["summer", "☀️ Лето"], ["autumn", "🍂 Осень"],
+                 ["winter", "❄️ Зима"]],
+     "hint": "Авто: так, чтобы к концу прогона наступила зима."},
 
     # --- theft ---
     {"key": "steal_notice_chance", "path": "steal_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
@@ -86,6 +93,33 @@ KNOBS: list[dict[str, Any]] = [
      "scale": 0.01, "label": "Успех кражи у того, кто не спит", "min": 0, "max": 100, "step": 5, "unit": "%"},
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
+
+    # --- word of mouth (aivillage/reputation.py) ---
+    {"key": "mishear_number", "path": "reputation.mishear_number", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух искажает числа", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс, что слушатель запомнит другое число («украл 3 монеты» → «украл 6»). 0: слухи передаются точно."},
+    {"key": "mishear_name", "path": "reputation.mishear_name", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух путает, о ком речь", "min": 0, "max": 50, "step": 1, "unit": "%",
+     "hint": "Шанс, что слушатель решит, что речь о другом жителе. Рекомендуем 5%."},
+    {"key": "overhear", "path": "reputation.overhear", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Шёпот подслушивают", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс для каждого рядом услышать шёпот или сплетню на ухо. Рекомендуем 15%."},
+    {"key": "origin_hops", "path": "reputation.origin_hops", "group": "Слухи", "type": "range",
+     "label": "Сколько пересказов помнят автора слуха", "min": 1, "max": 10, "step": 1, "unit": "",
+     "hint": "Дальше слух идёт как «кто-то говорил»."},
+
+    {"key": "announce_cost", "path": "reputation.announce_cost", "group": "Слухи", "type": "range",
+     "label": "Цена объявления на доске", "min": 0, "max": 50, "step": 1, "unit": " мон.",
+     "hint": "Объявление на площади сразу читают все жители, слово в слово. Деньги идут в казну. Рекомендуем 5."},
+
+    # --- dice (aivillage/dice.py) ---
+    {"key": "dice", "path": "dice.enabled", "group": "Азарт", "type": "toggle", "label": "Кости на деньги",
+     "hint": "На площади жители могут играть в кости на монеты и проигрываться в долг."},
+    {"key": "dice_max_stake", "path": "dice.max_stake", "group": "Азарт", "type": "range",
+     "label": "Наибольшая ставка", "min": 1, "max": 100, "step": 1, "unit": " мон."},
+    {"key": "dice_credit", "path": "dice.credit", "group": "Азарт", "type": "range",
+     "label": "Можно ставить в долг сверх кармана", "min": 0, "max": 100, "step": 5, "unit": " мон.",
+     "hint": "0: играют только на свои. Больше: проигравший без денег остаётся должен победителю."},
 
     # --- crises (aivillage/crises.py) ---
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
@@ -292,6 +326,12 @@ def to_run(opts: dict) -> dict:
     if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter
         override["agents"] = clean_roster(rows, val["villagers"])
     override.setdefault("map", {})["procedural"] = not val["fixed_map"]
+    if val["seasons"]:
+        cal = seasons.calendar(val["days"], val["season_days"])
+        if val["season_start"] != "auto":
+            cal.update(start=val["season_start"], offset_days=0)
+        for k, v in cal.items():
+            _set(override, f"seasons.{k}", v)
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
             "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"], "values": val}

@@ -26,7 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip", "buy_land", "sell_land", "attack", "set_fire",
+            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
             "propose_build", "fund_project", "embezzle")},
         "error": 15,  # a failed action only costs a quarter hour
     },
@@ -202,6 +202,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "length_days": 7,
         "order": ["spring", "summer", "autumn", "winter"],
+        "start": "spring",  # season of day 1 (the start screen fits the calendar to the run: seasons.calendar)
+        "offset_days": 0,  # day 1 is this many days into `start`
+        "frost": ["winter"],  # at the first dawn of these, garden beds still growing die
         "regen_multiplier": {
             "summer": {"berries": 1.5},
             "autumn": {"grain": 1.5},
@@ -210,8 +213,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "wither": {},  # {season: {location: [resources]}} emptied at the season's first dawn
         "announce": {
             "spring": "Gardens can be sown again.",
-            "winter": "The ground is frozen: garden beds cannot be sown until spring, berries are gone, "
-                      "fish are scarce.",
+            "winter": "The ground is frozen: garden beds cannot be sown until spring, crops still growing froze, "
+                      "berries are gone, fish are scarce.",
         },
     },
     # Soft world crises (aivillage/crises.py): at dawn, from `first_day`, with `chance_per_day`, a crisis of a
@@ -284,6 +287,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "spouse_night_gain": 1,
         "divorce_hurt": 40,    # the left spouse's feeling drops by this
         "estate_statuses": ["dead", "exiled", "banished"],  # property passes on in these states
+        "pay_debts_first": True,  # the estate repays the deceased's open debts before the heir gets it
         # event kind -> [who, delta]: "to" = addressees about the actor, "both" = both ways,
         # "lender" = the debt's lender, "owner" = who lives in the house where it happened
         "on_event": {
@@ -300,6 +304,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "score_cap": 10,
         "notes_per_person": 3,
         "rumors_kept": 6,
+        # Word of mouth: hearers learn who started a rumor for this many tellings, then "someone".
+        # Each hearer may mishear: a number in the text changes, or (rarer) the rumor lands on another
+        # villager. Whispers and gossip told to one person are overheard by each bystander with "overhear".
+        "origin_hops": 2,
+        "mishear_number": 0.25,
+        "mishear_name": 0.05,
+        "overhear": 0.15,
+        # Notice board: `announce(text)` at this location pays `announce_cost` coins (treasury or burned)
+        # and every villager gets the notice at once.
+        "announce_cost": 5,
+        "announce_at": "square",
         "deltas": {
             "witness": -3,        # saw someone steal
             "steal_attempt": -4,  # caught someone stealing from you
@@ -389,6 +404,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Random fires (engine night): each dawn a random house catches fire with this chance
     # (0 = only the god or an arsonist starts fires). Shown as a setting in the app.
     "random_fires": {"per_day": 0.0},
+    # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with
+    # the same stake. Each rolls `dice`d`sides`, higher takes the stake; ties rerolled `rerolls` times.
+    # A player may stake up to coins + `credit`; a loser short of coins owes the rest, due in `debt_days`.
+    "dice": {"enabled": True, "places": ["square"], "dice": 2, "sides": 6, "rerolls": 2, "max_stake": 30,
+             "credit": 15, "debt_days": 2, "offer_hours": 2},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

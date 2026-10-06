@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import clock, conflict, crises, family, governance, land, mapgen, ops, plots, reputation, seasons, tiles, works
+from . import clock, conflict, crises, dice, family, governance, land, mapgen, ops, plots, reputation, seasons, tiles, works
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -148,6 +148,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))
     obs.update(land.observe(world, name))
+    obs.update(dice.observe(world, name))
     obs.update(works.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
@@ -285,6 +286,7 @@ WAKE_RULES: dict[str, str] = {
     "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
     "inheritance": "direct",
     "fight": "direct", "arson_seen": "direct", "land_offer": "direct", "land_sold": "direct",
+    "dice_challenge": "direct", "dice": "direct",
     "say": "mention",
 }
 

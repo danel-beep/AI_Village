@@ -52,8 +52,13 @@ class RandomBot(Bot):
         elif name in ("say",):
             args = {"text": r.choice(["hello", "anyone selling bread?", "I need wood", "   "])}
         elif name == "gossip":
-            args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""]),
-                    **({"to": r.choice(people)} if r.random() < 0.5 else {})}
+            heard = [x["id"] for x in obs.get("rumors", []) if "id" in x]
+            if heard and r.random() < 0.5:  # pass on a rumor heard, as is
+                args = {"rumor": r.choice(heard + ["r0.nobody"])}
+            else:
+                args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""])}
+            if r.random() < 0.5:
+                args["to"] = r.choice(people)
         elif name in ("whisper", "letter"):
             args = {"to": r.choice(people), "text": "psst"}
         elif name == "give":
@@ -85,6 +90,9 @@ class RandomBot(Bot):
                                               if name == "sell_land" else {})}
         elif name == "build":
             args = {"kind": r.choice(["garden_bed", "chicken_coop", "cow_pen", "beehive", "fence", "castle"])}
+        elif name == "dice":
+            ch = [c["from"] for c in obs.get("dice_challenges_to_you", [])]
+            args = {"person": r.choice(ch or people + ["nobody"]), "stake": r.choice([5, 5, r.randint(-2, 40)])}
         elif name == "steal_from_plot":
             args = {"item": r.choice(["egg", "milk", "honey", "grain", "coins"]), "qty": r.randint(1, 5)}
         elif name == "steal":
