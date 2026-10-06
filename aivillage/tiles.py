@@ -8,6 +8,8 @@ a stump, a bed with 0 grain is bare soil, a partly refilled bed is a growing cro
 - Gathering finishes the most-used object first (an axe stays on one tree until it falls).
 - Night regrowth spreads one unit at a time over the emptiest objects, so several beds
   sprout together and pass through visible growth stages; planted beds are skipped.
+- With `regrowth.from_remainder` on, the nightly regrowth follows what is left (`regen`): a full forest
+  regrows at its rate, a half-cut one at half, a cleared one only at the `floor` share. Off = flat rate.
 - A resource with `"plant"` in its config can be sown: an empty bed becomes `planted` and is
   full (ripe) on `ripe_day`, whatever the regrowth number. Anyone can harvest a ripe bed.
 
@@ -54,6 +56,17 @@ def take(loc: Location, r: str, qty: int) -> list[tuple[int, int]]:
         out.append((i, n))
     loc.resources[r] = sum(row)
     return out
+
+
+def regen(cfg: dict, loc: Location, r: str, spec: dict) -> int:
+    """Tonight's regrowth of r before the season multiplier: the flat `regen`, or with
+    `regrowth.from_remainder` on, `regen` x the share left (at least `floor`, at least 1 unit)."""
+    base, top = spec["regen"], spec["max"]
+    rg = cfg.get("regrowth") or {}
+    if not rg.get("from_remainder") or base <= 0 or base >= top:  # water refills whole either way
+        return base
+    share = max(rg.get("floor", 0.1), loc.resources.get(r, 0) / top)
+    return max(1, int(base * min(1.0, share) + 0.5))
 
 
 def grow(loc: Location, r: str, amount: int, cap: int, limit: int) -> None:

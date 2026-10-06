@@ -140,7 +140,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # `unfairness` 0..1 goes from as equal as possible to random and unfair (see mapgen.MAP_DEFAULTS).
     # Off here (the engine and its tests use the hand-made map below); the CLI and the live server
     # turn it on unless --fixed-map.
-    "map": {"procedural": False, "unfairness": 0.3},
+    # `size`: "normal" (as always), "large" or "huge": the village stays compact, a wilderness ring with far
+    # zones (deep forest, lake, caves with ore and stone, clay hills) lies 2+ hours away (mapgen.MAP_SIZES).
+    "map": {"procedural": False, "unfairness": 0.3, "size": "normal"},
+    # Nightly regrowth of wild resources (tiles.regen): off = the flat `regen` of each resource; on = in
+    # proportion to what is left, so a cleared forest or fished-out river comes back only at `floor` of it.
+    "regrowth": {"from_remainder": False, "floor": 0.1},
     # Map: a graph of locations. Homes are added per agent and connected to the square.
     # "slots" splits a resource into finite map objects (trees, beds, bushes, shoals, rocks; see tiles.py).
     # "plant": the resource can be sown in an empty bed (costs `seed` of it, ripe after `days` nights).

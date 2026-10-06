@@ -7,6 +7,9 @@ split by waypoints (crossroads, old oak, ...), so far places really take more ho
 linked to the nearest place on the road network, so some villagers live next to their work and the market
 and some live far out: unequal by design.
 
+`map.size` "large" / "huge" keeps that village as it is and adds a wilderness ring with far zones (WILDS:
+deep forest, lake, caves with stone and ore, clay hills) two or more hours of walking from the square.
+
 Honest minimum (`check`): the graph is connected, every landmark is at most `max_landmark_hops` from the
 square, every home at most `max_home_hops` from the square, and every resource of the base map exists with
 at least `min_resource_share` of its base amount. A seed that fails is re-rolled (attempt 1, 2, ...).
@@ -65,8 +68,35 @@ LOT_NAMES = ["Meadow lot", "Hilltop lot", "Brook lot", "Old orchard lot", "Stony
              "Fern lot", "Clover lot", "Heather lot", "Thistle lot", "Barley lot", "Mossy lot", "Windy lot",
              "Pine lot", "Daisy lot", "Rush lot", "Elder lot", "Bramble lot", "Poppy lot"]
 
+# Far wild zones of a large map (`map.size`): the village core stays as compact as on the normal map, and
+# the plenty and the rare lie two or more hours of walking away. `from` + `share` copy a share of a base
+# location's resources (per resource, like PATCHES); `own` are resources no base location has (clay, scaled
+# by the number of villagers). `biome` is written into the location config for other mechanics (animals).
+# A `solid` zone is walked around (the cave's rock); the lake is water inside the ellipse of its box.
+WILDS = {
+    "deepwood": {"name": "Deep forest", "box": (10, 7), "from": "forest", "share": {"wood": 1.5, "berries": 1.5},
+                 "biome": "deep_forest"},
+    "lake": {"name": "Lake", "box": (9, 6), "from": "river", "share": {"fish": 1.0}, "biome": "lake"},
+    "cave": {"name": "Cave", "box": (5, 4), "from": "mine", "share": {"stone": 0.7, "ore": 1.3}, "biome": "cave",
+             "solid": True},
+    "clayhill": {"name": "Clay hills", "box": (6, 4), "own": {"clay": {"start": 40, "max": 40, "regen": 12, "slots": 6}},
+                 "biome": "clay_hills"},
+}
+WILD_ITEMS = {"clay": {"value": 2}}  # added to config items when a map has them (crafting turns clay into brick)
+# `ring`: tiles of wilderness added around the village (all of it away from the river, half above and half
+# below); `wilds`: how many zones of each kind. "normal" is the map as it always was.
+MAP_SIZES = {
+    "normal": {"ring": 0, "wilds": {}},
+    "large": {"ring": 20, "wilds": {"deepwood": 1, "lake": 1, "cave": 1, "clayhill": 1}},
+    "huge": {"ring": 40, "wilds": {"deepwood": 2, "lake": 1, "cave": 2, "clayhill": 2}},
+}
+WILD_WAYPOINT_NAMES = ["Deer trail", "Mossy log", "Fallen pine", "Bear rock", "Hunter's hut", "Ford", "Cairn",
+                       "Old stump", "Wolf hollow", "Fern gully", "Split boulder", "Hollow oak", "Spring",
+                       "Ridge", "Burnt clearing", "Lichen stone", "Elk meadow", "Gorge", "Bramble pass", "Echo cliff"]
+
 MAP_DEFAULTS = {
     "procedural": False,
+    "size": "normal",
     "tiles_per_hour": 24,
     "max_home_hops": 2,
     "home_road": 12,
@@ -99,6 +129,8 @@ class MapError(ValueError):
 def params(cfg: dict) -> dict:
     """Map settings with the values that follow from `unfairness` filled in (explicit ones win)."""
     p = {**MAP_DEFAULTS, **cfg.get("map", {})}
+    if p["size"] not in MAP_SIZES:
+        raise ValueError(f"map.size must be one of {sorted(MAP_SIZES)}, got {p['size']!r}")
     u = p["unfairness"] = max(0.0, min(1.0, float(p["unfairness"])))
     derived = {"richness": [1 - 0.4 * u, 1 + 0.4 * u], "lone_share": 0.4 * u,
                "max_work_hops": MAP_DEFAULTS["max_work_hops"] + (1 if u >= 0.7 else 0)}
@@ -126,15 +158,18 @@ def generate(cfg: dict) -> dict:
     raise MapError(f"no fair map for seed {seed}")
 
 
-def for_run(override: dict, fixed_map: bool = False, unfairness: float | None = None) -> dict:
+def for_run(override: dict, fixed_map: bool = False, unfairness: float | None = None,
+            size: str | None = None) -> dict:
     """World override for a real run (CLI, live server): procedural map on unless the run config already
-    says otherwise or --fixed-map; --unfairness sets the knob."""
+    says otherwise or --fixed-map; --unfairness and --map-size set those knobs."""
     m = dict(override.get("map") or {})
     if fixed_map:
         m["procedural"] = False
     m.setdefault("procedural", True)
     if unfairness is not None:
         m["unfairness"] = unfairness
+    if size is not None:
+        m["size"] = size
     return {**override, "map": m}
 
 
@@ -143,6 +178,8 @@ def add_args(p) -> None:
     p.add_argument("--fixed-map", action="store_true", help="use the hand-made map instead of a generated one")
     p.add_argument("--unfairness", type=float, default=None,
                    help="0 = everyone starts equal ... 1 = random, unfair plots, money and places (default 0.3)")
+    p.add_argument("--map-size", choices=list(MAP_SIZES), default=None,
+                   help="large / huge: the same compact village with far wild zones around it (default normal)")
 
 
 # ---------- grid ----------
@@ -233,7 +270,9 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     grow = max(0, math.ceil((n - 8) / 4))
     lots = _lots_wanted(cfg, n)
     room = max(grow, math.ceil((n + lots - 5) / 4))  # lots for sale need room at the edges
-    cols, rows = 44 + 4 * room, 32 + 4 * room
+    size = MAP_SIZES[p["size"]]
+    ring, wild = size["ring"], bool(size["wilds"])
+    cols, rows = 44 + 4 * room + 2 * ring, 32 + 4 * room + 2 * ring
     p = {**p, "spread": p["spread"] + grow}
     g = Grid(cols, rows)
     places: dict[str, dict] = {}
@@ -250,7 +289,9 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             g.water.add((x, y))
         # the far bank is too narrow to build on; keep one land tile of margin on the near bank
         g.reserved.update((x, y) for x in (range(0, x0 + 4) if side == "left" else range(x0 - 1, cols)))
-    cx, cy = cols // 2 + (-1 if side == "left" else 1) * (cols // 12), rows // 2 - 2
+    # the village sits where it would on the normal map: next to the river, with the wilderness around it
+    bc = cols - 2 * ring
+    cx, cy = bc // 2 + (-1 if side == "left" else 1) * (bc // 12) + (2 * ring if side == "right" else 0), rows // 2 - 2
     dock_y = max(5, min(rows - 8, cy + rng.randint(-6, 6)))
     x0 = span[dock_y]
     dock = [x0 + 1, x0 + 2, x0 + 3] if side == "left" else [x0 - 1, x0, x0 + 1]
@@ -266,8 +307,12 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
         w, h = spec["box"]
         ax, ay = spec["anchor"]
         extra = spec.get("extra_rows", 0)
+        x0, x1, y0, y1 = 1, cols - w - 1, 1, rows - h - 2 - extra
+        if wild and near is not None:  # a big map: look only where the distance can fit
+            x0, x1 = max(x0, near[0] - dmax - w), min(x1, near[0] + dmax)
+            y0, y1 = max(y0, near[1] - dmax - h), min(y1, near[1] + dmax)
         for _ in range(tries):
-            x, y = rng.randint(1, cols - w - 1), rng.randint(1, rows - h - 2 - extra)
+            x, y = rng.randint(x0, x1), rng.randint(y0, y1)
             anchor = (x + ax, y + ay)
             if near is not None and not dmin <= abs(anchor[0] - near[0]) + abs(anchor[1] - near[1]) <= dmax:
                 continue
@@ -279,6 +324,8 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
                 continue
             g.reserved.update(t for t in area + [anchor] if g.inside(*t))
             g.solid.update(_solid(kind, x, y, w, h))
+            if kind == "lake":
+                g.water.update(lake_tiles(x, y, w, h))
             places[pid] = {"kind": kind, "box": [x, y, w, h], "anchor": list(anchor)}
             return
         raise MapError(f"no room for {pid}")
@@ -303,6 +350,12 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
         hid = hname.lower().replace(" ", "_")
         put(hid, "hamlet", HAMLET, sq, 9, p["spread"] + 2)
         places[hid]["name"] = hname
+    for kind, k in size["wilds"].items():  # far from the square: past the patches, hamlets and lots
+        spec = WILDS[kind]
+        for i in range(k):
+            w, h = spec["box"]
+            put(kind if i == 0 else f"{kind}{i + 1}", kind, {"box": (w, h), "anchor": (w // 2, h)}, sq,
+                p["spread"] + 12, p["spread"] + 12 + 2 * ring)
     for pl in places.values():
         if pl["kind"] == "pond":
             g.water.update(rect(*pl["box"]))
@@ -325,7 +378,11 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     rng.shuffle(spare)
     edges += spare[: rng.randint(1, 3)]
     wp_names = WAYPOINT_NAMES[:]
+    if wild:  # long trails need more signposts; numbered trail marks if even those run out
+        wp_names += WILD_WAYPOINT_NAMES
     rng.shuffle(wp_names)
+    if wild:
+        wp_names = [f"Trail mark {k}" for k in range(80, 0, -1)] + wp_names
 
     # A first draft of the roads tells how far each place is from the square.
     draft = _roads(g, anchors, edges, step, wp_names[:])
@@ -340,7 +397,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     homes: dict[str, list[str]] = {}
     near = [pid for pid in ids if hub[pid] < p["max_home_hops"]]
     hamlets = [pid for pid in near if places[pid]["kind"] == "hamlet"]
-    lone = [pid for pid in near if places[pid]["kind"] not in ("hamlet", "square", "market")]
+    lone = [pid for pid in near if places[pid]["kind"] not in ("hamlet", "square", "market") + tuple(WILDS)]
     graph0 = {pid: distances(draft[0], pid) for pid in ["square"] + hamlets + lone}
     profession = {a["name"]: a.get("profession") for a in cfg["agents"]}
 
@@ -425,6 +482,19 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             ppc = land_cfg["price_per_cell"] * (1.25 if hops.get(pid, 9) <= 1 else 1.0)
             locations[pid] = {"name": pl["name"], "neighbors": neighbors[pid],
                               "lot": {"cells": pl["cells"], "price": round(pl["cells"] * ppc)}}
+        elif pl["kind"] in WILDS:
+            spec = WILDS[pl["kind"]]
+            res = {}
+            if "from" in spec:
+                src = (base.get(spec["from"]) or _default_locations()[spec["from"]]).get("resources", {})
+                f = rng.uniform(lo, hi)
+                res = {r: dict(s) if r == "water" else _scale(s, f * spec["share"][r], spec["share"][r])
+                       for r, s in src.items() if r == "water" or r in spec["share"]}
+            for r, s in spec.get("own", {}).items():
+                res[r] = _scale(s, max(1.0, n / 8) * rng.uniform(lo, hi))
+            k = pid[len(pl["kind"]):]
+            locations[pid] = {"name": spec["name"] + (f" {k}" if k else ""), "neighbors": neighbors[pid],
+                              "resources": res, "biome": spec["biome"]}
         elif pl["kind"] in PATCHES:
             spec = PATCHES[pl["kind"]]
             src = base[spec["from"]].get("resources", {})
@@ -450,6 +520,9 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
 
     out = copy.deepcopy(cfg)
     out["locations"] = locations
+    for item, spec in WILD_ITEMS.items():
+        if any(item in loc.get("resources", {}) for loc in locations.values()):
+            out["items"].setdefault(item, dict(spec))
     layout = {
         "cols": cols, "rows": rows,
         "river": {"side": side, "x": span, "dock": {"y": dock_y, "x": dock}},
@@ -558,7 +631,7 @@ def _place_house(g: Grid, rng: random.Random, places: dict, name: str, around: s
 
 def _solid(kind: str, x: int, y: int, w: int, h: int) -> list[tuple[int, int]]:
     """Tiles roads must go around. Gates and clearings stay open so the anchor can be reached."""
-    if kind in ("square", "grove", "quarry", "hamlet"):
+    if kind in ("square", "grove", "quarry", "hamlet", "deepwood", "clayhill", "lake"):  # lake: its water blocks
         return []
     tiles = rect(x, y, w, h)
     if kind == "field":  # gate in the bottom fence, path up to the anchor
@@ -566,6 +639,17 @@ def _solid(kind: str, x: int, y: int, w: int, h: int) -> list[tuple[int, int]]:
     if kind == "forest":  # clearing from the anchor down to the forest edge
         return [t for t in tiles if not (abs(t[0] - (x + 3)) <= 1 and t[1] >= y + 4)]
     return tiles
+
+
+def lake_tiles(x: int, y: int, w: int, h: int) -> list[tuple[int, int]]:
+    """Water tiles of a lake: the ellipse inscribed in its box (viewer/mapgen.js draws the same)."""
+    return [(i, j) for i, j in rect(x, y, w, h)
+            if ((i + 0.5 - x - w / 2) / (w / 2)) ** 2 + ((j + 0.5 - y - h / 2) / (h / 2)) ** 2 <= 1]
+
+
+def _default_locations() -> dict:
+    from .config import DEFAULT_CONFIG
+    return DEFAULT_CONFIG["locations"]
 
 
 def _scale(spec: dict, f: float, objects: float = 1.0) -> dict:

@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.agents:
         override["population"] = {**(override.get("population") or {}), "size": a.agents}
     with_tick_minutes(override, a.tick_minutes)
-    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
+    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness, a.map_size))
     names = sorted(world.agents)
     brains = rc.brains(names)
     # Old-style flags cycle over agents and override the file.
