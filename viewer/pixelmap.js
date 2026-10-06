@@ -35,7 +35,7 @@ const PixelMap = (() => {
             ['...k7777k...', '...k8888k...', '....kkkk....']],
   };
 
-  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null, pendingInit = null, looks = {};
+  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null, pendingInit = null, looks = {}, hdr = null, day = null;
 
   function rnd(x, y, s = 0) {
     let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
@@ -234,6 +234,10 @@ const PixelMap = (() => {
   const ORE = { '#d4a83a': 'gold_rock', '#7ad0e0': 'crystal_rock' };
   function tree(g, x, y, pine) {
     if (SP(g, pine ? 'pine' : rnd(x, y, 5) < .15 ? 'apple_tree' : 'oak', x + 16, y + 32)) return;
+    if (window.Depth) Depth.add(g, 'tree', x + 2, y, 28, 32, c => treeArt(c, x, y, pine));
+    treeArt(g, x, y, pine);
+  }
+  function treeArt(g, x, y, pine) {
     blob(g, x + 16, y + 30, 11, 3, ['rgba(0,0,0,.18)', 'rgba(0,0,0,.18)', 'rgba(0,0,0,.18)'], null);
     R(g, x + 13, y + 20, 6, 10, C.k); R(g, x + 14, y + 20, 4, 9, C.wood); R(g, x + 14, y + 20, 1, 9, C.woodL);
     if (pine) {
@@ -292,7 +296,10 @@ const PixelMap = (() => {
     if (!window.Sprites || !Sprites.has(n + '_r0')) n = 'house' + level;
     const k = Math.max(0, ROOFS.indexOf(h.roof)), bx = h.x + 24, by = h.y + 47;
     if (!window.Sprites || !Sprites.has(n + '_r' + k)) return false;
-    if (level > 1 && layout.ground) g.drawImage(layout.ground, h.x, h.y - 2, 3 * T, 3 * T + 2, h.x, h.y - 2, 3 * T, 3 * T + 2);
+    if (level > 1 && layout.ground) {   // in the season's colours, or a green square shows behind the roof in autumn / winter
+      const gr = window.SeasonLayer && hdr && day != null ? SeasonLayer.ground(layout.ground, hdr, day) : layout.ground;
+      g.drawImage(gr, h.x, h.y - 2, 3 * T, 3 * T + 2, h.x, h.y - 2, 3 * T, 3 * T + 2);
+    }
     SP(g, n + '_r' + k, bx, by);
     const m = Sprites.meta(n);
     h.chimney = [bx + m.chimney[0], by + m.chimney[1]];
@@ -461,6 +468,11 @@ const PixelMap = (() => {
     layout.ground = c;
   }
   function paintBackground() {
+    if (window.Depth) Depth.begin('bg');   // trees, houses and buildings that can stand in front of a villager
+    paintScene();
+    if (window.Depth) Depth.end();
+  }
+  function paintScene() {
     layout.shimmer = [];   // glints on open water (the river, wherever it runs, and ponds)
     for (let y = 2; y < H; y += 7) for (let x = 2; x < W - 4; x += 11)
       if (kindAt(x / T | 0, y / T | 0) === 'water' && kindAt((x + 4) / T | 0, y / T | 0) === 'water') layout.shimmer.push([x, y]);
@@ -529,7 +541,7 @@ const PixelMap = (() => {
       if (!pendingInit) Sprites.onReady(() => pendingInit && init(...pendingInit));
       pendingInit = [header, colors];
     } else pendingInit = null;
-    names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
+    hdr = header; names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
     if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
     if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence, houseSprite });
     paintBackground();
@@ -544,7 +556,8 @@ const PixelMap = (() => {
     const ring = [[0, 0], [-13, 3], [13, 3], [-7, -9], [7, -9], [0, 11], [-20, -4], [20, -4], [-14, 13], [14, 13],
                   [-24, 8], [24, 8], [0, -16], [-28, -10], [28, -10], [-20, 18], [20, 18], [0, 22], [-30, 2], [30, 2]];
     const [x, y] = layout.anchors[loc] || layout.anchors.square, [dx, dy] = ring[Math.max(0, k) % ring.length];   // k = -1: not active in that tick (hospital)
-    return [x + Math.round(dx * 1.8), y + Math.round(dy * 1.2)];
+    const at = [x + Math.round(dx * 1.8), y + Math.round(dy * 1.2)];
+    return window.Depth ? Depth.free(...at) : at;   // not inside a trunk or a well
   }
   function here(view, name) {
     const loc = view.agents[name].location;
@@ -595,15 +608,19 @@ const PixelMap = (() => {
 
   // ---------- per-frame drawing ----------
   function draw(ctx, { t, prev, frac, selected, time, tr, hourSec }) {
-    const e = Math.min(1, frac), sec = time / 1000;
-    b.drawImage(bg, 0, 0);
+    const e = Math.min(1, frac), sec = time / 1000, SL = window.SeasonLayer;
+    day = t.view.day;
+    b.drawImage(SL ? SL.ground(bg, hdr, t.view.day) : bg, 0, 0);   // autumn / winter colours (viewer/seasonlayer.js)
     // water shimmer
     for (const [x, y] of layout.shimmer) {
       const ph = (sec * .8 + rnd(x, y) * 6) % 6; if (ph > 1.2) continue;
       R(b, x + (ph * 3 | 0), y, 3, 1, C.waterL);
     }
+    if (window.Depth) Depth.begin('live');
     if (window.MapLayer) MapLayer.draw(b, t, e, sec);
     if (window.PlotLayer) PlotLayer.draw(b, t, e, sec);
+    if (window.Depth) Depth.end();
+    if (SL) SL.tint(b, hdr, t.view.day, W, H);
     const fires = new Set(t.view.fires || []);
     const homeNow = new Set(names.filter(n => t.view.agents[n].location === 'home_' + n && t.view.agents[n].status === 'active'));
     // chimney smoke
@@ -649,8 +666,12 @@ const PixelMap = (() => {
     });
     shown.sort((p, q) => p.y - q.y);
     lastPos = {};
-    for (const a of shown) { lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8]; Actors.paint(b, sheets[a.n], a, sec, a.n === selected); }
+    for (const a of shown) lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8];
+    const one = a => Actors.paint(b, sheets[a.n], a, sec, a.n === selected);
+    if (window.Depth) Depth.paint(b, shown, one); else shown.forEach(one);   // trees and houses in front cover them
+    if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
+    if (SL) SL.weather(b, hdr, t.view.day, sec, W, H);   // snowflakes, falling leaves
     // night
     const h0 = prev.view.hour + (prev.view.minute || 0) / 60, h1 = t.view.hour + (t.view.minute || 0) / 60;
     const hour = h1 > h0 && h1 - h0 <= 1 ? h0 + e * (h1 - h0) : h0, dark = darkness(hour);
@@ -724,5 +745,7 @@ const PixelMap = (() => {
   }
 
   const gfx = { C, R, P, blob, rnd };
-  return { init, draw, pick, gfx };
+  // Where a villager was last drawn, in map pixels (head height), or undefined; used by viewer/clip.js.
+  const where = n => lastPos[n];
+  return { init, draw, pick, where, gfx };
 })();

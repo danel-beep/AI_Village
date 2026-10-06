@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import family, ops, plots, reputation
+from . import family, ops, plots, reputation, works
 from .actions import _agent_here
 from .ops import Ctx, Event
 from .registry import ACTIONS, ActionError
@@ -149,7 +149,7 @@ def set_fire(ctx: Ctx, a: Agent, args) -> None:
     ops.burn(w, a.inventory, "wood", wood)
     house = a.location
     family_home = [o for o in victims if w.agents[o].location == house and ops.can_act(w.agents[o])]
-    others = [n for n in _witnesses(ctx, a, {a.name, *family_home}) if ctx.rng.random() < cfg["steal_notice_chance"]]
+    others = [n for n in _witnesses(ctx, a, {a.name, *family_home}) if ctx.rng.random() < cfg["steal_notice_chance"] + works.notice_bonus(ctx.world)]
     owner = victims[0]
     ctx.emit("set_fire", f"You set fire to {owner}'s house.", actor=a.name, to=[a.name], victim=owner, house=house,
              witnesses=family_home + others)

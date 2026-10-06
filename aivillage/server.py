@@ -29,9 +29,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, session
-from .highlights import Highlighter, write_sidecar as write_highlights
-from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
+from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves, session
+from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
+from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
 from .registry import GOD, ActionError
 from .run import bots_decider, llm_agents, night_reflection, run, with_tick_minutes
 from .state import World
@@ -67,14 +67,31 @@ class GodQueue:
             self._pending = [(t, ev) for t, ev in self._pending if t > tick]
         return out
 
+    def pending(self) -> list[list]:
+        """[[tick, event], ...] still waiting: a save keeps them (aivillage/saves.py)."""
+        with self._lock:
+            return [[t, ev] for t, ev in self._pending]
+
 
 class LiveSim:
     """One running simulation plus its subscribers. Thread-safe toward the asyncio side."""
 
     def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0,
                  on_night=None, summarizer: Summarizer | None = None, reports_dir: str | None = None,
-                 reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES):
+                 reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES,
+                 resume_header: dict | None = None):
         self.world, self.decide, self.days, self.log_path = world, decide, days, log_path
+        # Saves (aivillage/saves.py): `<log>.save.json`, taken between ticks on request, every game hour,
+        # when the village is stopped and when it ends. `resume_header`: this sim continues a loaded save.
+        self.end_day = world.day + days
+        self.resume_header = resume_header
+        self.run_info: dict = {"days": days}  # start-screen answers etc., kept in the save for "continue"
+        self.view_lag_minutes = view_lag_minutes
+        self.last_save: dict | None = None
+        self._save_requests: list[tuple[threading.Event, dict]] = []
+        self._save_lock = threading.Lock()
+        self._autosave_tick = world.tick
+        self._paced_once = False
         self.on_night = on_night
         # Recaps ("Что произошло?"): one per finished game day in the background, plus on demand.
         self.summarizer = summarizer
@@ -113,13 +130,16 @@ class LiveSim:
     def _run(self) -> None:
         try:
             run(self.world, self.decide, self.days, self.god, self.log_path,
-                on_night=self.on_night, on_record=self._on_record)
+                on_night=self.on_night, on_record=self._on_record, checkpoint=self._checkpoint,
+                resume_header=self.resume_header)
+            self._save_quietly()  # the last day is done: "continue" later adds more days
         except _Stop:
             pass
         except Exception as e:  # surface crashes in the viewer instead of dying silently
             self.error = f"{type(e).__name__}: {e}"
             self._publish({"type": "error", "text": self.error})
         self.finished = True
+        self._serve_saves()  # whoever asked to save while the last tick ran
         if self.log_path:  # end-of-run scorecard next to the log (aivillage/scorecard.py)
             try:
                 from . import scorecard
@@ -148,14 +168,23 @@ class LiveSim:
             with self._lock:
                 self.diaries.append((self.ticks[-1]["tick"] if self.ticks else -1, rec))
         self._publish(rec)
-        if rec["type"] == "tick":
+
+    def _checkpoint(self, world: World) -> None:
+        """run() calls this before every tick: the one moment the world, the log and the villagers' memory
+        agree. Saves happen here (asked for, hourly, on stop), then the pause / pacing wait."""
+        self._serve_saves()
+        if world.tick - self._autosave_tick >= clock.per_hour(world.config):
+            self._save_quietly()
+        if self._paced_once or self.stopping:  # the first tick of a run (or of a loaded save) starts at once
             self._wait()
+        self._paced_once = True
 
     def _wait(self) -> None:
         """Pace the sim so people can watch; block while paused. `pace` is seconds per game hour."""
         per_tick = self.pace / clock.per_hour(self.world.config)
         deadline = time.monotonic() + per_tick
         while not self.stopping:
+            self._serve_saves()  # "save" pressed while paused
             if not self.running.is_set():
                 self.running.wait(0.2)
                 deadline = time.monotonic() + per_tick
@@ -164,18 +193,103 @@ class LiveSim:
             if left <= 0:
                 return
             time.sleep(min(left, 0.1))
+        self._save_quietly()  # closing a village keeps it: it can be continued from the start screen
+        self._serve_saves()
         raise _Stop  # stop() asked the thread to end
 
-    def stop(self) -> None:
+    # --- saves (aivillage/saves.py) ---
+    def save(self, timeout: float = 20.0) -> dict | None:
+        """Save now if the sim is between ticks, else at its next checkpoint. Returns the save's info,
+        or None if the current tick (models still thinking) took longer than `timeout`: it lands right after."""
+        if not self.log_path:
+            raise ValueError("Эта деревня идёт без лога, её нельзя сохранить.")
+        if self.error:
+            raise ValueError("Деревня остановилась с ошибкой, сохранять её нельзя: " + self.error)
+        if self._thread is None or not self._thread.is_alive():
+            return self._save_now(announce=True)
+        done, out = threading.Event(), {}
+        with self._lock:
+            self._save_requests.append((done, out))
+        if not self._thread.is_alive():  # ended between the check and the request
+            self._serve_saves()
+        if not done.wait(timeout):
+            return None
+        if "error" in out:
+            raise ValueError(out["error"])
+        return out["info"]
+
+    def _serve_saves(self) -> None:
+        with self._lock:
+            reqs, self._save_requests = self._save_requests, []
+        if not reqs:
+            return
+        try:
+            info, err = self._save_now(announce=True), None
+        except Exception as e:
+            info, err = None, f"Не удалось сохранить: {type(e).__name__}: {e}"
+        for done, out in reqs:
+            out.update({"info": info} if err is None else {"error": err})
+            done.set()
+
+    def _save_quietly(self) -> None:
+        if self.log_path and not self.error:
+            try:
+                self._save_now()
+            except Exception as e:  # a full disk must not stop the village
+                print(f"save failed: {e}")
+
+    def _save_now(self, announce: bool = False) -> dict:
+        """Write the save; `announce` tells the viewers (a "💾" press), autosaves stay quiet."""
+        with self._save_lock:
+            w = self.world
+            run_info = {**self.run_info, "pace": self.pace, "summaries": self.summarizer is not None,
+                        "view_lag_minutes": self.view_lag_minutes}
+            snap = saves.snapshot(w, self.decide, log_path=self.log_path, end_day=self.end_day, run=run_info,
+                                  god_pending=self.god.pending())
+            path = saves.write(self.log_path, snap)
+            self._autosave_tick = w.tick
+            self.last_save = {"type": "saved", "tick": w.tick, "day": w.day, "hour": w.hour, "minute": w.minute,
+                              "at": clock.label(w.config, w.tick), "saved_at": snap["saved_at"],
+                              "name": Path(self.log_path).stem, "file": path.name}
+        if announce:
+            self._publish(self.last_save)
+        return self.last_save
+
+    def preload(self, recs: list[dict]) -> None:
+        """A loaded save: the log so far (cut back to the save) becomes the backlog late joiners get,
+        and recaps / highlights of what came before are kept."""
+        for rec in recs:
+            if rec["type"] == "header":
+                self.header = rec
+            elif rec["type"] == "tick":
+                self.ticks.append(rec)
+            elif rec["type"] == "diary":
+                self.diaries.append((self.ticks[-1]["tick"] if self.ticks else -1, rec))
+        tick, day = self.world.tick, self.world.day
+        for path, keep, attr in ((summary_path(self.log_path), lambda r: r.get("to_tick", tick) < tick, "summaries"),
+                                 (highlights_path(self.log_path), lambda r: r.get("day", day) < day, "highlights")):
+            try:
+                old = json.loads(Path(path).read_text(encoding="utf-8")) if Path(path).is_file() else []
+            except (OSError, ValueError):
+                old = []
+            setattr(self, attr, [r for r in old if isinstance(r, dict) and keep(r)])
+
+    def stop(self, wait: float = 0.0) -> bool:
+        """Ask the sim to end (it saves first). `wait`: seconds to wait for that; True if it has ended."""
         self.stopping = True
         self.running.set()
+        if wait and self._thread is not None:
+            self._thread.join(wait)
+        return self._thread is None or not self._thread.is_alive()
 
-    def end(self, ended_by: str = "button") -> dict | None:
-        """Stop the village, wait for the sim thread to close the log, save the session summary."""
+    def end(self, ended_by: str = "button", wait: float = 60.0) -> dict | None:
+        """Stop the village, wait for the sim thread to close the log (at most the current tick's model
+        calls), save the session summary."""
         natural = self.finished and not self.stopping and not self.error
-        self.stop()
-        if self._thread and self._thread is not threading.current_thread():
-            self._thread.join(timeout=60)  # at most the current tick's model calls
+        if self._thread is not threading.current_thread():
+            self.stop(wait)
+        else:
+            self.stop()
         return self.save_session("finished" if natural else "error" if self.error else ended_by)
 
     def save_session(self, ended_by: str) -> dict | None:
@@ -183,7 +297,8 @@ class LiveSim:
             return None
         with self._session_lock:
             try:
-                self.session = session.save(self.log_path, ended_by=ended_by, days_planned=self.days)
+                self.session = session.save(self.log_path, ended_by=ended_by,
+                                            days_planned=None if self.resume_header else self.days)
             except Exception as e:  # a summary must never take the app down
                 print(f"session summary failed: {type(e).__name__}: {e}")
                 return None
@@ -309,7 +424,8 @@ class LiveSim:
                 "minute": self.world.minute, "tick_minutes": clock.tick_minutes(self.world.config),
                 "view_lag_ticks": self.view_lag_ticks,
                 "paused": not self.running.is_set(), "pace": self.pace, "finished": self.finished,
-                "error": self.error, "log_name": Path(self.log_path).stem if self.log_path else None}
+                "error": self.error, "last_save": self.last_save,
+                "log_name": Path(self.log_path).stem if self.log_path else None}
 
     def meta(self) -> dict:
         w = self.world
@@ -367,15 +483,18 @@ class Host:
             self.last = {**run_opts["values"], "seed": None}
             if opts.get("roster"):
                 self.last["roster"] = world.config["agents"]
+            self.sim.run_info = {"days": run_opts["days"], "seed": seed, "last": self.last}
             self.sim.start()
             print(f"Village seed {seed}: {log}")
             return self.sim
 
-    def stop(self, ended_by: str = "new_village") -> None:
-        """Leave the current village; its session summary is saved like with "Завершить сессию"."""
-        if self.sim is not None:
-            sim, self.sim = self.sim, None
-            sim.end(ended_by)
+    def stop(self, wait: float = 5.0, ended_by: str = "new_village") -> LiveSim | None:
+        """Stop the current village (it saves itself on the way out, and its session summary is saved like
+        with "Завершить сессию"). Returns it, None if there was none."""
+        sim, self.sim = self.sim, None
+        if sim is not None:
+            sim.end(ended_by, wait)
+        return sim
 
     def end(self) -> dict | None:
         """"🏁 Завершить сессию": stop and summarise; with the start screen the app goes back to it."""
@@ -386,6 +505,44 @@ class Host:
             if self.setup:
                 self.sim = None
             return sim.end("button")
+
+    def load(self, name: str, days: int | None = None) -> LiveSim:
+        """Continue a saved village (aivillage/saves.py) from the moment it was saved. `days`: play this many
+        more days from now; default the rest of the planned run, or as many days again if it had ended."""
+        if not name.replace("-", "").replace("_", "").isalnum():
+            raise ValueError("Нет такого сохранения.")
+        log = self.runs_dir / f"{name}.jsonl"
+        if not saves.path_for(log).is_file():
+            raise ValueError("Нет такого сохранения.")
+        with self._lock:
+            old = self.stop()
+            if old is not None and old.log_path == str(log) and not old.stop(120):
+                raise ValueError("Эта деревня ещё сохраняется (жители додумывают ход). Попробуйте через минуту.")
+            snap = saves.read(saves.path_for(log))
+            world = saves.world_of(snap)
+            decide, on_night = saves.decider(world, snap)  # before the log is cut: a bad save changes nothing
+            recs = saves.rewind_log(log, snap)
+            info = dict(snap.get("run") or {})
+            left = snap["end_day"] - world.day
+            days = int(days) if days else (left if left > 0 else int(info.get("days") or 1))
+            if not 1 <= days <= 365:
+                raise ValueError("Сколько дней играть: от 1 до 365.")
+            sm = "default" if info.get("summaries") and keys.has_any_key() else "off"
+            summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
+            sim = LiveSim(world, decide, days, str(log), float(info.get("pace", 1.0)), on_night, summarizer,
+                          self.reports_dir, self.reveal_reports,
+                          int(info.get("view_lag_minutes") or VIEW_LAG_MINUTES), resume_header=recs[0])
+            sim.run_info = {**info, "days": info.get("days") or days}
+            sim.preload(recs)
+            for tick, ev in snap.get("god_pending") or []:
+                sim.god.put(ev, tick)
+            self.sim, self.last = sim, info.get("last") or self.last
+            sim.start()
+            print(f"Village continued from {snap['saved_at']}: {log}")
+            return sim
+
+    def saves(self) -> list[dict]:
+        return saves.listing(self.runs_dir)
 
     def runs(self) -> list[Path]:
         return sorted(self.runs_dir.glob("*.jsonl"), reverse=True) if self.runs_dir.is_dir() else []
@@ -426,6 +583,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
                       '<script src="/settings.js"></script>\n')
             if host.setup:
                 inject += '<script src="/setup.js"></script>\n'
+        inject += '<script src="/saves.js"></script>\n'  # "💾 Сохранить" in a village, "Продолжить" on the start screen
         return html.replace("</body>", inject + "</body>", 1)
 
     @app.get("/pixelmap.js")
@@ -558,6 +716,37 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
             raise HTTPException(400, "this server runs one village (started without --setup)")
         host.stop()
         return {"ok": True}
+
+    # --- saves (aivillage/saves.py, viewer/saves.js) ---
+    @app.get("/api/saves")
+    def saved_villages(request: Request) -> dict:
+        local_only(request)
+        current = Path(host.sim.log_path).stem if host.sim and host.sim.log_path else None
+        return {"saves": host.saves(), "current": current, "can_load": host.setup}
+
+    @app.post("/api/save")
+    def save_now(request: Request) -> dict:
+        local_only(request)
+        try:
+            info = need().save()
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, "pending": info is None, **(info or {})}
+
+    @app.post("/api/load")
+    def load(body: dict, request: Request) -> dict:
+        local_only(request)
+        if not host.setup:
+            raise HTTPException(400, "this server runs one village (started without --setup)")
+        body = body or {}
+        info = next((s for s in host.saves() if s["name"] == body.get("name")), None)
+        if info and info["needs_key"] and not keys.has_any_key():
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева.")
+        try:
+            sim = host.load(str(body.get("name") or ""), body.get("days"))
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, **sim.status()}
 
     @app.get("/api/runs")
     def past_runs(request: Request) -> dict:
