@@ -7,9 +7,9 @@ On, every kind in `construction.catalog` is built in three steps, each one publi
   town hall, tavern, palisade at the square). The next level of something standing is a new site.
 - `bring_materials(site_id, items)` delivers the level's `items` at the site (anyone may bring them).
 - `construct(site_id)` is one hour of work at the site (anyone may work). The level needs `hours` in all.
-  Big buildings have `min_workers`: an hour counts only while at least that many different villagers worked
-  on the site within `team_window_minutes` (the same day); uncounted hours older than the window are lost.
-  Every extra co-worker in the window (up to `team_max`) adds `team_bonus` to each counted hour.
+  Big buildings have `min_workers`: an hour counts once at least that many different villagers worked on
+  the site on the same day; hours nobody joined that day are lost. Every extra co-worker that day (up to
+  `team_max`) adds `team_bonus` to each counted hour.
 Finished, a "home" building stands in the owner's yard (`plot.buildings`, with a `level`; a house sets the
 plot's house level) and a "village" building is common (`world.construction["buildings"]`, owner None).
 The finish event names everyone who brought or worked (and, for a village building, who did not).
@@ -124,14 +124,10 @@ def _mut(world: World) -> dict:
     return st
 
 
-def _window(cfg: dict) -> int:
-    return max(1, -(-int(_c(cfg).get("team_window_minutes", 60)) // clock.tick_minutes(cfg)))
-
-
 def _since(world: World) -> int:
-    """First tick that still counts as 'together' now: within the window and the same day."""
+    """First tick that still counts as 'together' now: the start of the day."""
     cfg = world.config
-    return max(world.tick - _window(cfg) + 1, clock.tick_of(cfg, world.day, cfg["day_start_hour"]))
+    return clock.tick_of(cfg, world.day, cfg["day_start_hour"])
 
 
 # ---------- what stands ----------
@@ -413,7 +409,7 @@ def start_building(ctx: Ctx, a: Agent, args: StartArgs) -> None:
             "needs": level_items(cfg, row), "given": {}, "hours": row["hours"], "work": 0.0,
             "min_workers": int(row.get("min_workers", 1)), "workers": {}, "givers": {}, "recent": [], "pending": []}
     _mut(w)["sites"][site["id"]] = site
-    together = (f"; work counts while at least {site['min_workers']} people work on it within the same hour"
+    together = (f"; work counts once at least {site['min_workers']} people work on it on the same day"
                 if site["min_workers"] > 1 else "")
     ctx.emit("site_started", f"{a.name} started building a {_level_text(cfg, kind, lvl)} at {_where(w, a.location)} "
              f"({site['id']}). It needs {fmt_items(site['needs']) or 'no materials'} and {site['hours']} hours of "
@@ -481,11 +477,11 @@ def construct(ctx: Ctx, a: Agent, args: ConstructArgs) -> None:
     what = _level_text(cfg, s["kind"], s["level"])
     if lost:
         ctx.emit("site_work_lost", f"{len(lost)} hour(s) of work on the {what} ({s['id']}) did not count: fewer "
-                 f"than {s['min_workers']} people worked on it within the same hour.",
+                 f"than {s['min_workers']} people worked on it that day.",
                  to=sorted({n for _, n in lost} | {a.name}), site=s["id"])
     if len(team) < s["min_workers"]:
         ctx.emit("construct", f"{a.name} worked an hour on the {what} ({s['id']}). It counts once "
-                 f"{s['min_workers'] - len(team)} more people work on it within this hour.", actor=a.name,
+                 f"{s['min_workers'] - len(team)} more people work on it today.", actor=a.name,
                  location=s["location"], visibility="location", site=s["id"], owner=s["owner"], counted=False,
                  team=team)
         return
@@ -585,12 +581,12 @@ def hidden_actions(cfg: dict) -> frozenset[str]:
 def _site_obs(world: World, s: dict) -> dict:
     out = {"id": s["id"], "building": s["kind"], "level": s["level"], "at": s["location"],
            "for": s["owner"] or "the village", "still_needs": remaining(s), "work_left_hours": work_left(s),
-           "people_needed_within_an_hour": s["min_workers"], "work_done_by": dict(s["workers"]),
+           "people_needed_on_the_same_day": s["min_workers"], "work_done_by": dict(s["workers"]),
            "materials_by": dict(s["givers"])}
     if s["min_workers"] > 1:  # who an hour of work here now would count with
         since = _since(world)
         if now := sorted({n for t, n in s["recent"] if t >= since}):
-            out["worked_on_it_within_the_hour"] = now
+            out["worked_on_it_today"] = now
     return out
 
 
@@ -605,7 +601,7 @@ def observe(world: World, name: str) -> dict:
         out["can_start_building_here"] = {
             k: {"level": lvl, "items": level_items(cfg, _levels(cfg, k)[lvl - 1]),
                 "hours": _levels(cfg, k)[lvl - 1]["hours"],
-                "people_needed_within_an_hour": _levels(cfg, k)[lvl - 1].get("min_workers", 1),
+                "people_needed_on_the_same_day": _levels(cfg, k)[lvl - 1].get("min_workers", 1),
                 "gives": effect_text(cfg, k, lvl)} for k, lvl in here.items()}
     if common(world):
         out["village_buildings"] = [{"building": b["kind"], "level": b["level"], "at": b["location"]}
@@ -630,8 +626,9 @@ def facts(cfg: dict) -> str:
         rows.append(f"{kind} ({where}; " + "; ".join(lv) + ")")
     c = _c(cfg)
     return ("- Building: start_building opens a site where you stand, anyone can bring_materials and construct "
-            "(1 hour of work) there. With 'N people', an hour counts only while N different villagers work on the "
-            f"site within the same hour. Each extra person working within the hour adds {c.get('team_bonus', 0):.0%} "
+            "(1 hour of work) there. With 'N people', an hour counts once N different villagers work on the site on "
+            f"the same day; hours nobody joined that day are lost. Each extra person working there that day adds "
+            f"{c.get('team_bonus', 0):.0%} "
             f"to every hour (up to {c.get('team_max', 3)} people). The finished building belongs to the yard's "
             "owner (home buildings) or to the village. Catalog: " + "; ".join(rows) + ".")
 
