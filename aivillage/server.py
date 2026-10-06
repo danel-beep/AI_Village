@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves
+from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves, threats
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
 from .registry import GOD, ActionError
@@ -376,7 +376,7 @@ class LiveSim:
         """Schedule a god event. `shown_tick` = the tick on the player's screen when they clicked: the event
         lands at the sim's next tick, never before shown_tick + 1, so the viewer can play a lead-in
         animation from the click until the picture reaches the landing tick (announced as `god_pending`)."""
-        GOD.parse(name, args)  # reject bad input now; world-dependent errors show up as god_error events
+        _, parsed = GOD.parse(name, args)  # reject bad input now; world-dependent errors show up as god_error events
         tick = self.world.tick
         if shown_tick is not None:
             tick = max(tick, int(shown_tick) + 1)
@@ -386,6 +386,9 @@ class LiveSim:
         pending = {"type": "god_pending", "tick": tick, "at": clock.label(cfg, tick), **ev,
                    "shown_tick": shown_tick, "lead_minutes": None if shown_tick is None else
                    (tick - int(shown_tick)) * clock.tick_minutes(cfg)}
+        if name in ("raid", "beast", "traveler"):  # the command lands at `tick`; the threat itself comes later
+            arrive = (threats.god_arrival_tick(cfg, tick, parsed.in_days, parsed.warn) if name != "traveler" else tick + 1)
+            pending["arrives_at"] = clock.label(cfg, arrive)
         self._publish(pending)
         return pending
 
@@ -741,7 +744,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         except ActionError as e:
             raise HTTPException(400, str(e)) from None
         return {"ok": True, "queued_for_tick": pending["tick"], "at": pending["at"],
-                "lead_minutes": pending["lead_minutes"]}
+                "lead_minutes": pending["lead_minutes"], "arrives_at": pending.get("arrives_at")}
 
     @app.post("/api/control")
     def control(body: dict) -> dict:
