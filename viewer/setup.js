@@ -39,8 +39,13 @@
       #su header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
       #su h1 { font-size:24px; margin:0; flex:1; min-width:200px; }
       #su header #st-toggle { position:static; }
-      #su .keyline { font-size:13px; color:#9db0a4; margin:0 0 14px; }
       #su .keyline.bad { color:#ffb36b; }
+      #su #su-model .small { padding:5px 10px; }
+      #su h3.more { font-size:15px; margin:22px 0 2px; color:#e8efe9; }
+      #su .more-hint { margin:0 0 10px; }
+      #su summary .about { display:block; font-size:12px; font-weight:400; color:#9db0a4; margin-top:2px; }
+      #su summary .cnt { font-size:11px; font-weight:700; color:#1d2321; background:#76b041; border-radius:9px;
+        padding:1px 7px; margin-left:6px; vertical-align:2px; }
       #su section, #su details { background:#232b28; border-radius:12px; padding:12px 16px; margin-bottom:12px; }
       #su h2, #su summary { font-size:15px; margin:0 0 6px; color:#f2c14e; cursor:default; }
       #su summary { cursor:pointer; margin:0; }
@@ -98,7 +103,14 @@
     root.id = 'su';
     root.innerHTML = `<div class="wrap">
       <header><h1>🏡 AI Village: новая деревня</h1></header>
-      <p class="keyline" id="su-key"></p>
+      <section id="su-main"><h2>Главное</h2>
+        <div class="k" id="su-model"><div class="lab"><b>Модель ИИ</b><button class="small" id="su-model-btn"></button></div>
+          <div class="hint keyline" id="su-model-txt"></div></div>
+      </section>
+      <div id="su-key"></div>
+      <h3 class="more">Дополнительно</h3>
+      <p class="hint more-hint">Режим уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
+        зелёной точкой ●, «Сбросить к режиму» внизу вернёт всё как было.</p>
       <div id="su-groups"></div>
       <details id="su-people"><summary>👥 Жители по одному: имена, профессии, характеры</summary>
         <div class="vbar"><label class="tog"><input type="checkbox" id="su-own"><span></span></label>
@@ -220,6 +232,7 @@
         for (const c of knobs) if (c.path && !touched.has(c.key)) values[c.key] = base(values.mode)[c.key];
       }
       knobs.forEach(paint);
+      sections();
       keyLine();
       if (k.key === 'villagers') syncRoster();
       remember();
@@ -232,26 +245,46 @@
       } catch (e) { /* storage blocked: the form still works */ }
     }
 
-    // Village first, the rest folded away.
-    const groups = [];
-    for (const k of knobs) if (!groups.includes(k.group)) groups.push(k.group);
-    groups.forEach((g, n) => {
-      const box = document.createElement(n < 2 ? 'section' : 'details');
-      const h = document.createElement(n < 2 ? 'h2' : 'summary');
-      h.textContent = g;
+    // "Главное" on top (knobs.MAIN), every other knob in a folded section (knobs.SECTIONS); the server orders them.
+    const model = $('su-model');
+    for (const k of knobs.filter(k => k.section === 'main')) $('su-main').insertBefore(row(k), model);
+    const boxes = {};
+    for (const sec of info.sections || []) {
+      const box = document.createElement('details');
+      const h = document.createElement('summary');
+      h.textContent = sec.title;
+      const cnt = document.createElement('span');
+      cnt.className = 'cnt';
+      h.appendChild(cnt);
+      if (sec.about) { const a = document.createElement('span'); a.className = 'about'; a.textContent = sec.about; h.appendChild(a); }
       box.appendChild(h);
-      for (const k of knobs.filter(k => k.group === g)) box.appendChild(row(k));
+      for (const k of knobs.filter(k => k.section === sec.title)) box.appendChild(row(k));
       $('su-groups').appendChild(box);
-    });
+      boxes[sec.title] = { box, cnt, knobs: knobs.filter(k => k.section === sec.title) };
+    }
+    // Per section: hide it when none of its knobs applies here, count the knobs set away from the mode.
+    function sections() {
+      for (const b of Object.values(boxes)) {
+        const shown = b.knobs.filter(k => rows[k.key].el.style.display !== 'none');
+        const changed = shown.filter(k => k.path && values[k.key] !== base(values.mode)[k.key]).length;
+        b.box.style.display = shown.length ? '' : 'none';
+        b.cnt.textContent = changed ? 'изменено: ' + changed : '';
+        b.cnt.hidden = !changed;
+      }
+    }
     knobs.forEach(paint);
+    sections();
 
     let hasKey = info.has_key;
+    // The model row in "Главное": which AI the villagers think with; the button opens the keys panel (settings.js).
+    $('su-model-btn').onclick = () => { if (st) st.click(); };
     function keyLine() {
-      const el = $('su-key');
-      if (values.brains !== 'llm') { el.textContent = 'Боты бесплатные, ключ не нужен.'; el.className = 'keyline'; return; }
-      el.className = 'keyline' + (hasKey ? '' : ' bad');
-      el.textContent = hasKey ? `Модель жителей: ${info.model}. Поменять модель или ключ: «⚙️ Настройки».`
-        : 'Для ИИ-жителей нужен ключ OpenAI или OpenRouter: нажмите «⚙️ Настройки» и вставьте его.';
+      const el = $('su-model-txt');
+      model.style.display = values.brains === 'llm' ? '' : 'none';
+      el.className = 'hint keyline' + (hasKey ? '' : ' bad');
+      $('su-model-btn').textContent = hasKey ? '⚙️ Поменять' : '🔑 Вставить ключ';
+      el.textContent = hasKey ? `Жители думают через ${info.model}. Модель и ключ меняются кнопкой справа.`
+        : 'Для ИИ-жителей нужен ключ OpenAI или OpenRouter: нажмите кнопку справа и вставьте его.';
     }
     keyLine();
     // The settings panel saves keys on its own; notice a new key without a reload.
