@@ -82,7 +82,7 @@ class LiveSim:
                  reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES,
                  resume_header: dict | None = None, meta: dict | None = None):
         self.world, self.decide, self.days, self.log_path = world, decide, days, log_path
-        self.meta = meta  # extra log header fields (a scenario run: its starting world, aivillage/scenario.py)
+        self.log_meta = meta  # extra log header fields (a scenario run: its starting world, aivillage/scenario.py)
         # Saves (aivillage/saves.py): `<log>.save.json`, taken between ticks on request, every game hour,
         # when the village is stopped and when it ends. `resume_header`: this sim continues a loaded save.
         self.end_day = world.day + days
@@ -133,7 +133,7 @@ class LiveSim:
         try:
             run(self.world, self.decide, self.days, self.god, self.log_path,
                 on_night=self.on_night, on_record=self._on_record, checkpoint=self._checkpoint,
-                resume_header=self.resume_header, meta=self.meta)
+                resume_header=self.resume_header, meta=self.log_meta)
             self._save_quietly()  # the last day is done: "continue" later adds more days
         except _Stop:
             pass
@@ -148,7 +148,7 @@ class LiveSim:
                 scorecard.write(self.log_path)
             except Exception as e:
                 print(f"scorecard failed: {e}")
-            if (self.meta or self.resume_header or {}).get("scenario"):  # what the scenario looked for
+            if (self.log_meta or self.resume_header or {}).get("scenario"):  # what the scenario looked for
                 try:
                     print(f"scenario report: {scenario.write_report(self.log_path)}")
                 except Exception as e:

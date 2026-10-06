@@ -113,6 +113,7 @@ class Check(Strict):
     data: dict = Field(default_factory=dict)  # subset of the event's data
     min: int = Field(default=1, ge=1)
     actors: int = Field(default=1, ge=1)  # at least this many different actors
+    ai: bool = False  # only events done by AI villagers count (bots helping do not)
     any: list["Check"] = Field(default_factory=list)  # passes if one of these passes
 
 
@@ -312,7 +313,7 @@ def header_meta(world: World, name: str, scn: Scenario) -> dict:
 
 # --- checking the log ---
 
-def _hits(c: Check, events: list[dict]) -> list[dict]:
+def _hits(c: Check, events: list[dict], ai: set[str] | None = None) -> list[dict]:
     kinds = [c.kind] if isinstance(c.kind, str) else c.kind
     rx = re.compile(c.text, re.I) if c.text else None
     out = []
@@ -321,6 +322,8 @@ def _hits(c: Check, events: list[dict]) -> list[dict]:
         if kinds and ev["kind"] not in kinds:
             continue
         if c.actor and ev.get("actor") != c.actor:
+            continue
+        if c.ai and ev.get("actor") not in (ai or set()):
             continue
         if c.to and c.to not in to:
             continue
@@ -334,20 +337,20 @@ def _hits(c: Check, events: list[dict]) -> list[dict]:
     return out
 
 
-def verdict(c: Check, events: list[dict]) -> dict:
+def verdict(c: Check, events: list[dict], ai: set[str] | None = None) -> dict:
     """{"title", "ok", "count", "first"}: `first` = "day D HH:MM: text" of the first matching event."""
     if c.any:
-        subs = [verdict(s, events) for s in c.any]
+        subs = [verdict(s, events, ai) for s in c.any]
         hit = [s for s in subs if s["ok"]]
         firsts = [s for s in subs if s["first"]]
         return {"title": c.title or " or ".join(s["title"] for s in subs), "ok": bool(hit),
                 "count": sum(s["count"] for s in subs), "first": min((s["first"] for s in firsts), default=None)}
-    hits = _hits(c, events)
+    hits = _hits(c, events, ai)
     ok = len(hits) >= c.min and len({e.get("actor") for e in hits}) >= c.actors
     first = (f"day {hits[0]['day']} {hits[0]['hour']:02d}:{hits[0].get('minute', 0):02d}: {hits[0]['text']}"
              if hits else None)
     title = c.title or " ".join(str(x) for x in (c.kind, c.actor and f"by {c.actor}", c.to and f"to {c.to}",
-                                                   c.who and f"with {c.who}") if x)
+                                                   c.who and f"with {c.who}", c.ai and "(AI)") if x)
     return {"title": title, "ok": ok, "count": len(hits), "first": first}
 
 
@@ -360,11 +363,11 @@ def report(log: str | Path) -> dict:
     if not info:
         raise ScenarioError(f"{Path(log).name} is not a scenario run")
     events = [e for r in recs if r.get("type") == "tick" for e in r["events"]]
-    out = {"name": info["name"], "title": info["title"],
-           "expect": [verdict(Check.model_validate(c), events) for c in info.get("expect", [])],
-           "watch": [verdict(Check.model_validate(c), events) for c in info.get("watch", [])],
-           "kinds": dict(Counter(e["kind"] for e in events).most_common(15)), "turns": {}, "cost": 0.0}
     ai = {n for n, b in (head.get("brains") or {}).items() if not str(b).startswith("bot:")}
+    out = {"name": info["name"], "title": info["title"],
+           "expect": [verdict(Check.model_validate(c), events, ai) for c in info.get("expect", [])],
+           "watch": [verdict(Check.model_validate(c), events, ai) for c in info.get("watch", [])],
+           "kinds": dict(Counter(e["kind"] for e in events).most_common(15)), "turns": {}, "cost": 0.0}
     for r in recs:
         if r.get("type") == "tick":
             for n, d in r["decisions"].items():

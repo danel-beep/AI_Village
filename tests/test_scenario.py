@@ -86,6 +86,8 @@ def test_checks():
     assert not S.verdict(S.Check(kind="give", to="Clara"), events)["ok"]
     assert not S.verdict(S.Check(kind="construct", data={"counted": True}, actors=2), events)["ok"]
     assert S.verdict(S.Check(kind="construct", min=2), events)["ok"]
+    assert not S.verdict(S.Check(kind="construct", ai=True), events, {"Anna"})["ok"]
+    assert S.verdict(S.Check(kind="construct", ai=True), events, {"A"})["ok"]
     assert S.verdict(S.Check(any=[S.Check(kind="give", to="Clara"), S.Check(kind="trade", who="Clara")]), events)["ok"]
 
 
