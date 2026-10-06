@@ -40,11 +40,12 @@ DRAMA = {
     "election_day": 2, "say": 2, "build": 2, "craft": 1, "plant": 1, "sell": 1, "buy": 1, "order": 1,
     # property and conflict (land.py, conflict.py)
     "fight": 9, "arson_seen": 9, "set_fire": 9, "land_bought": 5, "land_sold": 5, "land_offer": 2,
+    "dice": 4,
 }
 DRAMATIC = 3  # a day's highlights are these first; lower scores only fill a quiet day
 TITLES = {
     "fight": "Драка", "arson_seen": "Поджог", "set_fire": "Поджог", "land_bought": "Купил землю",
-    "land_sold": "Продал землю", "land_offer": "Продаёт землю",
+    "land_sold": "Продал землю", "dice": "Игра в кости", "land_offer": "Продаёт землю",
     "death": "Смерть в деревне", "house_burned": "Сгорел дом", "steal": "Кража", "robbed": "Кража",
     "fire": "Пожар", "default": "Долг не вернули", "evicted": "Выселение", "steal_attempt": "Попытка кражи",
     "hospital": "В больнице", "extinguish": "Тушат пожар", "witness": "Свидетель кражи",

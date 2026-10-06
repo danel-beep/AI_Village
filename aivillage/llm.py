@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, conflict, crises, governance, keys, land, plots
+from . import clock, conflict, crises, dice, governance, keys, land, plots
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -148,6 +148,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(f"- Slow digging: {', '.join(caps)}, whatever your profession and tools.")
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
+    if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []):
+        lines.append(dice.facts(cfg))
     return "\n".join(lines)
 
 

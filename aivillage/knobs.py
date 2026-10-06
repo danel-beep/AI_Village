@@ -87,6 +87,15 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
 
+    # --- dice (aivillage/dice.py) ---
+    {"key": "dice", "path": "dice.enabled", "group": "Азарт", "type": "toggle", "label": "Кости на деньги",
+     "hint": "На площади жители могут играть в кости на монеты и проигрываться в долг."},
+    {"key": "dice_max_stake", "path": "dice.max_stake", "group": "Азарт", "type": "range",
+     "label": "Наибольшая ставка", "min": 1, "max": 100, "step": 1, "unit": " мон."},
+    {"key": "dice_credit", "path": "dice.credit", "group": "Азарт", "type": "range",
+     "label": "Можно ставить в долг сверх кармана", "min": 0, "max": 100, "step": 5, "unit": " мон.",
+     "hint": "0: играют только на свои. Больше: проигравший без денег остаётся должен победителю."},
+
     # --- crises (aivillage/crises.py) ---
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
      "hint": "Неурожай, засуха, крысы, нехватка у торговца, караван: бьют по жителям неравномерно."},

@@ -38,6 +38,8 @@ class Agent:
     # reputation.py: own tally of what this agent saw others do, and rumors it heard
     reputation: dict[str, dict] = field(default_factory=dict)
     rumors: list[dict] = field(default_factory=list)
+    # dice.py: an open challenge {"to", "stake", "expires_tick"}
+    dice_offer: dict | None = None
 
 
 @dataclass
