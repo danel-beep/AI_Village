@@ -581,6 +581,7 @@ class BuilderBot(WorkerBot):
         self.res_ever: dict[str, set] = {}
         self.foraging = False             # on a food trip until the stock is well above the need
         self.home_fire = 0                # wood in my hearth when I last saw it (warmth.py)
+        self.clay_given: tuple = ((), 0)  # (brick sites, clay handed to the kiln's owner for them)
         self.last: dict | None = None
 
     # ---------- helpers ----------
@@ -806,6 +807,19 @@ class BuilderBot(WorkerBot):
             give = {k: min(n, spare.get(k, 0)) for k, n in s["still_needs"].items() if spare.get(k, 0) > 0}
             if s["at"] == loc and give:
                 return decision("bring_materials", {"site_id": s["id"], "items": give}, "materials for the site")
+        # A yard kiln serves only its owner's household, so the others hand their clay to the owner.
+        kiln_owner = living[self.YARD_RANK["kiln"] % len(living)] if living else name
+        key = tuple(sorted(s["id"] for s in sites if s["still_needs"].get("brick")))
+        if self.clay_given[0] != key:
+            self.clay_given = (key, 0)
+        clay = inv.get("clay", 0)
+        if key and not kiln and name != kiln_owner and clay >= 2 \
+                and any(p["name"] == kiln_owner and not p["asleep"] for p in here["people"]):
+            self.clay_given = (key, self.clay_given[1] + clay)
+            give = {"clay": clay}
+            if (wood := min(spare.get("wood", 0), -(-clay // 2))) > 0:
+                give["wood"] = wood
+            return decision("give", {"to": kiln_owner, "items": give}, "clay for the kiln")
         if team and t["hour"] >= self.TEAM_HOUR:
             s = team[0]
             if loc != s["at"]:
@@ -820,18 +834,28 @@ class BuilderBot(WorkerBot):
         if not focus:
             need.update(self.STOCK)
         need["wood"] += firewood
-        # Crafted materials: planks from wood by hand; bricks only at my own kiln, from clay and wood.
+        # Crafted materials: planks from wood by hand; bricks at my own kiln from clay and wood, else my share
+        # of the clay for the kiln's owner.
         if (short := need.pop("plank", 0) - inv.get("plank", 0)) > 0:
             if spare.get("wood", 0) >= 2:
                 return decision("craft", {"recipe": "plank", "times": min(short, spare["wood"] // 2, 10)}, "planks")
             need["wood"] += 2 * short
         if (short := need.pop("brick", 0) - inv.get("brick", 0)) > 0 and kiln:
             batches = -(-short // 2)
-            if loc == me["home"] and inv.get("clay", 0) >= 2 and spare.get("wood", 0) >= 1:
-                return decision("craft", {"recipe": "brick", "times": min(batches, inv["clay"] // 2, spare["wood"])},
-                                "bricks at my kiln")
+            if inv.get("clay", 0) >= 2 and spare.get("wood", 0) >= 1:
+                if loc == me["home"]:
+                    return decision("craft", {"recipe": "brick",
+                                              "times": min(batches, inv["clay"] // 2, spare["wood"])},
+                                    "bricks at my kiln")
+                if t["hour"] < t["day_ends_at"] - 4 and inv["clay"] >= min(2 * batches, 8):
+                    return go(me["home"], "make bricks at my kiln")
             need["clay"] += 2 * batches
             need["wood"] += batches
+        elif short > 0 and name != kiln_owner:
+            share = 2 * -(-short // len(living)) - self.clay_given[1]  # twice my clay share: some fall short
+            if share > 0:
+                need["clay"] += share
+                need["wood"] += -(-share // 2)
         need.pop("iron", None)
         deficit = {k: n - inv.get(k, 0) for k, n in need.items() if n > inv.get(k, 0)}
         carrying = any(spare.get(k, 0) > 0 for s in focus for k in s["still_needs"])
