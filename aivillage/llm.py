@@ -103,6 +103,9 @@ def world_facts(cfg: dict) -> str:
     food = ", ".join(f"{k} +{v['food']}" for k, v in items.items() if v.get("food"))
     lines = [f"- Food (satiety gained per item): {food}. Nothing else is edible.",
              f"- You lose {cfg['satiety_loss_per_hour']} satiety per hour awake and {cfg['satiety_loss_night']} at night."]
+    if cfg.get("sleep_from_hour"):
+        lines.append(f"- sleep from {cfg['sleep_from_hour']:02d}:00 lasts until morning; earlier in the day it is a nap "
+                     f"of {cfg.get('nap_hours', 2)} hours.")
     for rid, r in cfg["recipes"].items():
         ins = " + ".join(f"{n} {k}" for k, n in r["inputs"].items())
         who = f", only a {r['profession']}" if r["profession"] else ""

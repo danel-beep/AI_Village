@@ -21,6 +21,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # night runs. 60 is the old hourly mode the engine tests use; the CLI, live server and launcher run 15.
     "day_start_hour": 6,
     "day_end_hour": 22,
+    # Going to bed: from sleep_from_hour a villager sleeps until morning; earlier, sleep is a nap of nap_hours
+    # (one call to sleep must not skip the rest of the day: the evening is when villagers meet).
+    "sleep_from_hour": 20,
+    "nap_hours": 2,
     "tick_minutes": 60,
     # How long an action keeps a villager busy (game minutes, rounded up to whole ticks; not listed = 60).
     # Talking, trading, eating and other quick deeds take a quarter hour; work, craft, a walk between two

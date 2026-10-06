@@ -196,6 +196,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
     if any(g["name"] == "lightning" for g in god_events or []):
         check_health(ctx)  # lightning: the struck villager falls at once, before acting this tick
 
+    wake_nappers(world)
     deliver_mail(ctx)
     debtors = debts.coin_snapshot(world)
 
@@ -271,6 +272,14 @@ def continue_task(ctx: Ctx, a: Agent) -> None:
         a.task = None
 
 
+def wake_nappers(world: World) -> None:
+    """A daytime sleep is a nap (actions.sleep): the napper wakes when it ends. Sleep from sleep_from_hour
+    lasts until morning."""
+    for a in world.agents.values():
+        if a.task and a.task.get("kind") == "nap" and world.tick >= a.task["until"]:
+            a.asleep, a.task = False, None
+
+
 def deliver_mail(ctx: Ctx) -> None:
     w = ctx.world
     due = [m for m in w.mail if m.deliver_tick <= w.tick]
@@ -283,6 +292,8 @@ def deliver_mail(ctx: Ctx) -> None:
 def interrupt(world: World, name: str) -> None:
     a = world.agents.get(name)
     if a is not None and a.task is not None:
+        if a.task.get("kind") == "nap":  # a letter, an offer, a fire...: the napper wakes up
+            a.asleep = False
         a.task = None
 
 
@@ -496,8 +507,10 @@ def night(ctx: Ctx) -> None:
                 ctx.emit("order_expired", f"Nobody delivered your order {o.id}; your {o.reward} coins are back.",
                          to=[poster.name], order=o.id)
     if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
-        for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
-            tpl = ctx.rng.choice(cfg["order_templates"])
+        n, tpls = cfg.get("orders_per_post", 1), cfg["order_templates"]  # population.resolve raises n for big villages
+        # Different orders while there are templates enough (two identical orders the same morning read as a bug)
+        picks = ctx.rng.sample(tpls, n) if n <= len(tpls) else [ctx.rng.choice(tpls) for _ in range(n)]
+        for tpl in picks:
             o = Order(w.new_id("order"), dict(tpl["needs"]), taxes.council_reward(cfg, tpl), w.day + cfg["order_ttl_days"])
             w.orders[o.id] = o
             ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "

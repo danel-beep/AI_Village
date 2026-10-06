@@ -34,8 +34,11 @@ def price(world: World, item: str, side: str) -> int:
     """side "buy": what a villager pays the trader; "sell": what the trader pays a villager."""
     cfg = world.config
     ratio = cfg["npc_sell_ratio"] if side == "buy" else cfg["npc_buy_ratio"]
-    return max(1, int(cfg["items"][item]["value"] * ratio * crises.price_factor(world, item, side)
-                      * works.sell_factor(world, side) * stock_factor(world, item)))
+    p = max(1, int(cfg["items"][item]["value"] * ratio * crises.price_factor(world, item, side)
+                   * works.sell_factor(world, side) * stock_factor(world, item)))
+    if side == "buy":  # the trader always charges more than he pays (at the stock floor both rounded down to 1)
+        p = max(p, price(world, item, "sell") + 1)
+    return p
 
 
 def prices(world: World) -> dict:

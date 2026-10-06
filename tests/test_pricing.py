@@ -77,6 +77,12 @@ def test_gold_glut_and_floor(w):
     assert "gold" not in w.trader_stock
 
 
+def test_trader_always_charges_more_than_he_pays(w):
+    for item in ("fish", "berries", "wood", "grain"):
+        w.trader_stock[item] = 1000  # at the floor both prices round down to 1
+        assert price(w, item, "buy") > price(w, item, "sell")
+
+
 def test_stock_prices_off_outside_crafts():
     w = engine.new_world({"seed": 1, "crises": {"enabled": False}})
     w.agents["Dmitri"].location = "market"

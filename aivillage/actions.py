@@ -252,10 +252,20 @@ def eat(ctx: Ctx, a: Agent, args: EatArgs) -> None:
     ctx.emit("eat", f"You ate {args.qty} {args.item}. Satiety {a.satiety}.", actor=a.name, to=[a.name])
 
 
-@ACTIONS.action("sleep", "Go to sleep until morning. Sleeping at home restores health.")
+@ACTIONS.action("sleep", "Go to sleep until morning (in the evening; earlier in the day it is a short nap). "
+                          "Sleeping at home restores health at night.")
 def sleep(ctx: Ctx, a: Agent, args) -> None:
     a.asleep = True
     a.task = None
+    w, cfg = ctx.world, ctx.cfg
+    if w.hour < cfg.get("sleep_from_hour", 0):
+        until = w.tick + clock.hours(cfg, cfg.get("nap_hours", 2))
+        a.task = {"kind": "nap", "until": until}
+        _, h, m = clock.time_of(cfg, until)
+        ctx.emit("sleep", f"{a.name} dozed off for a nap until {h:02d}:{m:02d} (night sleep is from "
+                 f"{cfg['sleep_from_hour']:02d}:00).", actor=a.name, location=a.location, visibility="location",
+                 to=[a.name], nap=True)
+        return
     ctx.emit("sleep", f"{a.name} fell asleep.", actor=a.name, location=a.location, visibility="location",
              to=[a.name])
 
