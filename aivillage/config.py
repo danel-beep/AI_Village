@@ -24,6 +24,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # as short lines plus its own answers (cached by the provider, reset each night); "fresh" = every turn is a new
     # chat with the last 3 actions and own notes (the old way).
     "llm_memory": "day",
+    # Own AIs (aivillage/remote.py): the first `seats` villagers are played by people's own AIs (Claude, ChatGPT,
+    # Gemini, Codex...) connected over MCP. The village waits `wait_minutes` for each answer once an AI is
+    # connected; `style` "owner" = the AI takes the villager's character from its owner, "self" = like any villager.
+    "own_ai": {"seats": 0, "wait_minutes": 5, "style": "owner"},
     # Time: one tick = tick_minutes game minutes (clock.py). Agents act from day_start to day_end, then
     # night runs. 60 is the old hourly mode the engine tests use; the CLI, live server and launcher run 15.
     "day_start_hour": 6,
