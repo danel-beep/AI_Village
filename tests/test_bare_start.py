@@ -86,3 +86,17 @@ def test_camp_has_clay_near_and_no_village_projects():
     assert {"contribute", "build_work"} <= set(progress.locked_actions(w))
     t = world("town")
     assert t.projects and "contribute" not in progress.locked_actions(t)
+
+
+def test_camp_has_wild_grain_and_shows_the_site_price_of_a_house():
+    # final run 2026-10-06: no grain anywhere before the market square, and the plot showed the old
+    # upgrade_house price (6 wood) while a house site needs the catalog's 8
+    from aivillage import plots
+    for kw in ({}, {"map": {"procedural": True}}):
+        w = world(**kw)
+        assert "grain" in w.locations["forest"].resources
+    a = w.agents["Anna"]
+    a.location = "forest"
+    step(w, {"Anna": ("work", {"resource": "grain"})})
+    assert a.inventory.get("grain", 0) > 0
+    assert plots.observe(w, "Anna")["plot"]["upgrade_house"] is None
