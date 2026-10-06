@@ -131,6 +131,7 @@ class Fire:
     ticks_left: int  # hours until the house burns down
     water_needed: int  # buckets still needed; grows while nobody fights the fire
     hours: int = 0  # how long it has been burning
+    spread: bool = False  # already jumped to a neighbour (config fire_spread_hours)
 
 
 @dataclass
@@ -248,6 +249,7 @@ class World:
     governance: Governance = field(default_factory=Governance)
     plots: dict[str, Plot] = field(default_factory=dict)  # home or lot location id -> plot
     crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
+    threats: list[dict] = field(default_factory=list)  # raids, beasts, travelers: coming, here, finished (threats.py)
     # labor.py: what the trader bought from / sold to villagers today, per item (reset at dawn)
     trader_day: dict[str, dict[str, int]] = field(default_factory=lambda: {"bought": {}, "sold": {}})
     graves: list[dict] = field(default_factory=list)  # graves.py: one per dead villager
@@ -287,6 +289,7 @@ class World:
             governance=Governance.from_dict(d.get("governance", {})),
             plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
             crises=d.get("crises", []),
+            threats=d.get("threats", []),
             trader_day=d.get("trader_day", {"bought": {}, "sold": {}}),
             graves=d.get("graves", []),
             works=Works(**d.get("works", {})),

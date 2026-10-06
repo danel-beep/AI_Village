@@ -27,7 +27,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
             "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
-            "propose_build", "fund_project", "embezzle")},
+            "propose_build", "fund_project", "embezzle", "defend", "help_stranger", "chase_stranger", "care")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -71,6 +71,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fire_grow_hours": 2,
     "fire_water_max": 8,
     "fire_night_hours": 4,
+    # A fire nobody puts out for fire_spread_hours jumps once to a neighbouring house (0 = never).
+    "fire_spread_hours": 6,
     # Items. value = base price; NPC buys at value*npc_buy_ratio, sells at value*npc_sell_ratio.
     "npc_buy_ratio": 0.5,
     "npc_sell_ratio": 1.5,
@@ -405,6 +407,43 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Random fires (engine night): each dawn a random house catches fire with this chance
     # (0 = only the god or an arsonist starts fires). Shown as a setting in the app.
     "random_fires": {"per_day": 0.0},
+    # Sickness (aivillage/illness.py): a sick villager cannot work, may pass it to anyone in the same place
+    # (`spread_chance` per person per hour) and loses `health_loss_night` health every night until cured.
+    # `care` with one of `cure_items` cures someone else at once. `per_day`: chance at dawn that someone falls ill.
+    "illness": {"enabled": True, "days": 2, "spread_chance": 0.1, "health_loss_night": 8,
+                "cure_items": ["honey", "milk", "fish_soup"], "per_day": 0.0},
+    # Threats from outside (aivillage/threats.py): bandit raids, a beast, a traveler. The god sends them
+    # (warned days ahead or not); `per_day` = chance at dawn (from `first_day`) that one comes by itself,
+    # `warn_chance` of those are announced `warn_days` ahead. hp and bounty scale with village size / 5.
+    # A finished village project listed in `defense_projects` multiplies raid/beast strength (a wall: 0.6).
+    "threats": {
+        "enabled": True,
+        "first_day": 2,
+        "max_active": 1,
+        "warn_chance": 0.5,
+        "warn_days": 2,
+        "arrive_hour": 11,       # warned threats come around this hour
+        "defense_projects": {"wall": 0.6},
+        "wall_factor_per_level": 0.75,  # each level of the village wall (works.py) x0.75 to strength and loot
+        "kinds": {
+            # Bandits: start at the target's house; every hour nobody fights them they carry off `loot_share`
+            # of each chest there, and after `stay_hours` such hours move to the next of `houses` (nearest
+            # first); after `hours` they leave and set fire to the house they are at if nobody fought them that
+            # hour. Driven off, they drop the loot.
+            "raid": {"per_day": 0.0, "name": "bandits", "hp": 60, "attack": 2, "damage_die": 6,
+                     "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20},
+            # A beast: every hour unopposed it eats `eat_share` of the food in the chests of the house it is at
+            # and mauls someone there (d`damage_die` + `maul`); after `stay_hours` it prowls to another house;
+            # leaves after `hours`.
+            "beast": {"per_day": 0.0, "name": "beast", "hp": 80, "attack": 3, "damage_die": 8, "maul": 4,
+                      "hours": 6, "stay_hours": 2, "eat_share": 0.5, "bounty": 30},
+            # A traveler at the square asks for `need` food. Fed, an honest one rewards each helper
+            # (`reward_coins`, or a tool, or a tip about a treasure). With `scout_chance` he is a bandit scout:
+            # unless chased off, bandits come unwarned 1-2 days after he leaves.
+            "traveler": {"per_day": 0.0, "name": "traveler", "hours": 8, "need": 2, "reward_coins": 12,
+                         "scout_chance": 0.3},
+        },
+    },
     # Division of labour (aivillage/labor.py). Off by default; the "crafts" economy mode turns it on.
     "labor": {
         "enabled": False,

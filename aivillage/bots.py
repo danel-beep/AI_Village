@@ -90,6 +90,10 @@ class RandomBot(Bot):
                                               if name == "sell_land" else {})}
         elif name == "build":
             args = {"kind": r.choice(["garden_bed", "chicken_coop", "cow_pen", "beehive", "fence", "castle"])}
+        elif name == "help_stranger":
+            args = {"item": pick_item()}
+        elif name == "care":
+            args = {"person": r.choice(people), "item": r.choice(["honey", "milk", "fish_soup", "bread"])}
         elif name == "dice":
             ch = [c["from"] for c in obs.get("dice_challenges_to_you", [])]
             args = {"person": r.choice(ch or people + ["nobody"]), "stake": r.choice([5, 5, r.randint(-2, 40)])}
@@ -174,6 +178,22 @@ class WorkerBot(Bot):
             return go("forest", "forage berries")
         if t["hour"] >= t["day_ends_at"] - 2:
             return decision("sleep") if loc == me["home"] else go(me["home"], "go home")
+
+        # Defend the house we stand in; nurse the sick; feed a traveler from a full pocket
+        if "defend" in acts and me["health"] >= 40:
+            return decision("defend", None, "drive them off")
+        if "care" in acts:
+            cure = next((c for c in ("honey", "milk", "fish_soup") if inv.get(c)), None)
+            sick = [p["name"] for p in here["people"] if p.get("sick")]
+            if cure and sick:
+                return decision("care", {"person": sick[0], "item": cure}, "nurse the sick")
+        if "help_stranger" in acts:
+            food = next((f for f in FOODS if inv.get(f, 0) >= 3), None)
+            if food:
+                return decision("help_stranger", {"item": food}, "feed the traveler")
+        foe = next((x for x in obs.get("threats", []) if x.get("strength") and x.get("where")), None)
+        if foe and me["health"] >= 60:
+            return go(foe["where"], "drive off the " + foe["what"])
 
         # Help with fires
         if obs["fires"]:

@@ -651,6 +651,7 @@ const PixelMap = (() => {
     shown.sort((p, q) => p.y - q.y);
     lastPos = {};
     for (const a of shown) { lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8]; Actors.paint(b, sheets[a.n], a, sec, a.n === selected); }
+    if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
     if (SL) SL.weather(b, hdr, t.view.day, sec, W, H);   // snowflakes, falling leaves
     // night

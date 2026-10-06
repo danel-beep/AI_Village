@@ -12,8 +12,8 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (clock, conflict, crises, dice, family, governance, graves, labor, land, mapgen, ops, plots,
-               reputation, seasons, tiles, works)
+from . import (clock, conflict, crises, dice, family, governance, graves, illness, labor, land, mapgen, ops, plots,
+               reputation, seasons, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -93,7 +93,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     ctx = Ctx(world, rng_for(world, "observe"))
     loc = world.locations[a.location]
     cfg = world.config
-    people = [{"name": o.name, "asleep": o.asleep} for o in world.agents.values()
+    people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {})}
+              for o in world.agents.values()
               if o.name != name and o.status == "active" and o.location == a.location]
     chest = world.chests[f"chest_{name}"]
     chests_here = [{"owner": c.owner, "locked": c.locked,
@@ -148,6 +149,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(reputation.observe(world, name))
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))
+    obs.update(threats.observe(world, name))
     obs.update(land.observe(world, name))
     obs.update(labor.observe(world, name))
     obs.update(graves.observe(world, name))
@@ -187,6 +189,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
             GOD.run(ctx, None, g["name"], g.get("args"))
         except ActionError as e:
             ctx.emit("god_error", f"[god] {g['name']} failed: {e}")
+    threats.arrivals(ctx)
     if any(g["name"] == "lightning" for g in god_events or []):
         check_health(ctx)  # lightning: the struck villager falls at once, before acting this tick
 
@@ -291,6 +294,8 @@ WAKE_RULES: dict[str, str] = {
     "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
     "inheritance": "direct",
     "fight": "direct", "arson_seen": "direct", "land_offer": "direct", "land_sold": "direct",
+    "threat_arrived": "heard", "threat_warning": "heard", "plundered": "direct", "beast_attack": "direct",
+    "care": "direct",
     "dice_challenge": "direct", "dice": "direct",
     "say": "mention",
 }
@@ -333,6 +338,8 @@ def end_of_hour(ctx: Ctx) -> None:
                 interrupt(w, a.name)
     for f in list(w.fires.values()):
         burn_for(ctx, f, 1)
+    threats.end_of_hour(ctx)
+    illness.end_of_hour(ctx, rng_for(w, "illness"))
     for o in list(w.offers.values()):
         if o.expires_tick <= w.tick:
             del w.offers[o.id]
@@ -353,11 +360,30 @@ def burn_for(ctx: Ctx, f: Fire, hours: int) -> None:
             f.water_needed = min(cfg["fire_water_max"], f.water_needed + 1)
     if f.ticks_left <= 0:
         burn_house(ctx, f.location)
-    elif f.water_needed > before:
+    else:
+        spread_fire(ctx, f)
+    if f.ticks_left > 0 and f.water_needed > before:
         name = ctx.world.locations[f.location].name
         ctx.emit("fire_grows", f"The fire at {name} is spreading: it now needs {f.water_needed} buckets of water, "
                  f"{f.ticks_left} hours before it burns down.", location=f.location, visibility="location",
                  house=f.location, water_needed=f.water_needed, hours_left=f.ticks_left)
+
+
+def spread_fire(ctx: Ctx, f: Fire) -> None:
+    """A fire left burning for fire_spread_hours jumps once to a neighbouring house (same road first)."""
+    w, after = ctx.world, ctx.cfg.get("fire_spread_hours", 0)
+    if not after or f.spread or f.hours < after:
+        return
+    f.spread = True
+    homes = {a.home: a.name for a in sorted(w.agents.values(), key=lambda a: a.name, reverse=True)
+             if a.status == "active" and a.home in w.locations and a.home not in w.fires}
+    if not homes or f.location not in w.locations:
+        return
+    mine = set(w.locations[f.location].neighbors)
+    near = sorted(h for h in homes if mine & set(w.locations[h].neighbors)) or sorted(homes)
+    house = rng_for(w, f"spread:{f.location}").choice(near)
+    conflict.start_fire(ctx, house, homes[house], cause="spread", spread_from=f.location)
+    w.fires[house].spread = True  # one jump per fire: no chain reaction, no jumping back
 
 
 def burn_house(ctx: Ctx, home: str) -> None:
@@ -399,6 +425,8 @@ def night(ctx: Ctx) -> None:
     w.hour = cfg["day_end_hour"]
     for f in list(w.fires.values()):
         burn_for(ctx, f, cfg["fire_night_hours"])
+    threats.night(ctx)
+    illness.night(ctx)
     for a in w.agents.values():
         if a.status != "active":
             continue
@@ -416,6 +444,8 @@ def night(ctx: Ctx) -> None:
     labor.new_day(w)
     governance.new_day(ctx)
     crises.new_day(ctx, rng_for(w, "crises"))
+    threats.new_day(ctx, rng_for(w, "threats"))
+    illness.new_day(ctx, rng_for(w, "illness"))
     for loc in w.locations.values():
         spec = cfg["locations"].get(loc.id, {}).get("resources", {})
         if w.day < loc.drought_until_day:
