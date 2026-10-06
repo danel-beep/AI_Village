@@ -3,7 +3,7 @@
     python -m aivillage.reports show report.zip [--hours 3]   # read a report: note + what happened around it
 
 Made by the viewer's "Сообщить о проблеме" button (POST /api/report on the live server) or by the
-launcher menu. A report holds `report.json` (note, the tick the player was looking at, versions),
+start screen. A report holds `report.json` (note, the tick the player was looking at, versions),
 `run.jsonl` (the whole replayable log so far) and `summary.json` (recaps, if any).
 """
 
