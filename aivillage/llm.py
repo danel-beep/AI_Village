@@ -21,9 +21,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
-               threats, works)
+               theft, threats, works)
 from .bots import WorkerBot
-from . import addressed, animals, chronicle, construction, crafting, explore, handbook, hire, luxury, market, places, progress, reputation, spoilage, taxes, transport
+from . import addressed, animals, chronicle, honors, construction, crafting, explore, handbook, hire, luxury, market, places, progress, reputation, spoilage, taxes, transport
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -155,6 +155,8 @@ def world_facts(cfg: dict) -> str:
     lines.append(f"- steal succeeds {cfg['steal_awake_target_success']:.0%} of the time against an awake person and always "
                  f"against a sleeping one; awake people nearby notice it with {cfg['steal_notice_chance']:.0%} chance; "
                  f"at most {cfg['max_steal_qty']} per attempt.")
+    if steal := theft.fact(cfg):
+        lines.append(steal)
     lines.append(debts.fact(cfg))
     lines.append(taxes.orders_fact(cfg))
     if rep := reputation.fact(cfg):
@@ -189,6 +191,8 @@ def world_facts(cfg: dict) -> str:
             lines.append(places.facts(cfg))
     if chronicle.enabled(cfg):
         lines.append(chronicle.facts(cfg))
+    if honors.enabled(cfg):
+        lines.append(honors.facts(cfg))
     lines.append(pricing.tool_fact(cfg))
     if pricing.enabled(cfg):
         lines.append(pricing.facts(cfg))

@@ -54,12 +54,11 @@ def _world_wealth(world, name: str) -> float:
 
 def wealth(records: list[dict], path: str | Path | None) -> tuple[dict, dict, bool]:
     """({name: start}, {name: end}, exact). Exact = replayed (chests counted); else pockets from the views."""
-    from . import engine
-    from .run import replay
+    from .run import replay, start_of
     header = records[0]
     if path:
         try:
-            start_w, end_w = engine.new_world(header["config"]), replay(path)
+            start_w, end_w = start_of(header), replay(path)
             return ({n: _world_wealth(start_w, n) for n in start_w.agents},
                     {n: _world_wealth(end_w, n) for n in end_w.agents}, True)
         except Exception:  # an old log the current engine cannot replay: fall back to what the viewer saw

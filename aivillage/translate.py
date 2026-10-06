@@ -52,6 +52,10 @@ def collect_texts(records: Iterable[dict]) -> list[str]:
         for e in rec.get("events") or []:
             if isinstance(e.get("text"), str) and e["text"].strip():
                 seen.setdefault(e["text"], None)
+            for k in ("note", "honor"):  # honor board notes and titles, shown alone in viewer/honors.js
+                v = (e.get("data") or {}).get(k)
+                if isinstance(v, str) and v.strip():
+                    seen.setdefault(v, None)
     return list(seen)
 
 

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import chronicle, governance, ops, progress, works
+from . import chronicle, debts, governance, ops, progress, works
 from .actions import ItemMap, _items_known
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
@@ -352,9 +352,39 @@ def observe(world: World, name: str) -> dict:
     return {"tax_bill": bill(world, a), "earned_since_tax": a.earned_since_tax}
 
 
+def board(world: World) -> dict:
+    """`tax_board` (voluntary laws, config `laws.tax_board`): for the last `tax_board_rounds` tax days, per treasury,
+    who paid their tax bill, who has not yet, and whose bill is overdue. Read from the debt book's tax bills; no
+    state of its own, nothing follows from it by rule."""
+    cfg = world.config
+    laws = cfg.get("laws") or {}
+    if not governance.voluntary(cfg) or not laws.get("tax_board"):
+        return {}
+    owner = {d: f"{p['name']} ({pid})" for pid, p in world.polities.items() for d in p.get("bills", [])}
+    rounds: dict[tuple[int, str], dict] = {}
+    for d in world.debts.values():
+        if d.kind != "tax" or d.lender != debts.TREASURY:
+            continue
+        r = rounds.setdefault((d.day, owner.get(d.id, "village treasury")),
+                              {"paid": [], "not_paid_yet": {}, "overdue": {}})
+        if d.status == "open":
+            r["not_paid_yet"][d.borrower] = d.coins_owed
+        elif d.status == "defaulted":
+            r["overdue"][d.borrower] = d.coins_owed
+        elif d.status == "repaid":
+            r["paid"].append(d.borrower)
+    days = sorted({day for day, _ in rounds}, reverse=True)[:int(laws.get("tax_board_rounds", 2))]
+    out = [{"tax_day": day, "to": to, **{k: v for k, v in r.items() if v}}
+           for (day, to), r in sorted(rounds.items(), key=lambda x: (-x[0][0], x[0][1])) if day in days]
+    return {"tax_board": out} if out else {}
+
+
 def facts(cfg: dict) -> str:
     if governance.polity_on(cfg):
-        return f"- Tax{governance.opens_note(cfg, TAXES)}: only members of a polity pay, what their polity's tax law says."
+        board = (" \"tax_board\" lists, for the last tax days, who paid their tax bill, who has not yet and whose bill "
+                 "is overdue." if governance.voluntary(cfg) and (cfg.get("laws") or {}).get("tax_board") else "")
+        return (f"- Tax{governance.opens_note(cfg, TAXES)}: only members of a polity pay, what their polity's tax law "
+                f"says.{board}")
     return _facts(cfg).replace("- Tax:", f"- Tax{governance.opens_note(cfg, TAXES)}:", 1)
 
 
@@ -363,7 +393,9 @@ def _facts(cfg: dict) -> str:
         days = (cfg.get("laws") or {}).get("bill_days", 3)
         base = (f"- Tax: every {cfg['tax_every_days']} days. Nobody takes it: each villager gets a tax bill in the "
                 f"debt book (board.debts, lender treasury), due in {days} days, and pays it with pay_bill (in part or "
-                "in full) or leaves it unpaid. Bills, payments and unpaid bills are public; there is no eviction.")
+                "in full) or leaves it unpaid. Bills, payments and unpaid bills are public; there is no eviction."
+                + (" \"tax_board\" lists, for the last tax days, who paid their tax, who has not yet and whose bill "
+                   "is overdue." if (cfg.get("laws") or {}).get("tax_board") else ""))
     else:
         base = (f"- Tax: every {cfg['tax_every_days']} days. If you cannot pay, it takes all your coins and you are "
                 f"locked out of your house for {cfg['eviction_days']} days.")
