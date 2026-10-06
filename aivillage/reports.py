@@ -3,7 +3,8 @@
     python -m aivillage.reports show report.zip [--hours 3]   # read a report: note + what happened around it
 
 Made by the viewer's "Сообщить о проблеме" button (POST /api/report on the live server) or by the
-start screen. A report holds `report.json` (note, the tick the player was looking at, versions),
+start screen, or by a session summary's "📦 Файл для Claude" (`session_<time>.zip`, plus `session.md` /
+`session.json`, aivillage/session.py). A report holds `report.json` (note, the tick the player was looking at, versions),
 `run.jsonl` (the whole replayable log so far) and `summary.json` (recaps, if any).
 """
 
@@ -23,11 +24,13 @@ from .summary import digest, ticks_of
 
 
 def make_report(out_dir: str | Path, log: str | Path | None, note: str, tick: int | None = None,
-                extra: dict | None = None, summaries: list[dict] | None = None) -> Path:
+                extra: dict | None = None, summaries: list[dict] | None = None,
+                files: dict[str, str] | None = None, prefix: str = "report") -> Path:
+    """`files`: more text files for the zip (a session's summary), `prefix`: the zip name's first word."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
-    path = out_dir / f"report_{now:%Y-%m-%d_%H-%M-%S}.zip"
+    path = out_dir / f"{prefix}_{now:%Y-%m-%d_%H-%M-%S}.zip"
     meta = {"note": note.strip(), "tick": tick, "created": now.isoformat(timespec="seconds"),
             "log_name": Path(log).name if log else None, "python": sys.version.split()[0],
             "os": platform.platform(), **(extra or {})}
@@ -37,6 +40,8 @@ def make_report(out_dir: str | Path, log: str | Path | None, note: str, tick: in
             z.write(log, "run.jsonl")
         if summaries:
             z.writestr("summary.json", json.dumps(summaries, ensure_ascii=False, indent=1))
+        for name, text in (files or {}).items():
+            z.writestr(name, text)
     return path
 
 
@@ -80,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     meta, recs = read_report(a.zip)
     print(json.dumps(meta, ensure_ascii=False, indent=1))
+    with zipfile.ZipFile(a.zip) as z:  # a session zip ("📦 Файл для Claude") has its summary too
+        if "session.md" in z.namelist():
+            print("\n" + z.read("session.md").decode("utf-8"))
     ticks = ticks_of(recs)
     print(f"\nlog: {len(ticks)} ticks" + (f", last tick {ticks[-1]['tick']}" if ticks else ""))
     errors = [e for t in ticks for e in t.get("events") or [] if e.get("kind") == "error"]
