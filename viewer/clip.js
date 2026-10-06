@@ -111,7 +111,7 @@ const Clip = (() => {
     text(wrap(top.title, OW - 90, 2), OW / 2, OH - 290, 80, '#ffffff', 10);
     o.restore(); o.globalAlpha = 1;
   }
-  function overlay(J, s, k, u, el, t, quote) {
+  function overlay(J, s, k, u, el, t, quotes) {
     const n = J.shots.length;
     band(0, 340, true); band(OH - 470, OH, false, .92);
     o.textAlign = 'left'; o.textBaseline = 'alphabetic';
@@ -129,17 +129,21 @@ const Clip = (() => {
     text(wrap(`${icon(s.it)} ${s.it.title}`, OW - 80, 3), x, 164, 66, '#ffffff', 10);
     o.globalAlpha = 1;
     o.font = '600 34px system-ui, sans-serif';
-    let y = text(wrap(s.it.line, OW - 80, 4), 40, OH - 380, 44, '#f4f7f5');
-    if (quote && el > .6) {   // the villager's own words, typed out
-      const shown = quote.text.slice(0, Math.floor((el - .6) * 48));
+    const two = quotes.length > 1;
+    let y = text(wrap(s.it.line, OW - 80, two ? 3 : 4), 40, OH - (two ? 470 : 380), 44, '#f4f7f5');
+    quotes.forEach((q, n) => {   // the villagers' own words (else thoughts), typed out one after the other
+      const from = .6 + n * 1.8; if (el <= from) return;
       o.font = '800 28px system-ui, sans-serif';
-      const w = o.measureText(quote.who).width + 28;
-      pill(40, y + 8, w, 40, color[quote.who] || '#9db0a4');
-      o.fillStyle = '#121614'; o.fillText(quote.who, 54, y + 37);
-      o.font = 'italic 600 32px system-ui, sans-serif';
-      text(wrap(shown, OW - 80, 4), 40, y + 92, 42, '#fff6d6');
-    }
+      const w = o.measureText(q.who).width + 28;
+      pill(40, y + 8, w, 40, color[q.who] || '#9db0a4');
+      o.fillStyle = '#121614'; o.fillText(q.who, 54, y + 37);
+      o.font = `italic 600 ${two ? 30 : 32}px system-ui, sans-serif`;
+      const room = wrap(q.text, OW - 80, two ? 2 : 4).length;   // lines the whole quote takes, so the next one does not jump
+      text(wrap(q.text.slice(0, Math.floor((el - from) * 48)), OW - 80, room), 40, y + 88, 40, '#fff6d6');
+      y += 68 + room * 40;
+    });
   }
+
   function outro(J, el) {
     const a = clamp(el / .4);
     o.fillStyle = `rgba(14,18,16,${.8 * a})`; o.fillRect(0, 0, OW, OH);
@@ -341,7 +345,7 @@ const Clip = (() => {
       const z = 1.3 + .06 * u + .3 * ease((u - .26) / .08);                       // Ken Burns drift + punch-in on the moment
       const hit = u - .3, shake = VIOLENT.has(s.it.kind) && hit > 0 && hit < .14 ? 9 * (1 - hit / .14) : 0;
       map(cv, J.fx, J.fy, z, shake * Math.sin(f * 2.1), shake * Math.cos(f * 2.9));
-      overlay(J, s, k, u, local, t, quoteOf(s.it.who && s.it.who[0], ki, s.a));
+      overlay(J, s, k, u, local, t, (s.it.who || []).slice(0, 2).map(w => quoteOf(w, ki, s.a)).filter(Boolean));
       if (local < .14) { o.fillStyle = `rgba(255,255,255,${.75 * (1 - local / .14)})`; o.fillRect(0, 0, OW, OH); }   // flash cut
       return t;
     }
