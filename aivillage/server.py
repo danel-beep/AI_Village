@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves
+from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves, session, threats
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
 from .registry import GOD, ActionError
@@ -38,6 +38,7 @@ from .state import World
 
 ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "viewer"
+CLIP_MAX_BYTES = 300 * 1024 * 1024  # highlight clips; a week's reel is a few MB
 VIEW_LAG_MINUTES = 30  # two quarter-hour ticks of buffer: smooth, and a god click lands half an hour later
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
 
@@ -116,6 +117,8 @@ class LiveSim:
         self.finished = False
         self.error: str | None = None
         self.stopping = False
+        self.session: dict | None = None  # end-of-session summary, once saved (aivillage/session.py)
+        self._session_lock = threading.Lock()
         self._lock = threading.Lock()
         self._subs: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = set()
         self._thread: threading.Thread | None = None
@@ -144,10 +147,15 @@ class LiveSim:
                 scorecard.write(self.log_path)
             except Exception as e:
                 print(f"scorecard failed: {e}")
-        if self.ticks and not self.stopping:  # the last day has no "next morning" to trigger its recap
-            last = day_of(self.ticks[-1], self.world.config)[0]
-            threading.Thread(target=self._end_of_day, args=(last,), daemon=True).start()
+        if not self.stopping:  # the last day has no "next morning" to trigger its recap; then the session summary
+            last = day_of(self.ticks[-1], self.world.config)[0] if self.ticks else None
+            threading.Thread(target=self._finish, args=(last,), daemon=True).start()
         self._publish({"type": "end", "tick": self.world.tick})
+
+    def _finish(self, last_day: int | None) -> None:
+        if last_day is not None:
+            self._end_of_day(last_day)
+        self.save_session("error" if self.error else "finished")
 
     def _on_record(self, rec: dict) -> None:
         if rec["type"] == "header":
@@ -275,6 +283,29 @@ class LiveSim:
             self._thread.join(wait)
         return self._thread is None or not self._thread.is_alive()
 
+    def end(self, ended_by: str = "button", wait: float = 60.0) -> dict | None:
+        """Stop the village, wait for the sim thread to close the log (at most the current tick's model
+        calls), save the session summary."""
+        natural = self.finished and not self.stopping and not self.error
+        if self._thread is not threading.current_thread():
+            self.stop(wait)
+        else:
+            self.stop()
+        return self.save_session("finished" if natural else "error" if self.error else ended_by)
+
+    def save_session(self, ended_by: str) -> dict | None:
+        if not self.log_path or not Path(self.log_path).is_file():
+            return None
+        with self._session_lock:
+            try:
+                self.session = session.save(self.log_path, ended_by=ended_by,
+                                            days_planned=None if self.resume_header else self.days)
+            except Exception as e:  # a summary must never take the app down
+                print(f"session summary failed: {type(e).__name__}: {e}")
+                return None
+        self._publish({"type": "session", "name": self.session["name"], "ended_by": ended_by})
+        return self.session
+
     # --- recaps and problem reports ---
     def _end_of_day(self, day: int) -> None:
         days = [d for d in by_day(list(self.ticks), self.world.config) if day_of(d[0], self.world.config)[0] == day]
@@ -376,7 +407,7 @@ class LiveSim:
         """Schedule a god event. `shown_tick` = the tick on the player's screen when they clicked: the event
         lands at the sim's next tick, never before shown_tick + 1, so the viewer can play a lead-in
         animation from the click until the picture reaches the landing tick (announced as `god_pending`)."""
-        GOD.parse(name, args)  # reject bad input now; world-dependent errors show up as god_error events
+        _, parsed = GOD.parse(name, args)  # reject bad input now; world-dependent errors show up as god_error events
         tick = self.world.tick
         if shown_tick is not None:
             tick = max(tick, int(shown_tick) + 1)
@@ -386,6 +417,9 @@ class LiveSim:
         pending = {"type": "god_pending", "tick": tick, "at": clock.label(cfg, tick), **ev,
                    "shown_tick": shown_tick, "lead_minutes": None if shown_tick is None else
                    (tick - int(shown_tick)) * clock.tick_minutes(cfg)}
+        if name in ("raid", "beast", "traveler"):  # the command lands at `tick`; the threat itself comes later
+            arrive = (threats.god_arrival_tick(cfg, tick, parsed.in_days, parsed.warn) if name != "traveler" else tick + 1)
+            pending["arrives_at"] = clock.label(cfg, arrive)
         self._publish(pending)
         return pending
 
@@ -394,7 +428,8 @@ class LiveSim:
                 "minute": self.world.minute, "tick_minutes": clock.tick_minutes(self.world.config),
                 "view_lag_ticks": self.view_lag_ticks,
                 "paused": not self.running.is_set(), "pace": self.pace, "finished": self.finished,
-                "error": self.error, "last_save": self.last_save}
+                "error": self.error, "last_save": self.last_save,
+                "log_name": Path(self.log_path).stem if self.log_path else None}
 
     def meta(self) -> dict:
         w = self.world
@@ -457,12 +492,23 @@ class Host:
             print(f"Village seed {seed}: {log}")
             return self.sim
 
-    def stop(self, wait: float = 5.0) -> LiveSim | None:
-        """Stop the current village (it saves itself on the way out). Returns it, None if there was none."""
+    def stop(self, wait: float = 5.0, ended_by: str = "new_village") -> LiveSim | None:
+        """Stop the current village (it saves itself on the way out, and its session summary is saved like
+        with "Завершить сессию"). Returns it, None if there was none."""
         sim, self.sim = self.sim, None
         if sim is not None:
-            sim.stop(wait)
+            sim.end(ended_by, wait)
         return sim
+
+    def end(self) -> dict | None:
+        """"🏁 Завершить сессию": stop and summarise; with the start screen the app goes back to it."""
+        with self._lock:
+            sim = self.sim
+            if sim is None:
+                return None
+            if self.setup:
+                self.sim = None
+            return sim.end("button")
 
     def load(self, name: str, days: int | None = None) -> LiveSim:
         """Continue a saved village (aivillage/saves.py) from the moment it was saved. `days`: play this many
@@ -505,6 +551,19 @@ class Host:
     def runs(self) -> list[Path]:
         return sorted(self.runs_dir.glob("*.jsonl"), reverse=True) if self.runs_dir.is_dir() else []
 
+    def log_of(self, name: str) -> Path | None:
+        """A run log by its name (the session's name), safe against paths."""
+        if not name or not name.replace("-", "").replace("_", "").isalnum():
+            return None
+        log = self.runs_dir / f"{name}.jsonl"
+        if not log.is_file() and self.sim and self.sim.log_path and Path(self.sim.log_path).stem == name:
+            log = Path(self.sim.log_path)
+        return log if log.is_file() else None
+
+    @property
+    def reports_out(self) -> str:
+        return self.reports_dir or str(self.runs_dir.parent / "reports")
+
 
 def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     app = FastAPI(title="AI Village live")
@@ -524,7 +583,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
             inject = '<script src="/settings.js"></script>\n<script src="/setup.js"></script>\n'
         else:
             inject = ('<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
-                      '<script src="/report.js"></script>\n<script src="/settings.js"></script>\n')
+                      '<script src="/report.js"></script>\n<script src="/session.js"></script>\n'
+                      '<script src="/settings.js"></script>\n')
             if host.setup:
                 inject += '<script src="/setup.js"></script>\n'
         inject += '<script src="/saves.js"></script>\n'  # "💾 Сохранить" in a village, "Продолжить" on the start screen
@@ -718,10 +778,105 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         runs = host.runs()
         if not note or not runs:
             raise HTTPException(400, "Напишите пару слов, что не так." if runs else "Прошлых прогонов пока нет.")
-        path = reports.make_report(host.reports_dir or str(host.runs_dir.parent / "reports"), runs[0], note[:5000])
+        path = reports.make_report(host.reports_out, runs[0], note[:5000])
         if host.reveal_reports:
             reports.reveal(path)
         return {"ok": True, "path": str(path), "name": path.name}
+
+    # --- highlight clips (viewer/clip.js, viewer/reel.js): kept in AIVillage/videos, next to the reports folder ---
+    def clips_of(sim: LiveSim) -> tuple[Path, str]:
+        return Path(sim.reports_dir).parent / "videos", Path(sim.log_path or "live").stem + "-"
+
+    @app.get("/api/clips")
+    def clips() -> dict:
+        folder, prefix = clips_of(need())
+        found = sorted(folder.glob(prefix + "*.mp4")) if folder.is_dir() else []
+        return {"folder": str(folder), "clips": [{"key": f.stem.removeprefix(prefix), "file": f.name,
+                                                  "kb": f.stat().st_size // 1024} for f in found]}
+
+    @app.post("/api/clips/{key}")
+    async def save_clip(key: str, request: Request) -> dict:
+        local_only(request)
+        if not (0 < len(key) <= 40 and key.replace("-", "").isalnum() and key.isascii()):
+            raise HTTPException(400, "bad clip name")
+        data = await request.body()
+        if not data or len(data) > CLIP_MAX_BYTES:
+            raise HTTPException(413, "clip is empty or too big")
+        folder, prefix = clips_of(need())
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{prefix}{key}.mp4"
+        path.write_bytes(data)
+        return {"ok": True, "folder": str(folder), "file": path.name, "path": str(path)}
+
+    @app.get("/clips/{name}")
+    def clip_file(name: str, request: Request) -> FileResponse:
+        local_only(request)
+        folder, _ = clips_of(need())
+        path = folder / name
+        if not name.endswith(".mp4") or "/" in name or "\\" in name or name.startswith(".") or not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="video/mp4")
+
+    # --- sessions: "🏁 Завершить сессию", the summary page and past sessions (aivillage/session.py) ---
+    @app.post("/api/end")
+    def end_session(request: Request) -> dict:
+        local_only(request)
+        need()
+        s = host.end()
+        if s is None:
+            raise HTTPException(500, "Не получилось собрать сводку: журнал игры не записан.")
+        return {"ok": True, "name": s["name"], "url": f"/session/{s['name']}"}
+
+    def session_log(name: str) -> Path:
+        log = host.log_of(name)
+        if log is None:
+            raise HTTPException(404, "Нет такой сессии.")
+        return log
+
+    @app.get("/api/sessions")
+    def sessions_list(request: Request) -> dict:
+        local_only(request)
+        current = host.sim.log_path if host.sim and not host.sim.finished else None
+        return {"sessions": [session.brief(r) for r in host.runs()[:30] if str(r) != current]}
+
+    @app.get("/sessions", response_class=HTMLResponse)
+    def sessions_page(request: Request) -> str:
+        return session.list_html(sessions_list(request)["sessions"])
+
+    @app.get("/session/{name}", response_class=HTMLResponse)
+    def session_page(name: str, request: Request) -> str:
+        local_only(request)
+        return session.to_html(session.ensure(session_log(name)), app=True)
+
+    @app.get("/api/sessions/{name}")
+    def session_json(name: str, request: Request) -> dict:
+        local_only(request)
+        return session.ensure(session_log(name))
+
+    @app.post("/api/sessions/{name}/note")
+    def session_note(name: str, body: dict, request: Request) -> dict:
+        local_only(request)
+        session.set_note(session_log(name), str((body or {}).get("note") or ""))
+        return {"ok": True}
+
+    @app.post("/api/sessions/{name}/zip")
+    def session_zip(name: str, body: dict, request: Request) -> dict:
+        """"📦 Файл для Claude": the summary, the comment and the whole log in one zip for the project chat."""
+        local_only(request)
+        log = session_log(name)
+        if body and "note" in body:
+            s = session.set_note(log, str(body.get("note") or ""))
+        else:
+            s = session.ensure(log)
+        p = session.paths(log)
+        recaps = session._sidecar(session.summary_path(log))
+        path = reports.make_report(host.reports_out, log, s.get("note") or "Сводка сессии", None,
+                                   {"kind": "session", "session": name}, recaps,
+                                   {"session.md": p["md"].read_text(encoding="utf-8"),
+                                    "session.json": p["json"].read_text(encoding="utf-8")}, prefix="session")
+        if host.reveal_reports:
+            reports.reveal(path)
+        return {"ok": True, "path": str(path), "name": path.name, "revealed": host.reveal_reports}
 
     @app.get("/api/meta")
     def meta() -> dict:
@@ -741,7 +896,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         except ActionError as e:
             raise HTTPException(400, str(e)) from None
         return {"ok": True, "queued_for_tick": pending["tick"], "at": pending["at"],
-                "lead_minutes": pending["lead_minutes"]}
+                "lead_minutes": pending["lead_minutes"], "arrives_at": pending.get("arrives_at")}
 
     @app.post("/api/control")
     def control(body: dict) -> dict:
@@ -823,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.agents:
         override["population"] = {"size": a.agents}
     with_tick_minutes(override, a.tick_minutes)
-    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
+    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness, a.map_size))
     print(f"Village seed {a.seed} (run again with --seed {a.seed} to get the same map)")
     sim = make_sim(world, models=a.models.split(",") if a.models else None, bots=a.bots.split(","), seed=a.seed,
                    days=a.days or (3 if a.models else 30), log_path=a.log, pace=a.pace,

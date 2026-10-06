@@ -487,7 +487,7 @@ const PixelMap = (() => {
   function paintGenerated(g) {
     const at = (id, fn) => { const [dx, dy] = layout.off[id] || [0, 0]; g.save(); g.translate(dx, dy); fn(g); g.restore(); return [dx, dy]; };
     const move = ([x, y], [dx, dy]) => [x + dx, y + dy];
-    terrain(g) || paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock, SP, fence, planks });
+    terrain(g) || paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock, SP, fence, planks, tree });
     if (layout.off.field) at('field', field);  // newer villages have no common field
     const sq = at('square', square); layout.lamps = layout.lamps.map(p => move(p, sq));
     at('market', market);
@@ -668,6 +668,7 @@ const PixelMap = (() => {
     lastPos = {};
     for (const a of shown) lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8];
     const one = a => Actors.paint(b, sheets[a.n], a, sec, a.n === selected);
+    if (window.AnimalLayer) AnimalLayer.draw(b, t, layout, sec);   // hares, ducks, deer, boars, elk (animals.py)
     if (window.Depth) Depth.paint(b, shown, one); else shown.forEach(one);   // trees and houses in front cover them
     if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
@@ -697,9 +698,12 @@ const PixelMap = (() => {
     labels(ctx, t, shown, selected, sec);
     Actors.noteTick(t, frac, dt);
     const heads = shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y + 8 - ((sheets[a.n] || {}).fh || 16)); return { n: a.n, sx, sy }; });
-    Actors.badges(ctx, heads, t);
-    Actors.bubbles(ctx, heads,
-                   selected, tr || String, W * S);
+    // Bubbles and icons grow with the zoom too, but less than the map (x1 at the whole village, up to x1.7).
+    const k = Math.max(1, Math.min(1.7, Math.pow(cam.z, .45))), hk = heads.map(h => ({ n: h.n, sx: h.sx / k, sy: h.sy / k }));
+    ctx.save(); ctx.scale(k, k);
+    Actors.badges(ctx, hk, t);
+    Actors.bubbles(ctx, hk, selected, tr || String, W * S / k);
+    ctx.restore();
   }
 
   // ---------- full-resolution text (placed through the camera, constant size at any zoom) ----------
@@ -747,5 +751,5 @@ const PixelMap = (() => {
   const gfx = { C, R, P, blob, rnd };
   // Where a villager was last drawn, in map pixels (head height), or undefined; used by viewer/clip.js.
   const where = n => lastPos[n];
-  return { init, draw, pick, where, gfx, layout: () => layout, T };
+  return { init, draw, pick, where, gfx, sheet: n => sheets[n], layout: () => layout, T };
 })();

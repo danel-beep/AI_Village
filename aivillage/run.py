@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import clock, crises, engine, graves, labor, mapgen, modes, plots, pricing, threats, tiles, works
+from . import animals, clock, construction, crises, engine, graves, labor, mapgen, modes, plots, pricing, threats, tiles, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -146,6 +146,8 @@ def view(world: World) -> dict:
                                 "busy": max(0, a.busy_until - world.tick) * tm,
                                 "task": (a.task or {}).get("kind")}
                        for a in world.agents.values()},
+            # chests for the hero page's property list (viewer/hero.js)
+            "chests": {c.owner: {"coins": c.coins, "items": c.items, "locked": c.locked} for c in world.chests.values()},
             "kin": {"feelings": world.kin.feelings, "couples": [m.spouses for m in world.kin.marriages.values()]},
             # reputation.py: each villager's own tally of others and the rumors they heard (non-empty only)
             "social": {a.name: {"reputation": a.reputation, "rumors": a.rumors}
@@ -153,19 +155,19 @@ def view(world: World) -> dict:
             "plots": plots.view(world),
             "crises": crises.view(world),  # active world crises (crises.py)
             "threats": threats.view(world),  # raids, beasts, travelers here or warned (threats.py)
+            **animals.view(world),  # animals.py: herds per place and open hunt parties (animals on)
             "graves": graves.view(world),  # graves.py: who is buried where
             **({"labor": lab} if (lab := labor.view(world)) else {}),  # labor.py: skills, trader's day
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
             "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
             "works": works.view(world),  # village structures and open projects (works.py)
+            **construction.view(world),  # building sites and common buildings (construction.py)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
                     for l in world.locations.values() if l.slots},
-            # for the viewer's object panels (viewer/inspect.js): chests, the square's order board, trader prices
-            "chests": [{"id": c.id, "owner": c.owner, "location": c.location, "items": dict(c.items), "coins": c.coins,
-                        "locked": c.locked} for c in world.chests.values()],
+            # for the viewer's object panels (viewer/inspect.js): the square's order board, trader prices
             "orders": [{"id": o.id, "needs": o.needs, "reward": o.reward, "until": o.expires_day}
                        for o in world.orders.values() if o.status == "open"],
             "market": market_prices(world)}
@@ -273,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.agents:
         override["population"] = {**(override.get("population") or {}), "size": a.agents}
     with_tick_minutes(override, a.tick_minutes)
-    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
+    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness, a.map_size))
     names = sorted(world.agents)
     brains = rc.brains(names)
     # Old-style flags cycle over agents and override the file.
@@ -311,6 +313,9 @@ def main(argv: list[str] | None = None) -> int:
     if rc.log:
         from . import scorecard
         print(f"  scorecard: {scorecard.write(rc.log)}")
+        from . import session  # the same end-of-session summary the app saves (aivillage/session.py)
+        session.save(rc.log, ended_by="finished", days_planned=rc.days)
+        print(f"  session: {session.paths(rc.log)['html']}")
     return 0
 
 
@@ -337,7 +342,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
-    off = frozenset(world.config.get("disabled_actions") or ())
+    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

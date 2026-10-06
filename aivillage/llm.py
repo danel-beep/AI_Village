@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import chronicle, handbook, market, places, reputation, taxes
+from . import animals, chronicle, construction, handbook, market, places, reputation, spoilage, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -146,6 +146,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(crisis)
     if threat := threats.facts(cfg):
         lines.append(threat)
+    if (hunt := animals.facts(cfg)) and "hunt" not in (cfg.get("disabled_actions") or []):
+        lines.append(hunt)
     if sick := illness.facts(cfg):
         lines.append(sick)
     if season := seasons.fact(cfg):
@@ -161,12 +163,16 @@ def world_facts(cfg: dict) -> str:
     lines.append(pricing.tool_fact(cfg))
     if pricing.enabled(cfg):
         lines.append(pricing.facts(cfg))
+    if rot := spoilage.facts(cfg):
+        lines.append(rot)
     if death := graves.facts(cfg):
         lines.append(death)
     if market.enabled(cfg):
         lines.append(market.facts(cfg))
     if works.enabled(cfg):
         lines.append(works.facts(cfg))
+    if built := construction.facts(cfg):
+        lines.append(built)
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:
@@ -614,6 +620,7 @@ def compact_obs(obs: dict) -> dict:
     """Drop what the agent does not need every hour, to save tokens."""
     o = json.loads(json.dumps(obs))
     o["board"].pop("recipes", None)
+    o.pop("locked_actions", None)  # progress.py: goes into the handbook instead
     o["board"]["trader_prices"] = {k: f"{v['buy']}/{v['sell']}" for k, v in o["board"]["trader_prices"].items()}
     for k in ("fires", "offers_to_you", "your_offers"):
         if not o[k]:
@@ -644,7 +651,8 @@ class LLMAgent:
     character: str = ""  # character_text(); "" = neutral default
 
     def messages(self, obs: dict) -> list[dict]:
-        system = SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(self.disabled_actions),
+        off = self.disabled_actions | set(obs.get("locked_actions", ()))  # progress.py: not open yet
+        system = SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(off),
                                facts=self.facts or "(none)", character="\n" + self.character if self.character else "")
         memory = {"notes": self.notes or "none", "your_last_actions": self.recent}
         if self.people:

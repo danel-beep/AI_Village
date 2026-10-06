@@ -1,7 +1,7 @@
 // Object inspector: click a house, plot, lot, landmark (square, market, smithy, mine, forest, river...) or a single
 // map object (tree, garden bed, berry bush, fish shoal, rock) to see what it holds now and what happened there.
 // Reads the viewer's globals only (header, ticks, i, selected, select, color, tr, esc, lastPanel) and the log's
-// `view` (map, plots, chests, orders, projects, market, fire_info; see docs/ARCHITECTURE.md). Hooks in index.html:
+// `view` (map, plots, chests, orders, works, market, fire_info; see docs/ARCHITECTURE.md). Hooks in index.html:
 // Inspect.click(x, y) when no villager is under the click, Inspect.render() from panel(), Inspect.mark(g) after the map.
 const Inspect = (() => {
   const css = document.createElement('style');
@@ -150,7 +150,7 @@ const Inspect = (() => {
       const f = (v.fire_info || {})[id];
       if (f) s += `<div style="color:#e4572e">🔥 Горит! Нужно ещё ${f.water_needed} вёдер воды, сгорит через ${f.hours_left} ч</div>`;
       s += plotHtml(t, id);
-      const ch = (v.chests || []).filter(c => c.location === id);
+      const ch = [(v.chests || {})[owner]].filter(Boolean);   // run.view(): {owner: {coins, items, locked}}
       if (ch.length) s += `<h4>Сундук</h4>` + ch.map(c => `<div>${c.locked ? '🔒 ' : ''}${goods(c.items) || 'пусто'}${c.coins ? ` · ${c.coins} монет` : ''}</div>`).join('');
     } else if ((v.plots || {})[id]) s += plotHtml(t, id);
     if (id === 'market' && v.market) {

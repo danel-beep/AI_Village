@@ -102,6 +102,11 @@ const MapLayer = (() => {
       if (!v) { P(g, s[0] + 5, s[1] + 12, C.stoneD); P(g, s[0] + 9, s[1] + 13, C.stone); P(g, s[0] + 11, s[1] + 11, C.stoneD); return; }
       blob(g, s[0] + 8, s[1] + 14 - 4 * f, 2 + 4 * f, 1.5 + 3.5 * f, [C.stoneL, C.stone, C.stoneD]);
       if (ore) { P(g, s[0] + 7, s[1] + 13 - 4 * f, ore); if (f > .5) P(g, s[0] + 9, s[1] + 11 - 4 * f, ore); } });
+    // clay mounds on the clay hills of a large map (viewer/mapgen.js) sink as they are dug
+    for (const loc of locs('clay')) amounts(t, loc, 'clay').forEach((v, i) => {
+      const s = spots[loc].clay[i]; if (!s) return; const f = v / capOf(t, loc, 'clay');
+      if (!v) { P(g, s[0] + 6, s[1] + 12, '#7e4426'); P(g, s[0] + 10, s[1] + 13, '#a85f36'); return; }
+      blob(g, s[0] + 8, s[1] + 13 - 3 * f, 2 + 5 * f, 1.5 + 3 * f, ['#e8a878', '#c47a4a', '#8e4e2c'], '#5e3018'); });
     // trees: full, growing sapling, or stump; a tree felled this hour topples
     for (const loc of locs('wood')) {
       const down = felled(t, loc, 'wood'), cap = capOf(t, loc, 'wood');

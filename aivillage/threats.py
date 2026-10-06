@@ -521,11 +521,15 @@ class ThreatArgs(BaseModel):
     warn: bool = Field(True, description="warn the village in advance")
 
 
-def _god_tick(ctx: Ctx, days: int, warn: bool) -> int:
-    cfg = ctx.cfg
+def god_arrival_tick(cfg: dict, tick: int, days: int, warn: bool) -> int:
+    """When a god raid/beast sent at `tick` arrives (the server shows it to the player right away)."""
     if days == 0:  # a warning today gives the village two hours to get ready
-        return ctx.world.tick + (clock.hours(cfg, 2) if warn else 1)
-    return clock.tick_of(cfg, ctx.world.day + days, int(_t(cfg).get("arrive_hour", 11)))
+        return tick + (clock.hours(cfg, 2) if warn else 1)
+    return clock.tick_of(cfg, clock.time_of(cfg, tick)[0] + days, int(_t(cfg).get("arrive_hour", 11)))
+
+
+def _god_tick(ctx: Ctx, days: int, warn: bool) -> int:
+    return god_arrival_tick(ctx.cfg, ctx.world.tick, days, warn)
 
 
 @GOD.action("raid", "Bandits raid a house (warned days ahead or not). If nobody fights them they plunder chests "

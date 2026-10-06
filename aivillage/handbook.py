@@ -44,9 +44,10 @@ ACTION_TOPIC = {
 MODULE_TOPIC = {
     "plots": "Home, chests and land", "land": "Home, chests and land", "family": "People and family",
     "graves": "People and family", "governance": "Village affairs", "works": "Village affairs",
-    "reputation": "Talk and news", "conflict": "Taking and force", "threats": "Outsiders and dangers",
+    "reputation": "Talk and news", "conflict": "Taking and force", "threats": "Outsiders and dangers", "animals": "Gathering and making",
     "illness": "People and family", "dice": "Trade and money",
     "debts": "Trade and money", "market": "Trade and money", "taxes": "Village affairs", "places": "Gathering and making", "chronicle": "Talk and news",
+    "construction": "Home, chests and land",
 }
 
 
