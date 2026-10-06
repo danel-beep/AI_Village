@@ -684,14 +684,20 @@ class OrderArgs(BaseModel):
     order_id: str
 
 
-@ACTIONS.action("fulfill_order", "Deliver everything an order on the board needs, at the square, and get "
-                "the whole reward yourself.", OrderArgs,
-                available=lambda c, a: a.location == "square" and any(o.status == "open"
-                                                                      for o in c.world.orders.values()))
+def _remote_orders(cfg: dict) -> bool:
+    """market.remote: a villager's own order (post_order) is delivered from anywhere; council orders at the square."""
+    return bool(cfg.get("market", {}).get("enabled") and cfg["market"].get("remote"))
+
+
+@ACTIONS.action("fulfill_order", "Deliver everything an order on the board needs and get the whole reward "
+                "yourself: at the square, or from anywhere for a villager's order if World facts say so.", OrderArgs,
+                available=lambda c, a: any(o.status == "open" and o.by != a.name and
+                                           (a.location == "square" or (o.by and _remote_orders(c.cfg)))
+                                           for o in c.world.orders.values()))
 def fulfill_order(ctx: Ctx, a: Agent, args: OrderArgs) -> None:
-    if a.location != "square":
-        raise ActionError("orders are delivered at the square")
     o = ctx.world.orders.get(args.order_id)
+    if a.location != "square" and not (o is not None and o.by and _remote_orders(ctx.cfg)):
+        raise ActionError("orders are delivered at the square")
     if o is None or o.status != "open":
         raise ActionError(f"no open order '{args.order_id}'")
     if o.by == a.name:

@@ -122,6 +122,13 @@ class RandomBot(Bot):
             args = {"structure": r.choice(["well", "bridge", "watchtower", "wall", "castle"])}
         elif name == "embezzle":
             args = {"coins": r.randint(-1, 40)}
+        elif name == "post_sale":
+            args = {"items": {pick_item(): r.randint(1, 3)}, "price": r.choice([r.randint(1, 30), 0]),
+                    "hours": r.choice([24, r.randint(1, 100)])}
+        elif name in ("buy_sale", "cancel_listing"):
+            ids = [x["id"] for x in obs.get("for_sale", []) + obs.get("your_sales", [])]
+            ids += [o["id"] for o in obs["board"]["orders"]] + ["sale0"]
+            args = {"sale_id" if name == "buy_sale" else "listing_id": r.choice(ids)}
         elif name == "fulfill_order":
             orders = [o["id"] for o in obs["board"]["orders"]] or ["order0"]
             args = {"order_id": r.choice(orders)}

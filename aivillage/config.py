@@ -478,6 +478,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # A player may stake up to coins + `credit`; a loser short of coins owes the rest, due in `debt_days`.
     "dice": {"enabled": True, "places": ["square"], "dice": 2, "sides": 6, "rerolls": 2, "max_stake": 30,
              "credit": 15, "debt_days": 2, "offer_hours": 2},
+    # Market board (aivillage/market.py). `post_sale` puts items up for a price from anywhere (the board holds
+    # them for `sale_hours`, at most `max_sale_hours`); `buy_sale` buys a listing from anywhere when `remote`
+    # (else at `place`), and `remote` also lets villagers' own orders (post_order) be delivered from anywhere.
+    # Observation shows the `show` cheapest listings per unit and where/when each villager was last seen
+    # (`seen_show` lines; co-presence and events with a place update it).
+    "market": {"enabled": True, "remote": True, "place": "square", "sale_hours": 24, "max_sale_hours": 72,
+               "max_own_sales": 3, "show": 10, "seen_show": 10},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

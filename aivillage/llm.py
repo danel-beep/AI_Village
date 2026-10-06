@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import reputation
+from . import market, reputation
 from .registry import ACTIONS
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
@@ -153,6 +153,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(labor.facts(cfg))
     if death := graves.facts(cfg):
         lines.append(death)
+    if market.enabled(cfg):
+        lines.append(market.facts(cfg))
     if works.enabled(cfg):
         lines.append(works.facts(cfg))
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
