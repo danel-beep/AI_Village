@@ -62,6 +62,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # What happens at health 0: "hospital" (lose half the inventory, back in N days) or "death".
     "death_mode": "hospital",
     "hospital_days": 2,
+    # With death_mode "hospital": the collapse number `lives` is death (lives 2 = one hospital stay, then death).
+    # 0 = never die, the hospital every time. Runs get 2 from modes.RUN_DEFAULTS.
+    "lives": 0,
     # Economy
     "start_coins": 20,
     "start_items": {"tool": 0},  # given to every villager at the start (crafts mode: a tool)

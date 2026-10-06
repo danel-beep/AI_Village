@@ -11,7 +11,7 @@ from aivillage.run import bots_decider, replay, run
 
 from test_neutrality import evaluative
 
-QUIET = {"crises": {"enabled": False}, "illness": {"per_day": 0.0}, "threats": {"kinds": {}},
+QUIET = {"lives": 0, "crises": {"enabled": False}, "illness": {"per_day": 0.0}, "threats": {"kinds": {}},
          "random_fires": {"per_day": 0.0}}
 
 

@@ -119,6 +119,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
             "satiety": a.satiety, "health": a.health, "coins": a.coins, "inventory": dict(a.inventory),
             "tool_wear": a.tool_wear, "sick": world.day < a.sick_until_day,
+            **graves.lives_left(cfg, a),
             "evicted": world.day < a.evicted_until_day, "task": a.task,
             "your_chest": {"items": chest.items, "coins": chest.coins, "locked": chest.locked,
                            "shared_with": chest.shared_with},
@@ -451,7 +452,7 @@ def check_health(ctx: Ctx) -> None:
         if a.status != "active" or a.health > 0:
             continue
         a.task, a.asleep = None, False
-        if cfg["death_mode"] == "death":
+        if cfg["death_mode"] == "death" or 0 < cfg.get("lives", 0) <= a.hospital_stays + 1:
             a.status = "dead"
             graves.bury(ctx, a)
             for n in wake_targets(w, ctx.events[-1]):  # the hour's wake-up pass is over: wake them here
@@ -461,8 +462,9 @@ def check_health(ctx: Ctx) -> None:
         for k, v in list(a.inventory.items()):
             ops.burn(w, a.inventory, k, v - v // 2)
         a.status, a.status_until_day = "hospital", w.day + cfg["hospital_days"]
+        a.hospital_stays += 1
         ctx.emit("hospital", f"{a.name} collapsed and was taken to the hospital for {cfg['hospital_days']} days.",
-                 visibility="public")
+                 visibility="public", stays=a.hospital_stays)
 
 
 def night(ctx: Ctx) -> None:

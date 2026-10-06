@@ -7,7 +7,7 @@ from aivillage import engine, modes, ops, progress
 from aivillage.invariants import check
 from aivillage.llm import world_facts
 
-QUIET = {"crises": {"enabled": False}, "illness": {"per_day": 0.0}}
+QUIET = {"lives": 0, "crises": {"enabled": False}, "illness": {"per_day": 0.0}}
 RAIDY = {"threats": {"first_day": 1, "max_active": 1,
                      "kinds": {"raid": {"per_day": 1.0}, "beast": {"per_day": 0.0},
                                "traveler": {"per_day": 1.0, "scout_chance": 1.0}}}}

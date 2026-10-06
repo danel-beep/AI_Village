@@ -194,6 +194,10 @@ MODES["survival"] = {
 
 DEFAULT_MODE = "crafts"
 
+# Rules every run starts with (under the mode's own settings), while the bare engine default stays off so
+# engine tests can leave villagers idle for days: one hospital stay, the second collapse is death.
+RUN_DEFAULTS: dict[str, Any] = {"lives": 2}
+
 
 def bare_start(cfg: dict) -> None:
     """Empty a full world config (in place) for a camp start: called by engine.new_world. Idempotent.
@@ -240,7 +244,7 @@ def check(mode: str) -> None:
 def world_override(mode: str, world: dict | None = None) -> dict:
     """The mode's world settings with `world` (the run config's own overrides) on top."""
     check(mode)
-    out = _merge(MODES[mode]["world"], world or {})
+    out = _merge(_merge(RUN_DEFAULTS, MODES[mode]["world"]), world or {})
     out["economy_mode"] = mode
     return out
 
