@@ -39,6 +39,12 @@ def enabled(cfg: dict) -> bool:
     return bool(cfg.get("governance", {}).get("enabled"))
 
 
+def voluntary(cfg: dict) -> bool:
+    """Config `laws.enforcement`: "auto" (taxes and fines are taken) or "voluntary" (they become bills in the
+    debt book that the villager pays with pay_bill, or not; debts.write_bill)."""
+    return (cfg.get("laws") or {}).get("enforcement", "auto") == "voluntary"
+
+
 def _g(cfg: dict) -> dict:
     return cfg["governance"]
 
@@ -153,10 +159,14 @@ def facts(cfg: dict) -> str:
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
             + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant); everyone votes with vote_law; a law passes when "
             "more than half of all villagers vote yes. Tax goes to the village treasury. Witnesses and victims of a "
-            "theft, attack or arson can report_theft to make the culprit pay the theft_fine."
+            "theft, attack or arson can report_theft: the culprit "
+            + ("gets a bill for the theft_fine in the debt book (paid with pay_bill or left unpaid)."
+               if voluntary(cfg) else "pays the theft_fine.")
             + (" The mayor holds the treasury and can embezzle from it; anyone can audit_treasury at the square, "
-               "and the books are checked whenever the mayor changes. Found embezzlement can be reported too: "
-               "the culprit returns what they took and pays the fine." if treasury_cfg(cfg).get("embezzle") else ""))
+               "and the books are checked whenever the mayor changes. Found embezzlement can be reported too: the "
+               + ("culprit's bill then also holds what they took." if voluntary(cfg)
+                  else "culprit returns what they took and pays the fine.")
+               if treasury_cfg(cfg).get("embezzle") else ""))
 
 
 # ---------- guards ----------
@@ -284,8 +294,8 @@ class ReportArgs(BaseModel):
     person: str = Field(description="the thief you saw")
 
 
-@ACTIONS.action("report_theft", "Report a theft, attack or arson you witnessed or suffered awake; the culprit pays the theft_fine "
-                "into the treasury and everyone learns about it.", ReportArgs,
+@ACTIONS.action("report_theft", "Report a theft, attack or arson you witnessed or suffered awake; everyone learns about it and "
+                "the culprit owes the theft_fine to the treasury (World facts say how it is paid).", ReportArgs,
                 available=lambda c, a: enabled(c.cfg) and any(a.name in x["known_by"] for x in c.world.governance.crimes))
 def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
     _require(ctx)
@@ -296,21 +306,33 @@ def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
         raise ActionError(f"you did not see {thief.name} steal, attack or set fire (in the last "
                           f"{_g(ctx.cfg)['crime_memory_days']} days, unreported)")
     w.governance.crimes.remove(crime)
-    back = min(crime.get("amount", 0), thief.coins) if crime.get("crime") == "embezzlement" else 0
-    if back:
-        ops.move_coins(thief, w.governance, back)
-    fine = min(law(w, "theft_fine"), thief.coins)
-    if fine:
-        ops.move_coins(thief, w.governance, fine)
-    penalty = f"{thief.name} paid a fine of {fine} coins to the treasury." if fine else \
-        "There is no fine for theft." if not law(w, "theft_fine") else f"{thief.name} had no coins to pay the fine."
-    if back:
-        penalty = f"{thief.name} returned {back} coins to the treasury. " + penalty
+    bill = None
+    if voluntary(ctx.cfg):  # nothing is taken: what is owed becomes a bill in the debt book
+        from . import debts
+        back = crime.get("amount", 0) if crime.get("crime") == "embezzlement" else 0
+        fine = law(w, "theft_fine")
+        if back or fine:
+            note = " + ".join(x for x in (f"{back} embezzled" if back else "", f"fine {fine}" if fine else "") if x)
+            bill = debts.write_bill(ctx, thief.name, back + fine, "fine", note=note).id
+            penalty = f"{thief.name} owes the treasury {back + fine} coins ({note}; bill {bill})."
+        else:
+            penalty = "There is no fine for theft."
+    else:
+        back = min(crime.get("amount", 0), thief.coins) if crime.get("crime") == "embezzlement" else 0
+        if back:
+            ops.move_coins(thief, w.governance, back)
+        fine = min(law(w, "theft_fine"), thief.coins)
+        if fine:
+            ops.move_coins(thief, w.governance, fine)
+        penalty = f"{thief.name} paid a fine of {fine} coins to the treasury." if fine else \
+            "There is no fine for theft." if not law(w, "theft_fine") else f"{thief.name} had no coins to pay the fine."
+        if back:
+            penalty = f"{thief.name} returned {back} coins to the treasury. " + penalty
     did = {"assault": "attacked", "arson": "set fire to the house of",
            "embezzlement": "embezzled from"}.get(crime.get("crime"), "stole from")
     ctx.emit("theft_report", f"{a.name} reports that {thief.name} {did} {crime['victim']} on day "
              f"{crime['day']}. {penalty}", actor=a.name, visibility="public", thief=thief.name,
-             victim=crime["victim"], fine=fine)
+             victim=crime["victim"], fine=fine, **({"bill": bill} if bill else {}))
 
 
 # ---------- engine hooks ----------

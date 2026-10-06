@@ -315,6 +315,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "auto_collect": True,
         "seize_pct": 50,
     },
+    # How laws are enforced (aivillage/governance.py `voluntary`): "auto" takes the tax (eviction if short) and the
+    # theft fine; "voluntary" writes them as bills owed to the treasury in the debt book, paid with pay_bill or not.
+    "laws": {
+        "enforcement": "auto",
+        "bill_days": 3,  # a bill not paid within this many days is marked overdue (public), nothing more
+    },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
     "governance": {
