@@ -62,12 +62,22 @@ def _scale(world: World) -> float:
 
 
 def _defense(world: World) -> float:
-    f = 1.0
+    """Strength multiplier from village defenses: each wall level (works.py, when present) and any finished
+    project listed in `defense_projects`."""
+    f = float(_t(world.config).get("wall_factor_per_level", 1.0)) ** _wall_level(world)
     for pid, k in (_t(world.config).get("defense_projects") or {}).items():
         p = world.projects.get(pid)
         if p is not None and p.done:
             f *= k
     return f
+
+
+def _wall_level(world: World) -> int:
+    try:  # the village works module (wall, bridge...) lands in its own PR; without it there is no wall
+        from . import works
+    except ImportError:
+        return 0
+    return int(works.defense(world))
 
 
 def _homes(world: World) -> dict[str, str]:

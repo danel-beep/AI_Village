@@ -364,6 +364,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "warn_days": 2,
         "arrive_hour": 11,       # warned threats come around this hour
         "defense_projects": {"wall": 0.6},
+        "wall_factor_per_level": 0.75,  # each level of the village wall (works.py) x0.75 to strength and loot
         "kinds": {
             # Bandits: start at the target's house; every hour nobody fights them they carry off `loot_share`
             # of each chest there, and after `stay_hours` such hours move to the next of `houses` (nearest
