@@ -128,6 +128,12 @@ class RandomBot(Bot):
                     "reward": r.randint(-1, 40), "days": r.randint(1, 3)}
         elif name == "propose_build":
             args = {"structure": r.choice(["well", "bridge", "watchtower", "wall", "castle"])}
+        elif name == "start_building":
+            args = {"kind": r.choice(list(obs.get("can_start_building_here", {})) + ["castle", "house"])}
+        elif name in ("bring_materials", "construct"):
+            ids = [s["id"] for s in obs.get("building_sites", [])] + ["site0"]
+            args = {"site_id": r.choice(ids), **({"items": {r.choice(["wood", "stone", pick_item()]): r.randint(1, 5)}}
+                                                 if name == "bring_materials" else {})}
         elif name == "embezzle":
             args = {"coins": r.randint(-1, 40)}
         elif name == "post_sale":

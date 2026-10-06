@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness,
+from . import (animals, chronicle, clock, conflict, construction, crises, debts, dice, family, governance, graves, handbook, illness,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
                taxes, threats, tiles, works)
 from .actions import step_move, work_hour
@@ -165,6 +165,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(chronicle.observe(world, name))
     obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
+    obs.update(construction.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:

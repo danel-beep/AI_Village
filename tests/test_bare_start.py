@@ -2,7 +2,7 @@
 
 import json
 
-from aivillage import engine, knobs, modes, ops, progress
+from aivillage import construction, engine, knobs, modes, ops, progress
 from aivillage.invariants import check
 
 
@@ -48,9 +48,15 @@ def test_camp_laborer_gathers_anything_and_builds_a_house():
     step(w, {"Anna": ("sell", {"item": "fish", "qty": 1})})
     assert a.coins == 0 and a.inventory.get("fish", 0) > 0  # no market yet
     a.location = a.home
-    ops.mint(w, a.inventory, "wood", 6)
-    ops.mint(w, a.inventory, "stone", 2)
-    step(w, {"Anna": ("upgrade_house", {})})
+    ops.mint(w, a.inventory, "wood", 10)
+    ops.mint(w, a.inventory, "stone", 4)
+    a.busy_until, a.task = w.tick, None
+    step(w, {"Anna": ("start_building", {"kind": "house"})})  # houses go up on a site (construction.py)
+    site = next(iter(construction.sites(w)))
+    for name, args in [("bring_materials", {"site_id": site, "items": {"wood": 10, "stone": 4}})] + \
+            [("construct", {"site_id": site})] * 6:
+        a.busy_until, a.task, a.asleep = w.tick, None, False
+        step(w, {"Anna": (name, args)})
     assert w.plots[a.home].house == 1
 
 

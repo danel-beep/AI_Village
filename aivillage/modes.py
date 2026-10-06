@@ -162,7 +162,8 @@ MODES["survival"] = {
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
-                                              "animals": {"enabled": True}}),
+                                              "animals": {"enabled": True},
+                                              "construction": {"enabled": True}}),
 }
 
 DEFAULT_MODE = "crafts"

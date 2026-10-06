@@ -28,6 +28,10 @@ from .state import Agent, Project, World
 SITE = "square"
 NOT_ITEMS = ("labor", "coins")
 
+# Other modules' buildings add to these effects: fn(world) -> number (construction.py: palisade, market square).
+DEFENSE_SOURCES: list = []
+SELL_BONUS_SOURCES: list = []
+
 
 # ---------- queries and effects ----------
 
@@ -54,12 +58,14 @@ def _per_level(world: World, structure: str, key: str) -> float:
 
 def defense(world: World) -> int:
     """Village defense against raids: the wall's level times `defense_per_level` (0 without a wall)."""
-    return int(_per_level(world, "wall", "defense_per_level"))
+    return int(_per_level(world, "wall", "defense_per_level")) + sum(int(f(world)) for f in DEFENSE_SOURCES)
 
 
 def sell_factor(world: World, side: str) -> float:
     """Trader price multiplier from the bridge: more buyers come, so the trader pays more (side 'sell')."""
-    return 1.0 + _per_level(world, "bridge", "sell_bonus_per_level") if side == "sell" else 1.0
+    if side != "sell":
+        return 1.0
+    return 1.0 + _per_level(world, "bridge", "sell_bonus_per_level") + sum(f(world) for f in SELL_BONUS_SOURCES)
 
 
 def notice_bonus(world: World) -> float:
