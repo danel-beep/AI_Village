@@ -40,7 +40,7 @@ const Camera = (() => {
       if (!down || !(e.buttons & 1)) return;
       const [px, py] = toCanvas(e), dx = px - down.p[0], dy = py - down.p[1];
       if (!dragged && Math.hypot(dx, dy) < 6) return;
-      dragged = true; follow = null; anchor = null; director.hold = 8; canvas.style.cursor = 'grabbing';
+      dragged = true; follow = null; anchor = null; director.hold = 8; director.pin = null; canvas.style.cursor = 'grabbing';
       cx = down.cx - dx / (S * z); cy = down.cy - dy / (S * z); clampC();
     });
     window.addEventListener('pointerup', () => { down = null; canvas.style.cursor = ''; });
@@ -111,10 +111,15 @@ const Camera = (() => {
   // a traveler) and burning houses stay worth watching for as long as they are there.
   const MIN_HOLD = 7, CHAT_HOLD = 10, QUIET = 14;
   function direct(dt, t, pos, at, tr) {
-    if (!director.on || !t) return;
-    director.age += dt; if (director.hold > 0) { director.hold -= dt; return; }   // the viewer just dragged: let them look
-    if (lastSel) return;                                                           // a picked villager is followed instead
-    if (director.seen !== t.tick) {
+    if (!t) return;
+    if (director.pin && (director.pin.left -= dt) <= 0) director.pin = null;
+    const pinned = director.pin;
+    if (!pinned) {   // a pinned shot (⏮ ⏭) wins over everything below
+      if (!director.on) { if (caption) { flashT -= dt; caption.style.opacity = flashT > 0 ? 1 : 0; } return; }
+      director.age += dt; if (director.hold > 0) { director.hold -= dt; return; }   // the viewer just dragged: let them look
+      if (lastSel) return;                                                           // a picked villager is followed instead
+    }
+    if (!pinned && director.seen !== t.tick) {
       director.seen = t.tick;
       let best = null;
       for (const e of t.events || []) {
@@ -136,8 +141,9 @@ const Camera = (() => {
       else if (best && (!cur || director.age > MIN_HOLD || best.sc >= cur.sc + 3)) { director.shot = best; director.age = 0; }
       else if (!best && cur && director.age > QUIET) director.shot = null;
     }
-    const s = director.shot;
-    if (caption) {
+    const s = pinned ? pinned.shot : director.shot;
+    if (caption && flashT > 0) { flashT -= dt; caption.style.opacity = 1; caption.textContent = flashText; caption.style.top = (cv.offsetTop + 8) + 'px'; }
+    else if (caption) {
       caption.style.opacity = s ? 1 : 0;
       if (s) caption.textContent = (s.kind === 'threat_here' ? s.what : label(s.kind) + (s.what ? ' · ' + s.what : '')) +
         (s.who ? ': ' + s.who : '') + (s.loc && t.view.locations[s.loc] ? ' · ' + tr(t.view.locations[s.loc]) : '');
@@ -145,14 +151,26 @@ const Camera = (() => {
     }
     const p = s && (s.who ? pos(s.who) : at(s.loc));
     if (p) { follow = null; zt = s.sc >= 6 ? 2.6 : 2; anchor = null;
-      const f = 1 - Math.exp(-dt * 1.6); cx += (p[0] - cx) * f; cy += (p[1] - cy) * f; }
+      const f = 1 - Math.exp(-dt * (pinned ? 3 : 1.6)); cx += (p[0] - cx) * f; cy += (p[1] - cy) * f; }
     else { zt = 1; anchor = null; }
   }
+
+  // Manual replay control (viewer/replay.js): show this event now and hold it `sec` seconds, whatever the
+  // director would pick (works with the auto camera off too). ev: a log event; t: the tick that holds it.
+  function pin(ev, t, sec = 9) {
+    const d = ev.data || {}, th = d.threat && ((t && t.view.threats) || []).find(x => x.id === d.threat && x.state === 'here');
+    director.pin = { left: sec, shot: { sc: score(ev.kind) || 6, who: ev.actor || null, kind: ev.kind,
+      loc: (th && th.location) || ev.location || d.house || d.location || d.target, what: d.threat_kind && THREAT[d.threat_kind] } };
+    director.shot = null; director.age = 0; director.hold = 0; follow = null;
+  }
+  let flashT = 0, flashText = '';
+  function flash(text, sec = 2.5) { flashText = text; flashT = sec; if (caption) { caption.textContent = text; caption.style.top = (cv.offsetTop + 8) + 'px'; } }
+  const toolbar = () => box;
 
   // Called every frame. sel: selected villager name; pos(name) -> [x, y] map pixels or undefined.
   let lastSel = null;
   function update(dt, sel, pos) {
-    if (sel !== lastSel) { lastSel = sel; follow = sel; anchor = null; if (sel && zt < 2.5) zt = 2.5; director.shot = null; }
+    if (sel !== lastSel) { lastSel = sel; follow = sel; anchor = null; if (sel && zt < 2.5) zt = 2.5; director.shot = null; if (sel) director.pin = null; }
     if (Math.abs(zt - z) > .001) z += (zt - z) * (1 - Math.exp(-dt * 14)); else z = zt;
     if (anchor) { const [wx, wy, px, py] = anchor; cx = wx - px / (S * z) + W / (2 * z); cy = wy - py / (S * z) + H / (2 * z);
       if (z === zt) anchor = null; }
@@ -162,5 +180,5 @@ const Camera = (() => {
     if (box) box.style.top = (cv.offsetTop + cv.offsetHeight - 38) + 'px';
   }
 
-  return { attach, update, direct, view, toWorld, toScreen, setDirector, directorOn, score, label };
+  return { attach, update, direct, view, toWorld, toScreen, setDirector, directorOn, score, label, pin, flash, toolbar };
 })();
