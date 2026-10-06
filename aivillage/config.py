@@ -686,6 +686,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         # resources nobody gathers with bare hands
         "needs_tool": ["ore", "gold"],
+        # Secret recipes («С нуля» plan task 19): a recipe not in `common` is known only to whoever worked it out
+        # (the first to make it while no living villager knows it, `discover_hours` more at the bench) or was
+        # taught it (teach / learn). `rediscover`: others may still work out a known recipe alone.
+        "secrets": {
+            "enabled": False,
+            "common": ["plank", "flour", "bread", "fish_soup", "stone_axe", "stone_pick", "club"],
+            "discover_hours": 3,
+            "rediscover": False,
+        },
     },
     # Building with your own hands (aivillage/construction.py, docs/specs/survival.md). Off here: houses are
     # upgraded at once with upgrade_house. On, every building in `catalog` goes up on a site: start_building
