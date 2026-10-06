@@ -21,7 +21,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from . import modes
+from . import modes, seasons
 from .config import DEFAULT_CONFIG, make_config
 
 BOT_MIXES = {
@@ -77,7 +77,14 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "hospital_days", "path": "hospital_days", "group": "Правила", "type": "range",
      "label": "Дней в больнице", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "seasons", "path": "seasons.enabled", "group": "Правила", "type": "toggle", "label": "Времена года",
-     "hint": "Зимой поле не растёт, ягод нет, рыбы меньше."},
+     "hint": "Зимой грядки не засеять, что не дозрело, замерзает, ягод нет, рыбы меньше."},
+    {"key": "season_days", "group": "Правила", "type": "choice", "label": "Длина сезона", "default": 0,
+     "options": [[0, "Авто"], [1, "1 день"], [2, "2 дня"], [3, "3 дня"], [7, "Неделя"], [14, "2 недели"]],
+     "hint": "Авто: весь год укладывается в прогон и последним идёт зима (3 дня = лето, осень, зима)."},
+    {"key": "season_start", "group": "Правила", "type": "choice", "label": "С какого сезона начать", "default": "auto",
+     "options": [["auto", "Авто"], ["spring", "🌱 Весна"], ["summer", "☀️ Лето"], ["autumn", "🍂 Осень"],
+                 ["winter", "❄️ Зима"]],
+     "hint": "Авто: так, чтобы к концу прогона наступила зима."},
 
     # --- theft ---
     {"key": "steal_notice_chance", "path": "steal_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
@@ -288,6 +295,12 @@ def to_run(opts: dict) -> dict:
     if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter
         override["agents"] = clean_roster(rows, val["villagers"])
     override.setdefault("map", {})["procedural"] = not val["fixed_map"]
+    if val["seasons"]:
+        cal = seasons.calendar(val["days"], val["season_days"])
+        if val["season_start"] != "auto":
+            cal.update(start=val["season_start"], offset_days=0)
+        for k, v in cal.items():
+            _set(override, f"seasons.{k}", v)
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
             "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"], "values": val}
