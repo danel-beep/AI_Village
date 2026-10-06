@@ -48,6 +48,16 @@ class RandomBot(Bot):
             args = {"hours": r.randint(1, 4)}
         elif name == "craft":
             args = {"recipe": r.choice(list(obs["board"]["recipes"]) + ["cake"]), "times": r.randint(1, 2)}
+        elif name == "host_feast":
+            args = {"items": {pick_item(): r.randint(1, 4)}}
+        elif name == "teach":
+            args = {"person": r.choice(people), "recipe": r.choice((obs.get("recipes_you_know")
+                                                                    or ["iron"]) + ["cake"]),
+                    **({"price": {r.choice(items[:3] + ["coins"]): r.randint(1, 3)}} if r.random() < 0.5 else {})}
+        elif name == "learn":
+            lessons = obs.get("lessons_offered") or [{"teacher": "nobody", "recipe": "cake"}]
+            les = r.choice(lessons)
+            args = {"teacher": les["teacher"], "recipe": les["recipe"]}
         elif name in ("eat", "buy", "sell", "pick_up"):
             args = {"item": pick_item(), "qty": r.randint(1, 3)}
         elif name in ("say",):
@@ -512,6 +522,12 @@ class HunterBot(WorkerBot):
         inv = me["inventory"]
         if me["satiety"] < 45 and inv.get("meat"):
             return decision("eat", {"item": "meat"}, "eat meat")
+        crafts = obs.get("crafts_here", {})
+        if "bow" in crafts and inv.get("plank") and inv.get("hide") and not inv.get("bow"):
+            return decision("craft", {"recipe": "bow"}, "make a bow")
+        if "bow" in obs["board"]["recipes"] and not obs.get("your_gear", {}).get("weapon") \
+                and inv.get("wood", 0) >= 3 and me["location"] == me["home"]:
+            return decision("craft", {"recipe": "club"}, "make a club")
         day = 8 <= t["hour"] < t["day_ends_at"] - 3
         if not day or me["health"] < 30 or me["satiety"] < 20 or ("hunt" not in obs["available_actions"] \
                                                                    and me["location"] == self.GROUND):

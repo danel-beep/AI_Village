@@ -12,7 +12,7 @@ Both are computed facts from rules the model already has; switching the hint off
 
 from __future__ import annotations
 
-from . import progress
+from . import crafting, progress
 from .registry import ACTIONS
 
 INTRO = ("Handbook of this world: everything a villager can do. Every villager has the same list, and so do you; "
@@ -44,11 +44,11 @@ ACTION_TOPIC = {
 
 MODULE_TOPIC = {
     "plots": "Home, chests and land", "land": "Home, chests and land", "family": "People and family",
-    "graves": "People and family", "governance": "Village affairs", "works": "Village affairs",
+    "graves": "People and family", "luxury": "People and family", "governance": "Village affairs", "works": "Village affairs",
     "reputation": "Talk and news", "conflict": "Taking and force", "threats": "Outsiders and dangers", "animals": "Gathering and making",
     "illness": "People and family", "dice": "Trade and money",
     "debts": "Trade and money", "market": "Trade and money", "taxes": "Village affairs", "places": "Gathering and making", "chronicle": "Talk and news",
-    "construction": "Home, chests and land",
+    "construction": "Home, chests and land", "crafting": "Gathering and making",
 }
 
 
@@ -84,6 +84,8 @@ def observe(world, name: str) -> dict:
         if r.get("profession") and r["profession"] != a.profession:
             continue
         if not progress.unlocked(world, f"recipe:{rid}"):
+            continue
+        if not crafting.may_make(world, a, rid):  # secret recipes: someone else knows it
             continue
         times = min((inv.get(k, 0) // n for k, n in r["inputs"].items() if n > 0), default=0)
         if times > 0:

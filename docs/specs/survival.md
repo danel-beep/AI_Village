@@ -48,7 +48,8 @@ API for other modules:
 
 Mode id `survival` («С нуля»). Config `bare_start` (`enabled`, `until_stage`, default `hamlet`): a start before
 that stage has every villager at profession `laborer`, house level 0, no coins, items or yard buildings,
-gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode.
+gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode. A start before `coins_from_stage`
+(default `village`, where the market square brings the trader) has no coins either.
 
 ## Building ids
 
@@ -63,8 +64,12 @@ Others from the plan: `campfire`, `granary`, `smokehouse`, `pen`, `kiln`, `mill`
 Config `construction`: `enabled`, `team_window_minutes`, `team_bonus`, `team_max`, `max_open_sites`, `catalog`
 (kind -> `name`, `place` "home" | "village", `at` (allowed places for village kinds), `levels`: rows of
 `items`, `hours`, `min_workers` and effects `roof`, `food_keeps_x` (+ `food_items`), `sell_bonus`, `defense`,
-`workshop`; a row is what that level gives, not added up). Catalog today: `shelter`, `house` 1–3, `campfire` 1–2,
-`workbench`, `granary` 1–2, `smokehouse`, `market_square` 1–2, `smithy`, `town_hall`, `tavern`, `palisade` 1–2.
+`workshop`, `extra_per_batch` (a workshop adds that many to every batch made there), `makes` + `feed` + `cap`
+(yard production fed from the owner's chest at night, collected like a coop); a row is what that level gives,
+not added up). `raw_instead` maps crafted materials to raw ones when crafting is off. Catalog: `shelter`,
+`house` 1–3, `campfire` 1–2, `workbench` 1–2, `granary` 1–2, `smokehouse` 1–2, `market_square` 1–2, `smithy` 1–2,
+`town_hall`, `tavern`, `palisade` 1–2, `kiln` 1–2, `mill` 1–2, `tannery` 1–2, `weaving_shed`, `pen` 1–2,
+`wall` 1–2 (needs `palisade@2`). Events: `workshop_bonus` {recipe, amount, building, level}.
 
 - Actions: `start_building(kind)` (here: own yard for "home" kinds, a common place for "village" ones),
   `bring_materials(site_id, items)`, `construct(site_id)` (one hour). With `min_workers` > 1 an hour counts only

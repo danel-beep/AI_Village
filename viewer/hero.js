@@ -48,7 +48,7 @@
     fire_out: ['🪣', 'Пожар потушен', 5], evicted: ['🚪', 'Выселение', 8], hospital: ['🏥', 'В больнице', 7],
     discharged: ['🏥', 'Выписка', 3], sick: ['🤒', 'Болезнь', 4], starving: ['🍂', 'Голод', 5],
     wedding: ['💍', 'Свадьба', 9], divorce: ['💔', 'Развод', 9], proposal: ['💌', 'Предложение руки и сердца', 6],
-    proposal_refused: ['💔', 'Отказ жениться', 6], inheritance: ['📜', 'Наследство', 6], hang_out: ['☕', 'Провели время вместе', 2],
+    proposal_refused: ['💔', 'Отказ жениться', 6], inheritance: ['📜', 'Наследство', 6], hang_out: ['☕', 'Провели время вместе', 2], feast: ['🍲', 'Устроил праздник', 6],
     elected: ['🎖', 'Стал старостой', 8], candidate: ['🗳', 'Кандидат в старосты', 3], law_proposed: ['⚖', 'Предложил закон', 3],
     law_passed: ['⚖', 'Принят закон', 4], theft_report: ['📣', 'Донос', 7], witness: ['👁', 'Свидетель кражи', 6],
     whisper_seen: ['👂', 'Подслушанный шёпот', 4], gossip: ['🗣', 'Слух', 3], gossip_heard: ['🗣', 'Услышал слух', 2],
@@ -159,12 +159,12 @@
 
   function property(n, t, s) {
     const v = t.view.agents[n], plots = t.view.plots || {}, out = [];
-    const inv = Object.entries(v.inventory).map(([k, q]) => `${q} ${esc(k)}`).join(', ') || 'пусто';
+    const inv = (window.ItemIcons ? ItemIcons.list(v.inventory) : Object.entries(v.inventory).map(([k, q]) => `${q} ${esc(k)}`).join(', ')) || 'пусто';
     out.push(`<div class="row">💰 <b>${v.coins}</b> монет при себе <span class="muted">(больше всего было ${s.peak})</span></div>`);
     out.push(`<div class="row">🎒 ${inv}</div>`);
     const chest = (t.view.chests || {})[n];
     if (chest) {
-      const ci = Object.entries(chest.items || {}).map(([k, q]) => `${q} ${esc(k)}`).join(', ');
+      const ci = window.ItemIcons ? ItemIcons.list(chest.items) : Object.entries(chest.items || {}).map(([k, q]) => `${q} ${esc(k)}`).join(', ');
       out.push(`<div class="row">🧰 Сундук${chest.locked ? ' (на замке)' : ''}: ${chest.coins} монет${ci ? ', ' + ci : ''}</div>`);
     }
     for (const [id, p] of Object.entries(plots)) {
