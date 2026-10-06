@@ -109,6 +109,19 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "crisis_w_caravan", "path": "crises.kinds.caravan.weight", "group": "Кризисы", "type": "range",
      "label": "Как часто караван", "min": 0, "max": 5, "step": 1},
 
+    # --- village works and treasury (aivillage/works.py, governance.py) ---
+    {"key": "works", "path": "works.enabled", "group": "Стройки и казна", "type": "toggle", "label": "Общие стройки",
+     "hint": "Колодец, мост, вышка, стена (по 3 уровня). Начинает мэр (без мэра любой), строят все вместе; "
+             "видно, кто помог, а кто нет."},
+    {"key": "works_council", "path": "works.council_idle_days", "group": "Стройки и казна", "type": "range",
+     "label": "Совет сам предлагает стройку после простоя", "min": 0, "max": 10, "step": 1, "unit": " дн.",
+     "hint": "0: никогда, стройки начинают только жители. Рекомендуем 3."},
+    {"key": "embezzle", "path": "treasury.embezzle", "group": "Стройки и казна", "type": "toggle",
+     "label": "Мэр может украсть из казны",
+     "hint": "Казна у мэра. Пропажу видно при проверке казны на площади или при смене мэра."},
+    {"key": "audit_on_handover", "path": "treasury.audit_on_handover", "group": "Стройки и казна", "type": "toggle",
+     "label": "Пересчёт казны при смене мэра"},
+
     # --- fires ---
     {"key": "fire_ticks", "path": "fire_ticks", "group": "Пожары и заказы", "type": "range",
      "label": "Сколько часов горит дом до потери", "min": 2, "max": 24, "step": 1, "unit": " ч"},

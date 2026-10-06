@@ -103,6 +103,19 @@ class Project:
     contributed: dict[str, int] = field(default_factory=dict)
     contributors: dict[str, int] = field(default_factory=dict)  # agent -> units given
     done: bool = False
+    # works.py: a project that builds or upgrades a village structure (well, wall, bridge, watchtower)
+    structure: str | None = None
+    level: int = 0  # the structure's level once this project is done
+    proposer: str | None = None  # mayor / villager / "council"
+    opened_day: int = 1
+    labor: dict[str, int] = field(default_factory=dict)  # agent -> hours of build_work
+
+
+@dataclass
+class Works:
+    """Village structures (works.py): built levels and the day the village last had no open project."""
+    levels: dict[str, int] = field(default_factory=dict)
+    quiet_since: int = 1
 
 
 @dataclass
@@ -145,6 +158,10 @@ class Governance:
     # Witnessed thefts that can still be reported: {"thief", "victim", "day", "known_by": [...]}
     crimes: list[dict] = field(default_factory=list)
     exiled: dict[str, int] = field(default_factory=dict)  # name -> exiled until this day
+    # Coins the mayor quietly took from the treasury and nobody has found yet (books = coins + hidden),
+    # and who took them (mayor -> coins).
+    hidden: int = 0
+    embezzled: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Governance":
@@ -222,6 +239,7 @@ class World:
     governance: Governance = field(default_factory=Governance)
     plots: dict[str, Plot] = field(default_factory=dict)  # home or lot location id -> plot
     crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
+    works: Works = field(default_factory=Works)  # village structures (works.py)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -257,6 +275,7 @@ class World:
             governance=Governance.from_dict(d.get("governance", {})),
             plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
             crises=d.get("crises", []),
+            works=Works(**d.get("works", {})),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

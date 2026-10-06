@@ -90,7 +90,15 @@ class RandomBot(Bot):
         elif name == "steal":
             args = {"target": r.choice(people + ["chest"]), "item": r.choice(items + ["coins"]), "qty": 2}
         elif name == "contribute":
-            args = {"project_id": "bridge", "items": {pick_item(): r.randint(1, 3)}}
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["bridge"]
+            args = {"project_id": r.choice(projs), "items": {r.choice([pick_item(), "coins", "labor"]): r.randint(1, 3)}}
+        elif name in ("build_work", "fund_project"):
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
+            args = {"project_id": r.choice(projs), **({"coins": r.randint(-2, 50)} if name == "fund_project" else {})}
+        elif name == "propose_build":
+            args = {"structure": r.choice(["well", "bridge", "watchtower", "wall", "castle"])}
+        elif name == "embezzle":
+            args = {"coins": r.randint(-1, 40)}
         elif name == "fulfill_order":
             orders = [o["id"] for o in obs["board"]["orders"]] or ["order0"]
             args = {"order_id": r.choice(orders)}
