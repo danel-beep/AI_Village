@@ -123,7 +123,7 @@ const Clip = (() => {
     const items = dayRec.items || [], shots = plan(dayRec.day, items);
     if (!shots.length) return message('Моменты этого дня ещё не загружены в окно просмотра.');
     const cv = document.getElementById('c');
-    let dir = false; try { dir = localStorage.getItem('aiv-director') === '1'; } catch (e) {}
+    const dir = Camera.directorOn();
     const saved = { i, frac, playing, userPaused, selected, dir };
     playing = false; userPaused = true;   // the clip drives i / frac itself; live ticks keep arriving but do not move it
     const m = mime(), stream = out.captureStream(FPS);
@@ -143,8 +143,8 @@ const Clip = (() => {
   }
 
   function cue(s) {   // jump the viewer to a shot and frame it
-    if (s.it.who && s.it.who.length) { Camera.setDirector(false); selected = s.it.who[0]; }
-    else { selected = null; Camera.setDirector(true); }
+    if (s.it.who && s.it.who.length) { Camera.setDirector(false, false); selected = s.it.who[0]; }
+    else { selected = null; Camera.setDirector(true, false); }
     lastPanel = -1; i = s.a; frac = 1;
   }
 
@@ -186,7 +186,7 @@ const Clip = (() => {
   function finish() {
     const J = job; if (!J || J.stopping) return; J.stopping = true;
     const s = J.saved;
-    i = s.i; frac = s.frac; selected = s.selected; lastPanel = -1; Camera.setDirector(s.dir);
+    i = s.i; frac = s.frac; selected = s.selected; lastPanel = -1; Camera.setDirector(s.dir, false);
     playing = s.playing; userPaused = s.userPaused;
     if (J.rec.state !== 'inactive') J.rec.stop(); else done(J);
   }
