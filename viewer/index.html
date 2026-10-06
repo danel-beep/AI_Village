@@ -20,6 +20,7 @@
   #side { width:360px; max-width:45vw; background:var(--panel); overflow:auto; padding:10px; }
   .card { background:var(--card); border-radius:8px; padding:8px; margin-bottom:8px; cursor:pointer; }
   .card.sel { outline:2px solid var(--accent); }
+  .card.gone { opacity:.5; }
   .name { font-weight:600; }
   .muted { color:var(--muted); font-size:12px; }
   .thought { font-style:italic; color:#cfe3d6; margin-top:4px; }
@@ -207,6 +208,7 @@ function render() {
   document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}${season ? ' · ' + season : ''}`;
 }
 
+const STATUS_RU = { active: 'в порядке', hospital: '🏥 в больнице', dead: '💀 выбыл', exiled: 'изгнан', banished: 'изгнан' };
 function panel() {
   if (lastPanel === i || !ticks.length) return; lastPanel = i;
   const t = ticks[i], thoughts = {};
@@ -214,8 +216,9 @@ function panel() {
     for (const [n, d] of Object.entries(ticks[k].decisions)) if (!(n in thoughts) && d.thought) thoughts[n] = d.thought;
   document.getElementById('cards').innerHTML = names.map(n => {
     const v = t.view.agents[n], inv = (window.ItemIcons ? ItemIcons.list(v.inventory) : Object.entries(v.inventory).map(([k, q]) => `${q} ${k}`).join(', ')) || 'пусто';
-    return `<div class="card ${n === selected ? 'sel' : ''}" data-n="${n}"><span class="name" style="color:${color[n]}">${n}</span>
-      <span class="muted">${v.profession} · ${t.view.locations[v.location] || v.location} · ${v.status}</span>
+    const status = (STATUS_RU[v.status] || v.status) + (v.hospital_stays && v.status !== 'dead' ? ` · 🏥×${v.hospital_stays}` : '');
+    return `<div class="card ${n === selected ? 'sel' : ''} ${v.status === 'dead' ? 'gone' : ''}" data-n="${n}"><span class="name" style="color:${color[n]}">${n}</span>
+      <span class="muted">${v.profession} · ${v.status === 'dead' ? '' : (t.view.locations[v.location] || v.location) + ' · '}${status}</span>
       <div class="muted">еда ${v.satiety} · здоровье ${v.health} · ${v.coins} монет · ${inv}</div>
       <div class="thought">${esc(tr(thoughts[n] || ''))}</div></div>`;
   }).join('');

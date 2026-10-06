@@ -36,6 +36,7 @@ class Agent:
     lesson_offers: list[dict] = field(default_factory=list)
     status: str = "active"  # active | hospital | dead
     status_until_day: int = 0
+    hospital_stays: int = 0  # times taken to the hospital (config "lives" caps them; the next collapse is death)
     sick_until_day: int = 0
     evicted_until_day: int = 0
     last_error: str | None = None
