@@ -131,6 +131,16 @@ class RandomBot(Bot):
         elif name in ("build_work", "fund_project"):
             projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
             args = {"project_id": r.choice(projs), **({"coins": r.randint(-2, 50)} if name == "fund_project" else {})}
+        elif name == "offer_job":
+            args = {"to": r.choice(people + ["nobody"]), "task": r.choice(["wood", "stone", "build", "guard", "dance"]),
+                    "hours": r.randint(1, 4), "wage": {r.choice(["coins", pick_item()]): r.randint(1, 4)},
+                    "pay": r.choice(["before", "after"])}
+        elif name in ("accept_job", "decline_job", "end_job", "pay_job"):
+            ids = [j["id"] for j in obs.get("jobs_offered_to_you", []) + obs.get("job_board", [])] or ["job0"]
+            args = {"job_id": r.choice(ids)}
+        elif name == "hire_npc":
+            args = {"kind": r.choice(["worker", "guard"]), "resource": r.choice(["wood", "fish", "air"]),
+                    "hours": r.randint(1, 3), "days": r.randint(1, 2)}
         elif name == "change_trade":
             args = {"profession": r.choice(["farmer", "fisher", "woodcutter", "miner", "smith", "laborer", "king"])}
         elif name == "treasury_order":

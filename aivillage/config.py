@@ -36,7 +36,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
             "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
-            "propose_build", "fund_project", "embezzle", "start_building", "bring_materials", "defend", "help_stranger", "chase_stranger", "care")},
+            "propose_build", "fund_project", "embezzle", "start_building", "bring_materials",
+            "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -783,6 +784,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         # without crafting chains (crafting.enabled off) crafted materials are asked as these raw ones
         "raw_instead": {"plank": {"wood": 2}, "brick": {"stone": 1}, "iron": {"ore": 2}, "clay": {"stone": 1}},
+    },
+    # Hiring (aivillage/hire.py, «С нуля» plan task 18). Off here; the survival mode turns it on.
+    # Contracts between villagers (offer_job / accept_job, opened at the hamlet stage): `max_hours` per job,
+    # `deadline_days` to work them off (the day of signing counts), `pay_days` after the end before an unpaid
+    # share is announced, `offer_hours` an offer stays open, `max_open_offers` per employer.
+    # Outsiders hired at the town hall (hire_npc): dearer than a neighbour, their coins leave the village.
+    # worker: `per_hour` units of one resource a day-hour (taken from the place that has the most of it),
+    # `wage_per_hour` coins; guard: stands at the hirer's house for `days`, fights anyone who steals there, sets
+    # it on fire or attacks its family (`attack`/`damage` like a weapon, `health` for that fight only).
+    "hire": {
+        "enabled": False,
+        "max_hours": 12, "deadline_days": 2, "pay_days": 1, "offer_hours": 12, "max_open_offers": 3,
+        "keep_closed": 30,
+        "npc": {"max_per_person": 2, "max_in_village": 4,
+                "worker": {"per_hour": 2, "wage_per_hour": 4, "max_hours": 12},
+                "guard": {"wage_per_day": 12, "max_days": 5, "attack": 3, "damage": 4, "health": 40}},
     },
     "agents": [
         {"name": "Anna", "profession": "farmer"},

@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, illness,
+from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, hire, illness,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
                taxes, threats, tiles, works)
 from .actions import step_move, work_hour
@@ -170,6 +170,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(crafting.observe(world, name))
     obs.update(conflict.observe(world, name))
     obs.update(construction.observe(world, name))
+    obs.update(hire.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -371,6 +372,7 @@ def end_of_hour(ctx: Ctx) -> None:
     check_health(ctx)
     family.after_hour(ctx)
     spoilage.end_of_hour(ctx)
+    hire.end_of_hour(ctx)  # jobs: guard hours, deadlines, unpaid shares; hired outsiders work or leave
 
 
 def burn_for(ctx: Ctx, f: Fire, hours: int) -> None:

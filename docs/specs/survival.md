@@ -114,6 +114,37 @@ everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(worl
 `recipe:<id>: {"building": kind}` in `progress.DEFAULT_UNLOCKS`. Log: `craft` events carry `recipe` and
 `amount`; `tool_broke` carries `tool`; `trade_changed` with `profession` and `workshop` when an owner takes a trade.
 
+## Hiring (`aivillage/hire.py`, task 18)
+
+Config `hire` (off; on in `survival`). Contracts between villagers open at `hamlet` (`action:offer_job`,
+`accept_job`, `decline_job`, `end_job`, `pay_job`), outsiders with the `town_hall` (`action:hire_npc`).
+
+- `offer_job(to, task, hours, wage, pay)` from anywhere. `task`: a resource id (every unit the worker gathers
+  with `work` goes to the employer at once), `build` (hours of `construct` on a site the employer owns or
+  started) or `guard` (end-of-hour hours awake at the employer's house). `wage`: items and/or `coins`.
+  `pay`: `before` (moves at `accept_job`, which fails if the employer lacks it) or `after`.
+- One active job per worker. A job ends when its hours are done, by `end_job` (either side), at the deadline
+  (`deadline_days`, the day of signing counts) or when a side dies. Settlement by hours done: paid after, the
+  employer owes the earned share; paid before, the worker owes back the unearned share. Nobody is forced:
+  `pay_job` pays it all; `pay_days` after the end an unpaid share is announced once (`job_unpaid`).
+- `hire_npc(kind, resource?, hours?, days?)` at the town hall (`hire.hall(world)`: where the `town_hall` stands,
+  else `square`). Coins are burned (outsiders take them away). Worker: `npc.worker.per_hour` of the resource per
+  end of hour from the place with the most of it (`tiles.take`, minted to the hirer). Guard: at the hirer's
+  house until the end of `until_day`.
+- Guards (a hired villager awake at the house, or an outsider guard) step in before `steal` (chest or a family
+  member), `steal_from_plot`, `set_fire` at the house and `attack` on the family, through
+  `ACTIONS.interceptors`: combat dice, the guard swings first; the guard wins ties and when the intruder gives
+  up, and then the act does not happen.
+- State `world.hire` = `{"jobs": {id: job}, "npcs": [npc]}` (left out of the world dict while empty).
+  Job: `id employer worker task hours wage pay status(offered|active|owed|closed) day due_day done delivered
+  ended owes owed owed_day`. Observation: `jobs_offered_to_you`, `job_board` (every active or owed job, for
+  everyone), `your_hired_outsiders`, `outsiders_for_hire` (at the town hall).
+- Log: `job_signed`, `job_ended` (done, hours, reason, owes, owed), `job_paid`, `job_unpaid`, `npc_hired`
+  (npc, npc_kind, employer, cost, resource/hours or home/until_day) are public; `job_offer`, `job_progress`,
+  `npc_left` private; `npc_work` log only (npc, employer, resource, amount, location); `guard_fight` at the
+  place (guard, npc, intruder, act, owner, winner, rounds, damage). Tick `view.hire` = `{"npcs": [{"id",
+  "kind", "employer", "location"}], "jobs": [active and owed jobs]}`.
+
 ## Log fields for the viewer (task 13b)
 
 - `village_stage` events (above).
