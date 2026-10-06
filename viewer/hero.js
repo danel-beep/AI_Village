@@ -159,12 +159,12 @@
 
   function property(n, t, s) {
     const v = t.view.agents[n], plots = t.view.plots || {}, out = [];
-    const inv = Object.entries(v.inventory).map(([k, q]) => `${q} ${esc(k)}`).join(', ') || 'пусто';
+    const inv = (window.ItemIcons ? ItemIcons.list(v.inventory) : Object.entries(v.inventory).map(([k, q]) => `${q} ${esc(k)}`).join(', ')) || 'пусто';
     out.push(`<div class="row">💰 <b>${v.coins}</b> монет при себе <span class="muted">(больше всего было ${s.peak})</span></div>`);
     out.push(`<div class="row">🎒 ${inv}</div>`);
     const chest = (t.view.chests || {})[n];
     if (chest) {
-      const ci = Object.entries(chest.items || {}).map(([k, q]) => `${q} ${esc(k)}`).join(', ');
+      const ci = window.ItemIcons ? ItemIcons.list(chest.items) : Object.entries(chest.items || {}).map(([k, q]) => `${q} ${esc(k)}`).join(', ');
       out.push(`<div class="row">🧰 Сундук${chest.locked ? ' (на замке)' : ''}: ${chest.coins} монет${ci ? ', ' + ci : ''}</div>`);
     }
     for (const [id, p] of Object.entries(plots)) {

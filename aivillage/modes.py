@@ -167,7 +167,7 @@ MODES["survival"] = {
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
                                               "animals": {"enabled": True},
                                               "construction": {"enabled": True},
-                                              "crafting": {"enabled": True}}),
+                                              "crafting": {"enabled": True, "secrets": {"enabled": True}}}),
 }
 
 DEFAULT_MODE = "crafts"

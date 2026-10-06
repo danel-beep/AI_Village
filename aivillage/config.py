@@ -620,7 +620,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": False,
         # workshop building kind -> the trade its owner takes ("" = none); built ones come from plots / sources
         "workshops": {"workbench": "carpenter", "smithy": "smith", "kiln": "potter", "mill": "miller",
-                      "tannery": "tanner", "smokehouse": "", "campfire": ""},
+                      "tannery": "tanner", "smokehouse": "", "campfire": "", "weaving_shed": ""},
         "owner_takes_trade": True,
         "untrained": ["", "none", "laborer"],   # professions that count as "no trade yet"
         "home_also_at": ["campfire"],           # recipes made "at home" can also be made by a campfire
@@ -631,6 +631,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "stone_axe": {"value": 6}, "stone_pick": {"value": 6}, "iron_axe": {"value": 24},
             "iron_pick": {"value": 26}, "hoe": {"value": 12}, "fishing_rod": {"value": 6},
             "smoked_meat": {"value": 9, "food": 35},
+            "clothes": {"value": 26},
         },
         # inputs -> output; `building`: a workshop of that kind must stand where the crafter is (None = by hand,
         # anywhere); `more_at` {kind: output}: the same recipe gives more at that workshop; `hours`: per batch (0 = the whole action fits in one hour).
@@ -652,6 +653,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # food: bread now goes through flour; meat keeps longer smoked
             "bread": {"inputs": {"flour": 1, "wood": 1}, "output": 1, "where": "home"},
             "smoked_meat": {"inputs": {"meat": 2, "wood": 1}, "output": 2, "building": "smokehouse"},
+            # clothes: leather sewn at a weaving shed (construction.py, task 10)
+            "clothes": {"inputs": {"leather": 2}, "output": 1, "building": "weaving_shed"},
         },
         # Tools: carried, the one with the highest `multiplier` that fits the resource is used for an hour of
         # work and wears out after `hours` hours of use. "*" fits everything (`tool`: hours = tool_durability_hours).
@@ -667,6 +670,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         # resources nobody gathers with bare hands
         "needs_tool": ["ore", "gold"],
+        # Secret recipes («С нуля» plan task 19): a recipe not in `common` is known only to whoever worked it out
+        # (the first to make it while no living villager knows it, `discover_hours` more at the bench) or was
+        # taught it (teach / learn). `rediscover`: others may still work out a known recipe alone.
+        "secrets": {
+            "enabled": False,
+            "common": ["plank", "flour", "bread", "fish_soup", "stone_axe", "stone_pick", "club"],
+            "discover_hours": 3,
+            "rediscover": False,
+        },
     },
     # Building with your own hands (aivillage/construction.py, docs/specs/survival.md). Off here: houses are
     # upgraded at once with upgrade_house. On, every building in `catalog` goes up on a site: start_building
@@ -692,32 +704,63 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 {"items": {"wood": 4}, "hours": 2, "min_workers": 1, "roof": True}]},
             "house": {"name": "House", "place": "home", "levels": [
                 {"items": {"wood": 8, "stone": 2}, "hours": 4, "min_workers": 1, "roof": True},
-                {"items": {"wood": 12, "stone": 10}, "hours": 8, "min_workers": 2, "roof": True},
-                {"items": {"wood": 16, "stone": 16, "ore": 2}, "hours": 10, "min_workers": 2, "roof": True}]},
+                {"items": {"plank": 6, "stone": 10}, "hours": 8, "min_workers": 2, "roof": True},
+                {"items": {"plank": 8, "brick": 12, "iron": 2}, "hours": 10, "min_workers": 2, "roof": True}]},
             "campfire": {"name": "Campfire", "place": "village", "levels": [
                 {"items": {"wood": 3, "stone": 3}, "hours": 1, "min_workers": 1},
                 {"items": {"stone": 8}, "hours": 3, "min_workers": 1}]},
             "workbench": {"name": "Workbench", "place": "home", "levels": [
-                {"items": {"wood": 6, "stone": 2}, "hours": 3, "min_workers": 1, "workshop": True}]},
+                {"items": {"wood": 6, "stone": 2}, "hours": 3, "min_workers": 1, "workshop": True},
+                {"items": {"plank": 6, "iron": 1}, "hours": 3, "min_workers": 1, "workshop": True,
+                 "extra_per_batch": 1}]},
             "granary": {"name": "Granary", "place": "home", "levels": [
                 {"items": {"wood": 10, "stone": 4}, "hours": 5, "min_workers": 1, "food_keeps_x": 2},
-                {"items": {"wood": 8, "stone": 10}, "hours": 6, "min_workers": 2, "food_keeps_x": 3}]},
+                {"items": {"plank": 6, "brick": 8}, "hours": 6, "min_workers": 2, "food_keeps_x": 3}]},
             "smokehouse": {"name": "Smokehouse", "place": "home", "levels": [
                 {"items": {"wood": 8, "stone": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 3,
-                 "food_items": ["meat", "fish"]}]},
+                 "food_items": ["meat", "fish"], "workshop": True},
+                {"items": {"plank": 4, "brick": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 5,
+                 "food_items": ["meat", "fish", "smoked_meat"], "workshop": True, "extra_per_batch": 1}]},
             "market_square": {"name": "Market square", "place": "village", "at": ["square"], "levels": [
                 {"items": {"wood": 15, "stone": 20}, "hours": 10, "min_workers": 2},
-                {"items": {"wood": 10, "stone": 25, "ore": 3}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
+                {"items": {"plank": 6, "brick": 15, "iron": 2}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
             "smithy": {"name": "Smithy", "place": "home", "levels": [
-                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True}]},
+                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True},
+                {"items": {"brick": 12, "iron": 3}, "hours": 8, "min_workers": 2, "workshop": True,
+                 "extra_per_batch": 1}]},
             "town_hall": {"name": "Town hall", "place": "village", "at": ["square"], "levels": [
-                {"items": {"wood": 25, "stone": 30}, "hours": 14, "min_workers": 3}]},
+                {"items": {"plank": 12, "stone": 20, "brick": 10}, "hours": 14, "min_workers": 3}]},
             "tavern": {"name": "Tavern", "place": "village", "at": ["square"], "levels": [
-                {"items": {"wood": 20, "stone": 10}, "hours": 8, "min_workers": 2}]},
+                {"items": {"plank": 10, "stone": 10}, "hours": 8, "min_workers": 2}]},
             "palisade": {"name": "Palisade", "place": "village", "at": ["square"], "levels": [
                 {"items": {"wood": 25}, "hours": 8, "min_workers": 2, "defense": 1},
                 {"items": {"wood": 20, "stone": 15}, "hours": 10, "min_workers": 3, "defense": 2}]},
+            # task 10: workshops for crafting recipes, livestock, the stone wall
+            "kiln": {"name": "Kiln", "place": "home", "levels": [
+                {"items": {"stone": 10, "clay": 6}, "hours": 4, "min_workers": 1, "workshop": True},
+                {"items": {"brick": 10, "iron": 1}, "hours": 4, "min_workers": 1, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "mill": {"name": "Mill", "place": "home", "levels": [
+                {"items": {"plank": 8, "stone": 12}, "hours": 6, "min_workers": 2, "workshop": True},
+                {"items": {"plank": 6, "brick": 8, "iron": 1}, "hours": 6, "min_workers": 2, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "tannery": {"name": "Tannery", "place": "home", "levels": [
+                {"items": {"plank": 6, "stone": 4}, "hours": 4, "min_workers": 1, "workshop": True},
+                {"items": {"plank": 4, "brick": 6}, "hours": 4, "min_workers": 1, "workshop": True,
+                 "extra_per_batch": 1}]},
+            "weaving_shed": {"name": "Weaving shed", "place": "home", "levels": [
+                {"items": {"plank": 8, "stone": 4}, "hours": 4, "min_workers": 1, "workshop": True}]},
+            "pen": {"name": "Pen", "place": "home", "levels": [
+                {"items": {"wood": 10}, "hours": 3, "min_workers": 1, "makes": {"egg": 2}, "feed": {"grain": 1},
+                 "cap": 9},
+                {"items": {"plank": 6, "stone": 4}, "hours": 4, "min_workers": 1, "makes": {"egg": 2, "milk": 3},
+                 "feed": {"grain": 2}, "cap": 9}]},
+            "wall": {"name": "Stone wall", "place": "village", "at": ["square"], "levels": [
+                {"items": {"stone": 30, "plank": 10}, "hours": 12, "min_workers": 3, "defense": 3},
+                {"items": {"brick": 30, "iron": 4}, "hours": 14, "min_workers": 3, "defense": 5}]},
         },
+        # without crafting chains (crafting.enabled off) crafted materials are asked as these raw ones
+        "raw_instead": {"plank": {"wood": 2}, "brick": {"stone": 1}, "iron": {"ore": 2}, "clay": {"stone": 1}},
     },
     "agents": [
         {"name": "Anna", "profession": "farmer"},

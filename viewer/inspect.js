@@ -28,17 +28,21 @@ const Inspect = (() => {
 
   const ITEM = { grain: 'зерно', fish: 'рыба', berries: 'ягоды', wood: 'древесина', stone: 'камень', ore: 'руда', water: 'вода',
     bread: 'хлеб', fish_soup: 'уха', tool: 'инструмент', lock: 'замок', egg: 'яйца', milk: 'молоко', honey: 'мёд',
-    gold: 'золото', club: 'дубина', spear: 'копьё', stew: 'рагу', pancakes: 'блины', honey_cake: 'медовик', ring: 'кольцо' };
+    gold: 'золото', club: 'дубина', spear: 'копьё', stew: 'рагу', pancakes: 'блины', honey_cake: 'медовик', ring: 'кольцо',
+    plank: 'доски', clay: 'глина', brick: 'кирпич', iron: 'железо', hide: 'шкура', leather: 'кожа', meat: 'мясо', hay: 'сено',
+    flour: 'мука', smoked_meat: 'копчёное мясо', stone_axe: 'каменный топор', stone_pick: 'каменная кирка', iron_axe: 'железный топор',
+    iron_pick: 'железная кирка', hoe: 'мотыга', fishing_rod: 'удочка' };
   const OBJ = { wood: 'Дерево', berries: 'Ягодный куст', fish: 'Косяк рыбы', grain: 'Грядка', stone: 'Камень', ore: 'Рудная жила',
     gold: 'Золотая жила' };
   const PROJECT = { bridge: 'мост через реку', well: 'колодец', watchtower: 'сторожевая башня', wall: 'стена вокруг деревни' };
-  const BUILD = { garden_bed: 'грядка', chicken_coop: 'курятник', cow_pen: 'коровник', beehive: 'улей', fence: 'забор' };
+  const BUILD = { garden_bed: 'грядка', chicken_coop: 'курятник', cow_pen: 'коровник', beehive: 'улей', fence: 'забор',
+    ...((window.BuildLayer && BuildLayer.NAME) || {}) };
   const PLACE = { square: 'Площадь', market: 'Рынок', smithy: 'Кузница', forest: 'Лес', mine: 'Шахта', river: 'Река',
     field: 'Поле', grove: 'Роща', pond: 'Пруд', quarry: 'Каменоломня', hamlet: 'Хутор', waypoint: 'Развилка' };
   const PROF = { farmer: 'фермер', fisher: 'рыбак', smith: 'кузнец', woodcutter: 'лесоруб', miner: 'шахтёр', baker: 'пекарь',
     trader: 'торговец', builder: 'строитель' };
   const it = k => ITEM[k] || k;
-  const goods = o => Object.entries(o || {}).filter(([, q]) => q).map(([k, q]) => `${q} ${it(k)}`).join(', ');
+  const goods = o => window.ItemIcons ? ItemIcons.list(o, it) : Object.entries(o || {}).filter(([, q]) => q).map(([k, q]) => `${q} ${it(k)}`).join(', ');
   const who = n => n ? `<a data-who="${esc(n)}" style="color:${color[n] || 'inherit'}">${esc(n)}</a>` : '—';
   const bar = (f, c = '#76b041') => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, f * 100))}%;background:${c}"></i></div>`;
   const when = e => `д${e.day} ${String(e.hour).padStart(2, '0')}:${String(e.minute || 0).padStart(2, '0')}`;
@@ -127,18 +131,29 @@ const Inspect = (() => {
     }).join('');
   }
 
+  // «С нуля» (construction.py): common buildings standing here and building sites with how far they are.
+  function sitesHtml(t, id) {
+    const v = t.view, here = (v.buildings || []).filter(b => b.location === id), sites = (v.sites || []).filter(x => x.location === id);
+    let s = '';
+    if (here.length) s += `<h4>Постройки</h4>` + table(here.map(b => [BUILD[b.kind] || esc(b.kind), `уровень ${b.level}`]));
+    if (sites.length) s += `<h4>Стройка</h4>` + sites.map(x => `<div>${BUILD[x.kind] || esc(x.kind)}, ${x.level}-й ур.: ${Math.round(100 * x.done)}%` +
+      (x.workers && x.workers.length ? ` <span class="muted">(${x.workers.map(who).join(', ')})</span>` : '') + `</div>` + bar(x.done, '#f2c14e')).join('');
+    return s;
+  }
+
   function plotHtml(t, id) {
     const p = (t.view.plots || {})[id]; if (!p) return '';
     let s = '';
     if (p.kind === 'lot') s += p.owner ? `<div>Владелец: ${who(p.owner)}</div>` : `<div>Продаётся за <b>${p.price}</b> монет</div>`;
     else if (p.house) s += `<div>Дом ${p.house}-го уровня</div>`;
+    else if (window.BuildLayer && BuildLayer.enabled(header)) s += `<div class="muted">Дома ещё нет</div>`;
     s += `<div>Земля: ${p.cells} клеток</div>`;
     const b = (p.buildings || []).map(x => {
       const extra = [goods(x.items) && `готово: ${goods(x.items)}`, x.crop && `растёт ${it(x.crop)}, созреет в день ${x.ripe_day}`].filter(Boolean);
-      return [BUILD[x.kind] || x.kind, extra.join('; ') || '<span class="muted">пусто</span>'];
+      return [(BUILD[x.kind] || x.kind) + (x.level ? `, ${x.level}-й ур.` : ''), extra.join('; ') || '<span class="muted">пусто</span>'];
     });
     s += `<h4>Хозяйство</h4>${b.length ? table(b) : '<span class="muted">ничего не построено</span>'}`;
-    return s;
+    return s + sitesHtml(t, id);
   }
 
   function placeHtml(t, id) {
@@ -179,6 +194,7 @@ const Inspect = (() => {
       const rec = Object.entries(header.config.recipes || {}).filter(([, r]) => r.where === 'smithy');
       if (rec.length) s += `<h4>Что здесь куют</h4>` + table(rec.map(([n, r]) => [it(n), goods(r.inputs) + (r.profession ? ` (${PROF[r.profession] || r.profession})` : '')]));
     }
+    s += sitesHtml(t, id);
     s += resources(t, id);
     s += people(t, id);
     s += workTable(h.work, k === 'mine' || k === 'quarry' ? 'Кто сколько добыл' : 'Кто сколько собрал');

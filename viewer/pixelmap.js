@@ -35,7 +35,7 @@ const PixelMap = (() => {
             ['...k7777k...', '...k8888k...', '....kkkk....']],
   };
 
-  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null, pendingInit = null, looks = {}, hdr = null, day = null;
+  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null, pendingInit = null, looks = {}, hdr = null, day = null, built = false, bare = false;
 
   function rnd(x, y, s = 0) {
     let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
@@ -334,6 +334,7 @@ const PixelMap = (() => {
   }
 
   function market(g) {
+    if (bare) return;
     const awn = [['#c93c3c', '#f2ead8'], ['#3f6fa8', '#f2ead8'], ['#d9a020', '#f2ead8']];
     const goods = [['#e4572e', '#ff9f1c'], ['#76b041', '#f7e26b'], ['#c47ac0', '#e4572e']];
     for (let s = 0; s < 3; s++) {
@@ -353,6 +354,7 @@ const PixelMap = (() => {
   }
 
   function square(g) {
+    if (bare) { layout.lamps = []; return; }   // camp start (viewer/buildlayer.js): nothing built on the square yet
     // well
     const x = 12 * T + 10, y = 7 * T + 4;
     if (!SP(g, 'well', x + 10, y + 26)) {
@@ -393,6 +395,7 @@ const PixelMap = (() => {
   }
 
   function smithy(g) {
+    if (bare) { layout.forge = layout.smithyChimney = null; return; }
     const x = 20 * T, y = 8 * T;
     if (SP(g, 'smithy', x + 32, y + 64)) {   // spots measured on the 60 px wide sprite, scaled to its size now
       const k = Sprites.size('smithy')[0] / 60;
@@ -480,7 +483,7 @@ const PixelMap = (() => {
     const g = bg.getContext('2d');
     if (layout.gen) return paintGenerated(g);
     terrain(g) || paintGround(g); river(g); field(g); square(g); market(g); smithy(g); mine(g); decor(g);
-    groundCopy(); layout.houses.forEach(h => house(g, h)); forest(g);
+    groundCopy(); if (!built) layout.houses.forEach(h => house(g, h)); forest(g);
   }
 
   // Generated village: the same landmark art, each shifted to where the generator put it.
@@ -491,9 +494,9 @@ const PixelMap = (() => {
     if (layout.off.field) at('field', field);  // newer villages have no common field
     const sq = at('square', square); layout.lamps = layout.lamps.map(p => move(p, sq));
     at('market', market);
-    const sm = at('smithy', smithy); layout.forge = move(layout.forge, sm); layout.smithyChimney = move(layout.smithyChimney, sm);
+    const sm = at('smithy', smithy); if (layout.forge) { layout.forge = move(layout.forge, sm); layout.smithyChimney = move(layout.smithyChimney, sm); }
     at('mine', mine); decor(g);
-    groundCopy(); layout.houses.forEach(h => house(g, h)); at('forest', forest);
+    groundCopy(); if (!built) layout.houses.forEach(h => house(g, h)); at('forest', forest);
   }
 
   // ---------- characters ----------
@@ -543,7 +546,9 @@ const PixelMap = (() => {
     } else pendingInit = null;
     hdr = header; names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
     if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
-    if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence, houseSprite });
+    // «С нуля» (construction on): houses and buildings come from the log, drawn by viewer/buildlayer.js
+    built = !!(window.BuildLayer && BuildLayer.init({ layout, C, T, R, P, blob, rnd }, header)); bare = built && BuildLayer.empty(header);
+    if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence, houseSprite, built });
     paintBackground();
     buf = document.createElement('canvas'); buf.width = W; buf.height = H; b = buf.getContext('2d');
     looks = pickLooks(header.config.agents);
@@ -619,6 +624,7 @@ const PixelMap = (() => {
     if (window.Depth) Depth.begin('live');
     if (window.MapLayer) MapLayer.draw(b, t, e, sec);
     if (window.PlotLayer) PlotLayer.draw(b, t, e, sec);
+    if (built) BuildLayer.draw(b, t, e, sec);
     if (window.Depth) Depth.end();
     if (SL) SL.tint(b, hdr, t.view.day, W, H);
     const fires = new Set(t.view.fires || []);
@@ -627,8 +633,8 @@ const PixelMap = (() => {
     const smoke = (x, y, k) => { for (let i = 0; i < 4; i++) { const p = (sec * .5 + i / 4 + k) % 1;
       const r = 1 + p * 3, sx = x + Math.sin((p + k) * 6) * 3, sy = y - p * 18;
       b.globalAlpha = .5 * (1 - p); blob(b, sx, sy, r, r, ['#e8e8ee', '#d0d0d8', '#b8b8c4'], null); b.globalAlpha = 1; } };
-    smoke(...layout.smithyChimney, .3);
-    layout.houses.forEach((h, k) => { if (homeNow.has(h.name)) smoke(...h.chimney, k * .37); });
+    if (layout.smithyChimney) smoke(...layout.smithyChimney, .3);
+    layout.houses.forEach((h, k) => { if (homeNow.has(h.name) && h.chimney) smoke(...h.chimney, k * .37); });
     // fire, before villagers so buckets of water land on top of it (the map layer sizes it by the water still needed)
     if (window.MapLayer) MapLayer.drawTop(b, t, e, sec);
     else for (const id of fires) {
@@ -667,7 +673,8 @@ const PixelMap = (() => {
     shown.sort((p, q) => p.y - q.y);
     lastPos = {};
     for (const a of shown) lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8];
-    const one = a => Actors.paint(b, sheets[a.n], a, sec, a.n === selected);
+    const one = a => { Actors.paint(b, sheets[a.n], a, sec, a.n === selected);
+      if (built) BuildLayer.gear(b, a, t.view.agents[a.n].inventory); };   // «С нуля»: weapon and armor carried
     if (window.AnimalLayer) AnimalLayer.draw(b, t, layout, sec);   // hares, ducks, deer, boars, elk (animals.py)
     if (window.Depth) Depth.paint(b, shown, one); else shown.forEach(one);   // trees and houses in front cover them
     if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
@@ -682,11 +689,11 @@ const PixelMap = (() => {
       const glow = (x, y, r, a) => { const gr = b.createRadialGradient(x, y, 0, x, y, r);
         gr.addColorStop(0, `rgba(255,190,90,${a})`); gr.addColorStop(1, 'rgba(255,190,90,0)'); b.fillStyle = gr; b.fillRect(x - r, y - r, 2 * r, 2 * r); };
       layout.lamps.forEach(([x, y]) => glow(x + 1, y - 15, 22, dark * .9));
-      glow(...layout.forge, 26, dark);
-      layout.houses.forEach(h => { if (homeNow.has(h.name)) h.windows.forEach(([x, y]) => glow(x + 4, y + 4, 12, dark)); });
+      if (layout.forge) glow(...layout.forge, 26, dark);
+      layout.houses.forEach(h => { if (homeNow.has(h.name) && h.windows) h.windows.forEach(([x, y]) => glow(x + 4, y + 4, 12, dark)); });
       for (const id of fires) { const [x0, y0, w, hh] = layout.box[id] || [0, 0, 0, 0]; glow(x0 + w / 2, y0 + hh / 2, 48, .8); }
       b.globalCompositeOperation = 'source-over';
-      layout.houses.forEach(h => { if (homeNow.has(h.name)) h.windows.forEach(([x, y]) => R(b, x + 1, y + 1, 7, 6, C.lit)); });
+      layout.houses.forEach(h => { if (homeNow.has(h.name) && h.windows && !built) h.windows.forEach(([x, y]) => R(b, x + 1, y + 1, 7, 6, C.lit)); });
     }
     Camera.attach(ctx.canvas, W, H, S);
     const posOf = n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8];
@@ -704,6 +711,7 @@ const PixelMap = (() => {
     Actors.badges(ctx, hk, t);
     Actors.bubbles(ctx, hk, selected, tr || String, W * S / k);
     ctx.restore();
+    if (built) BuildLayer.banner(ctx, t, time);   // «Новая стадия» banner (village_stage)
   }
 
   // ---------- full-resolution text (placed through the camera, constant size at any zoom) ----------
@@ -718,6 +726,7 @@ const PixelMap = (() => {
     const top = { market: -34, field: -44, river: -40, square: -38, forest: -26, mine: -58, smithy: -82 };
     for (const [id, dy] of [...Object.entries(top), ...(layout.labels || [])]) {
       if (!layout.anchors[id]) continue;  // e.g. no common field on newer maps
+      if (bare && (id === 'smithy' || (id === 'market' && !BuildLayer.standing(t, 'market_square')))) continue;   // not built yet
       const [x, y] = layout.anchors[id]; plaque(ctx, ...at(x, y + dy), t.view.locations[id] || id);
     }
     for (const h of layout.houses) {
