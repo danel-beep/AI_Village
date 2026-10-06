@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import ops, plots, seasons, tiles
+from . import clock, crises, ops, plots, seasons, tiles
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer
@@ -283,7 +283,7 @@ class LetterArgs(BaseModel):
 def letter(ctx: Ctx, a: Agent, args: LetterArgs) -> None:
     other = _agent(ctx, args.to)
     t = _text(ctx, args.text)
-    ctx.world.mail.append(Letter(a.name, other.name, t, ctx.world.tick + 1))
+    ctx.world.mail.append(Letter(a.name, other.name, t, ctx.world.tick + clock.per_hour(ctx.cfg)))
     ctx.emit("letter_sent", f"You sent a letter to {other.name}.", actor=a.name, to=[a.name])
 
 
@@ -393,7 +393,7 @@ def offer(ctx: Ctx, a: Agent, args: OfferArgs) -> None:
     if not _holds(a, args.give):
         raise ActionError("you do not have what you offer")
     o = Offer(ctx.world.new_id("offer"), a.name, other.name, dict(args.give), dict(args.want),
-              ctx.world.tick + ctx.cfg["offer_ttl_ticks"])
+              ctx.world.tick + clock.hours(ctx.cfg, ctx.cfg["offer_ttl_ticks"]))
     ctx.world.offers[o.id] = o
     ctx.emit("offer", f"{a.name} offers you {fmt_items(o.give)} for {fmt_items(o.want)} ({o.id}).",
              actor=a.name, to=[other.name], offer=o.id)
@@ -451,7 +451,7 @@ def _price(ctx: Ctx, item: str, side: str) -> int:
     if info is None or not info.get("tradable", True):
         raise ActionError(f"the trader does not deal in {item}")
     ratio = ctx.cfg["npc_sell_ratio"] if side == "buy" else ctx.cfg["npc_buy_ratio"]
-    return max(1, int(info["value"] * ratio))
+    return max(1, int(info["value"] * ratio * crises.price_factor(ctx.world, item, side)))
 
 
 @ACTIONS.action("buy", "Buy from the trader at the market (expensive).", MarketArgs,
@@ -530,7 +530,7 @@ class PersonArgs(BaseModel):
     person: str
 
 
-@ACTIONS.action("share_chest", "Give someone access to your chest (an alliance). They can take everything.",
+@ACTIONS.action("share_chest", "Give someone access to your chest. They can take everything.",
                 PersonArgs)
 def share_chest(ctx: Ctx, a: Agent, args: PersonArgs) -> None:
     other = _agent(ctx, args.person)

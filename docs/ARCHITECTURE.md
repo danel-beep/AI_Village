@@ -26,18 +26,20 @@ god events ─┐
 | --- | --- |
 | `aivillage/config.py` | all tunables, map, items, recipes, professions, agents |
 | `aivillage/population.py` | `population.size` → N villagers (configured ones first, then seeded names, professions by weight); scales resources, project needs, council orders by max(1, N/base_size). Runs at the end of `make_config`, idempotent (`resolved`) so replay does not grow twice |
+| `aivillage/clock.py` | game time: `tick_minutes` (15 in runs, 60 = hourly), tick <-> (day, hour, minute), `action_ticks` from `action_minutes` |
 | `aivillage/state.py` | dataclasses, `to_dict/from_dict`, `hash()` |
 | `aivillage/ops.py` | `Ctx` (world + rng + `emit`), event delivery to inboxes, ledger-safe item/coin ops |
 | `aivillage/registry.py` | `ACTIONS` / `GOD` registries: args model → prompt line, JSON schema, validation |
 | `aivillage/actions.py` | agent actions |
 | `aivillage/god.py` | experimenter interventions |
 | `aivillage/governance.py` | mayor elections, law proposals and votes, treasury, exile (via `ACTIONS.guards`), theft reports; engine hooks `end_of_hour` / `new_day` |
-| `aivillage/engine.py` | `new_world`, `observe`, `step`, tasks, end of hour, night (tax, debts, orders, regrowth) |
+| `aivillage/engine.py` | `new_world`, `observe`, `step` (one tick; agents busy until `busy_until`, staggered wake-up), tasks, end of hour (last tick of the hour), night (tax, debts, orders, regrowth) |
 | `aivillage/reputation.py` | reputation (each agent's own tally of deeds it saw: thefts, defaults, repaid debts, fire help, trades, gifts) and rumors (`gossip` action; stored with the teller, never scored). Hooks in via `ops.EVENT_HOOKS`; adds `reputation` / `rumors` to `observe()`; config block `reputation` |
 | `aivillage/mapgen.py` | procedural village for a seed (`map.procedural`): river, landmarks, patches, hamlets, homes with plots, A* roads cut into one-hour hops by waypoints; honest-minimum `check`; `map.unfairness` 0..1 for plots, start coins/goods, resource richness. Run from `engine.new_world` when the config has no `map.layout` yet (replay never re-rolls) |
 | `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
 | `aivillage/family.py` | feelings (directed scores moved by events via `family.on_event`), hang_out/propose/answer_proposal/divorce, marriage (shared house + chests), inheritance; feelings via `ops.EVENT_HOOKS`; engine calls `after_hour` (estates) / `after_night`; `observe()["relations"]`. Unlike reputation (what I saw), feelings are the relationship that drives marriage and inheritance |
 | `aivillage/plots.py` | private yards (`world.plots[home]`): build / collect / expand_plot / upgrade_house / steal_from_plot, garden beds via `plant` at home, animals fed from the owner's chest in `after_night`, fire hook, `observe` (`plot`, `here_plot`, `village_plots`), prompt `facts`, log `view`; config block `plots`, start from `config.agents[i]` (`plot_cells`, `house_level`, `buildings`) |
+| `aivillage/crises.py` | soft world crises (crop failure, drought, rats, trader shortage, caravan) started at dawn by `new_day` from config block `crises` (modes tune it); state in `world.crises`; engine hooks `blocks_regrowth` (regrowth loop) and `price_factor` (trader prices in `_price` and `observe`); `observe()["crises"]`, god event `crisis` |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient`; `RateGate` per model (max parallel calls, shared cooldown after 429, env `AIVILLAGE_MAX_PARALLEL`), fallback models (`AIVILLAGE_FALLBACK_MODELS`, `--fallback`, YAML `fallback_models`); `OpenAIClient` + `FallbackClient`; build clients only with `make_client(model)` (provider from keys.py) |
@@ -49,7 +51,7 @@ god events ─┐
 | `aivillage/summary.py` | LLM recaps of log stretches for spectators (digest of thoughts/actions/says/events → 3-6 Russian sentences); sidecar `<log>.summary.json` |
 | `aivillage/reports.py` | problem reports: note + log + recaps zipped for the project chat; `show` prints the moment around the reported tick |
 | `aivillage/metrics.py` | behaviour metrics from a log only (JSON + Russian markdown) |
-| `aivillage/server.py` | live mode: FastAPI app runs `run.run()` in a thread, streams log records over `/ws`, god events via `POST /api/god` (queued into `god_script`, so they are logged and replay exactly), pause/pace via `POST /api/control` |
+| `aivillage/server.py` | live mode: FastAPI app runs `run.run()` in a thread, streams log records over `/ws`, god events via `POST /api/god` (scheduled for a tick just after the one on screen via `GodQueue`, announced as `god_pending`, then logged in `god`, so replay stays exact), pause/pace via `POST /api/control` |
 | `viewer/report.js` | injected by the server: recap panel (`/api/summary`) and problem report form (`/api/report`) |
 | `viewer/live.js`, `viewer/god.js` | injected by the server into `index.html`: live feed (uses only `load()` / `ticks` / optional `window.viewerAppend`) and the god panel built from GOD schemas |
 | `viewer/index.html` | Replay UI (controls, villager cards, diary, events). Feed it via `Viewer.start(header)` / `Viewer.push(row)`; `scripts/build_demo.py` bundles a log + scripts into one page |
@@ -99,6 +101,8 @@ as `fire_night_hours`. `extinguish` pours all the water the agent carries (up to
 3. Action → `@ACTIONS.action("name", "one-line description for the model", ArgsModel, available=...)` in `actions.py`. Validate everything first, raise `ActionError` with a message the agent can act on, then mutate. Use `ops` for items/coins and `ctx.emit` for what others see (`visibility`: public / location / private).
    To forbid an action under some rule without editing it, append a guard to `ACTIONS.guards` (see `governance._exile_guard`).
 4. Reacting to events (social modules) → append `hook(ctx, event, recipients)` to `ops.EVENT_HOOKS`; it runs after every `emit`, recipients are who actually saw it. Extra observation fields → `obs.update(module.observe(world, name))` in `engine.observe`. Per-agent state → a defaulted field on `Agent` (old logs still load).
+   How long it keeps the agent busy: `config.action_minutes[name]` (not listed = 60 min). Anything measured in hours
+   or ticks goes through `clock.hours(cfg, n)` / `clock.tick_of`, never `tick + n`.
 5. Periodic effects → `end_of_hour` or `night` in `engine.py`. If a new event should stop a busy agent, add its kind to `engine.WAKE_RULES` (each wake costs a model call).
 6. Tests → one in `tests/test_mechanics.py`; the fuzzer in `tests/test_sim.py` starts calling the action automatically. Teach `RandomBot` its args if they are non-trivial.
 7. `python -m pytest -q` must stay green.

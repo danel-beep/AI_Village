@@ -32,7 +32,7 @@
 
   const watched = () => {
     const t = typeof ticks !== 'undefined' && ticks.length ? ticks[Math.min(i, ticks.length - 1)] : null;
-    return t ? { tick: t.tick, day: t.view.day, hour: t.view.hour } : null;
+    return t ? { tick: t.tick, day: t.view.day, hour: t.view.hour, minute: t.view.minute || 0 } : null;
   };
 
   // --- recaps ---
@@ -85,7 +85,7 @@
     sumPanel.hidden = true; repPanel.hidden = !repPanel.hidden;
     if (repPanel.hidden) return;
     at = watched();  // remember the moment the player was looking at when they clicked
-    repWhen.textContent = at ? `Момент на экране: день ${at.day}, ${String(at.hour).padStart(2, '0')}:00 (ход ${at.tick})` : '';
+    repWhen.textContent = at ? `Момент на экране: день ${at.day}, ${String(at.hour).padStart(2, '0')}:${String(at.minute || 0).padStart(2, '0')} (ход ${at.tick})` : '';
     repMsg.textContent = ''; note.focus();
   };
   repPanel.querySelector('.go').onclick = async ev => {

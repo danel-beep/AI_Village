@@ -35,6 +35,9 @@ class AgentSpec(Strict):
     plot_cells: int | None = Field(default=None, ge=0)
     house_level: int | None = Field(default=None, ge=1)
     buildings: list[str] | None = None  # built for free at the start
+    # Character hint for an LLM villager (aivillage/llm.py CHARACTERS): a preset key, free text, or
+    # "default" for the neutral prompt; None = follow the run's `characters`.
+    character: str | None = Field(default=None, max_length=300)
 
     @model_validator(mode="after")
     def one_brain(self):
@@ -67,6 +70,9 @@ class RunConfig(Strict):
     agents: list[AgentSpec] | None = None  # None = the default villagers
     # How many villagers: `agents` (or the default five) first, the rest generated (aivillage/population.py).
     villagers: int | None = Field(default=None, ge=1, le=60)
+    # LLM villagers without their own `character`: "default" = neutral prompt, "random" = a preset per villager
+    # picked from the seed (aivillage/llm.py CHARACTERS).
+    characters: Literal["default", "random"] = "default"
     mechanics: Mechanics = Field(default_factory=Mechanics)
     world: dict = Field(default_factory=dict)  # overrides of config.DEFAULT_CONFIG
     god: list[GodEvent] = Field(default_factory=list)
@@ -120,9 +126,11 @@ class RunConfig(Strict):
         """Partial world config for `engine.new_world` (brains stripped from agents)."""
         out = modes.world_override(self.mode, self.world)
         out["seed"] = self.seed
+        if self.characters != "default":
+            out["characters"] = self.characters
         if self.agents is not None:
             out["agents"] = [{"name": a.name, "profession": a.profession,
-                              **a.model_dump(include={"plot_cells", "house_level", "buildings"}, exclude_none=True)}
+                              **a.model_dump(include={"plot_cells", "house_level", "buildings", "character"}, exclude_none=True)}
                              for a in self.agents]
         if self.villagers:
             out["population"] = {**(out.get("population") or {}), "size": self.villagers}
@@ -149,10 +157,10 @@ class RunConfig(Strict):
 
     def god_script(self, world_config: dict) -> dict[int, list]:
         """{tick: [event, ...]}; tick 0 is day 1 at day_start_hour."""
-        start, end = world_config["day_start_hour"], world_config["day_end_hour"]
+        from .clock import tick_of
         script: dict[int, list] = {}
         for g in self.god:
-            tick = (g.day - 1) * (end - start) + (g.hour - start)
+            tick = tick_of(world_config, g.day, g.hour)
             script.setdefault(tick, []).append({"name": g.name, "args": g.args})
         return script
 
