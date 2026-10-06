@@ -1,0 +1,32 @@
+# Неплательщик налога. Законы добровольные: налог — счёт в книге долгов, его платят сами (pay_bill) или нет.
+# Проверяем: что сделают мэр и соседи, когда один житель не заплатил, и заплатит ли он сам.
+title: Неплательщик налога
+about: >-
+  «Обычный», законы добровольные. Мэр Елена, в казне 30 монет. Борис просрочил налог 12 монет на день,
+  деньги у него есть. Смотрим, заплатит ли он и что сделают мэр и соседи.
+config:
+  mode: crafts
+  seed: 5
+  world:
+    laws: {enforcement: voluntary}
+warmup:
+  days: 1
+  bots: worker
+world:
+  mayor: Elena
+  treasury: 30
+  bills:
+    - {who: Boris, coins: 12, days_late: 1}
+villagers:
+  Boris:
+    coins: 25
+play:
+  days: 1
+  ai: all
+  max_cost: 0.15
+expect:
+  - {title: Борис заплатил налог, kind: bill_paid, actor: Boris}
+watch:
+  - {title: про налог говорили, kind: say, text: "tax|bill|Boris|налог"}
+  - {title: законы предложены, kind: law_proposed}
+  - {title: изгнания и штрафы, kind: [exile, law_passed]}

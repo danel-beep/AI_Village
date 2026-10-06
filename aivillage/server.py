@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves, session, threats
+from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves, scenario, session, threats
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
 from .registry import GOD, ActionError
@@ -80,8 +80,9 @@ class LiveSim:
     def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0,
                  on_night=None, summarizer: Summarizer | None = None, reports_dir: str | None = None,
                  reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES,
-                 resume_header: dict | None = None):
+                 resume_header: dict | None = None, meta: dict | None = None):
         self.world, self.decide, self.days, self.log_path = world, decide, days, log_path
+        self.log_meta = meta  # extra log header fields (a scenario run: its starting world, aivillage/scenario.py)
         # Saves (aivillage/saves.py): `<log>.save.json`, taken between ticks on request, every game hour,
         # when the village is stopped and when it ends. `resume_header`: this sim continues a loaded save.
         self.end_day = world.day + days
@@ -132,7 +133,7 @@ class LiveSim:
         try:
             run(self.world, self.decide, self.days, self.god, self.log_path,
                 on_night=self.on_night, on_record=self._on_record, checkpoint=self._checkpoint,
-                resume_header=self.resume_header)
+                resume_header=self.resume_header, meta=self.log_meta)
             self._save_quietly()  # the last day is done: "continue" later adds more days
         except _Stop:
             pass
@@ -147,6 +148,11 @@ class LiveSim:
                 scorecard.write(self.log_path)
             except Exception as e:
                 print(f"scorecard failed: {e}")
+            if (self.log_meta or self.resume_header or {}).get("scenario"):  # what the scenario looked for
+                try:
+                    print(f"scenario report: {scenario.write_report(self.log_path)}")
+                except Exception as e:
+                    print(f"scenario report failed: {e}")
         if not self.stopping:  # the last day has no "next morning" to trigger its recap; then the session summary
             last = day_of(self.ticks[-1], self.world.config)[0] if self.ticks else None
             threading.Thread(target=self._finish, args=(last,), daemon=True).start()
@@ -548,6 +554,26 @@ class Host:
     def saves(self) -> list[dict]:
         return saves.listing(self.runs_dir)
 
+    def scenario(self, name: str, llm: bool) -> LiveSim:
+        """Play a scenario (aivillage/scenario.py, scenarios/*.yaml): the village starts at its moment, with its
+        memory. `llm` False: everyone is a bot (free, checks the setup)."""
+        scn = scenario.load(name)  # ScenarioError (a ValueError) before anything stops
+        with self._lock:
+            self.stop()
+            world = scenario.start_world(scn)
+            decide, on_night = scenario.brains(world, scn, ai=None if llm else [])
+            self.runs_dir.mkdir(parents=True, exist_ok=True)
+            log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}_{name}.jsonl"
+            sm = "default" if llm and keys.has_any_key() else "off"
+            summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
+            sim = LiveSim(world, decide, scn.play.days, str(log), 1.0, on_night, summarizer, self.reports_dir,
+                          self.reveal_reports, meta=scenario.header_meta(world, name, scn))
+            sim.run_info = {"days": scn.play.days, "seed": world.config["seed"], "scenario": name}
+            self.sim = sim
+            sim.start()
+            print(f"Scenario {name}: {log}")
+            return sim
+
     def runs(self) -> list[Path]:
         return sorted(self.runs_dir.glob("*.jsonl"), reverse=True) if self.runs_dir.is_dir() else []
 
@@ -587,7 +613,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
                       '<script src="/settings.js"></script>\n')
             if host.setup:
                 inject += '<script src="/setup.js"></script>\n'
-        inject += '<script src="/saves.js"></script>\n'  # "💾 Сохранить" in a village, "Продолжить" on the start screen
+        inject += '<script src="/saves.js"></script>\n<script src="/scenarios.js"></script>\n'  # "💾 Сохранить" in a village, "Продолжить" on the start screen
         return html.replace("</body>", inject + "</body>", 1)
 
     @app.get("/pixelmap.js")
@@ -748,6 +774,28 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
             raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева.")
         try:
             sim = host.load(str(body.get("name") or ""), body.get("days"))
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, **sim.status()}
+
+    # --- scenarios (aivillage/scenario.py, viewer/scenarios.js) ---
+    @app.get("/api/scenarios")
+    def scenarios(request: Request) -> dict:
+        local_only(request)
+        return {"scenarios": scenario.listing(), "can_start": host.setup}
+
+    @app.post("/api/scenario")
+    def play_scenario(body: dict, request: Request) -> dict:
+        local_only(request)
+        if not host.setup:
+            raise HTTPException(400, "this server runs one village (started without --setup)")
+        body = body or {}
+        llm_on = body.get("brains", "llm") == "llm"
+        if llm_on and not keys.has_any_key():
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+                                     "Или выберите ботов, они бесплатные.")
+        try:
+            sim = host.scenario(str(body.get("name") or ""), llm_on)
         except (ValueError, TypeError) as e:
             raise HTTPException(400, str(e)) from None
         return {"ok": True, **sim.status()}
