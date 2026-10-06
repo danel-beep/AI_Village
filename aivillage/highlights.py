@@ -33,7 +33,7 @@ DRAMA = {
     # families, elections, rumors (PRs #17, #19, #21)
     "wedding": 9, "divorce": 9, "elected": 8, "theft_report": 7, "inheritance": 6, "law_passed": 6,
     "proposal": 6, "proposal_refused": 6, "exile_over": 5, "gossip": 4, "gossip_heard": 4, "overheard": 5, "announcement": 6, "law_failed": 4,
-    "election": 4, "law_proposed": 3, "candidate": 3, "fire_grows": 3, "hang_out": 1,
+    "election": 4, "law_proposed": 3, "candidate": 3, "fire_grows": 3, "hang_out": 1, "feast": 6,
     # world crises (crises.py)
     "crisis": 6, "rats": 5, "crop_failed": 3,
     # everyday life: only fills a quiet day up to MIN_PICKS (score below DRAMATIC)
@@ -69,7 +69,7 @@ TITLES = {
     "inheritance": "Наследство", "law_passed": "Принят закон", "proposal": "Предложение руки и сердца",
     "proposal_refused": "Отказ жениться", "exile_over": "Изгнание окончено", "gossip": "Слух",
     "gossip_heard": "Слух", "overheard": "Подслушал", "announcement": "Объявление", "law_failed": "Закон провалился", "election": "Выборы", "law_proposed": "Новый закон",
-    "candidate": "Кандидат в старосты", "fire_grows": "Пожар разгорается", "hang_out": "Провели время вместе",
+    "candidate": "Кандидат в старосты", "fire_grows": "Пожар разгорается", "hang_out": "Провели время вместе", "feast": "Праздник",
     "crisis": "Беда в деревне", "rats": "Крысы", "crop_failed": "Погиб урожай",
     "election_day": "День выборов", "say": "Разговор", "build": "Стройка", "craft": "Ремесло", "plant": "Посадка",
     "sell": "Продажа", "buy": "Покупка", "order": "Новый заказ",

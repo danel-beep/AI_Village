@@ -47,6 +47,8 @@ class RandomBot(Bot):
             args = {"hours": r.randint(1, 4)}
         elif name == "craft":
             args = {"recipe": r.choice(list(obs["board"]["recipes"]) + ["cake"]), "times": r.randint(1, 2)}
+        elif name == "host_feast":
+            args = {"items": {pick_item(): r.randint(1, 4)}}
         elif name in ("eat", "buy", "sell", "pick_up"):
             args = {"item": pick_item(), "qty": r.randint(1, 3)}
         elif name in ("say",):

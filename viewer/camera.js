@@ -71,7 +71,7 @@ const Camera = (() => {
   // ---------- director: pick the most interesting event and frame it ----------
   // Score per event kind; unknown kinds score 0 and are never chosen. Fights/attacks are matched by name, so new
   // combat events from the engine are picked up without changes here.
-  const DRAMA = { fire: 10, fire_grows: 7, burned_down: 9, extinguish: 8, fire_out: 8, pour_water: 6, death: 10,
+  const DRAMA = { feast: 6, fire: 10, fire_grows: 7, burned_down: 9, extinguish: 8, fire_out: 8, pour_water: 6, death: 10,
     steal: 9, theft: 9, steal_attempt: 8, robbed: 8, witness: 6, caught: 8, report_theft: 6, eviction: 7, hospital: 7,
     wedding: 8, proposal: 7, proposal_refused: 6, divorce: 7, inheritance: 6, exile: 8, elected: 7, law_passed: 6,
     law_proposed: 4, election: 7, starving: 5, run_for_mayor: 4, candidate: 4, election_day: 3, vote: 2, default: 6, lend: 3, trade: 3, give: 3, gift: 3, whisper: 2,
