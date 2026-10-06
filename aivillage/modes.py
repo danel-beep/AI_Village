@@ -173,6 +173,7 @@ MODES["survival"] = {
                                                                "catalog": {"town_hall": {"at": []}}},
                                               "transport": {"enabled": True},
                                               "hire": {"enabled": True},
+                                              "explore": {"enabled": True},
                                               "crafting": {"enabled": True, "secrets": {"enabled": True}},
                                               # clay for bricks a short walk away on every map (the clay hills
                                               # of a large map are far): a clay bank at the mine

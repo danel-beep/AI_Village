@@ -43,8 +43,7 @@ API for other modules:
 - Unlocks are sticky; the stage never drops. Starting at a later stage, the buildings that stage and the
   earlier ones require count as standing (`world.progress.prebuilt`).
 - Observation (progress on): `village_stage: {stage, next_stage, next_stage_needs_standing: {kind: "have/need"}}`.
-  Rules line `progress.facts(cfg)`: what each stage needs standing (from the config). Before `feature:works`,
-  `village_structures` shows `built` and `not_yet` only (no `can_start`).
+  Rules line `progress.facts(cfg)`: what each stage needs standing (from the config).
 - Log: public event `village_stage` with `stage` (id) and `index`. State `world.progress`
   (`stage`, `reached: {id: day}`, `unlocked: [keys]`).
 
@@ -179,6 +178,16 @@ Config `hire` (off; on in `survival`). Contracts between villagers open at `haml
   `npc_left` private; `npc_work` log only (npc, employer, resource, amount, location); `guard_fight` at the
   place (guard, npc, intruder, act, owner, winner, rounds, damage). Tick `view.hire` = `{"npcs": [{"id",
   "kind", "employer", "location"}], "jobs": [active and owed jobs]}`.
+
+## Exploration (task 6, `aivillage/explore.py`, done)
+
+Config `explore`: `enabled` (on in the `survival` mode, start-screen toggle «Разведка карты»), `center`
+(`square`), `start_radius` (1). State `world.explore` = {villager: [known location ids]}: at the start their
+own location, home, `center` and everything within `start_radius` roads of it; a place is added when the
+villager is observed standing there. Observation (on): `explored.places` {id: [resources]},
+`explored.roads_to_unexplored` {known id: [unknown neighbour ids]}; the prompt's map and gather lines are
+replaced by `explore.facts`. `move` goes to a known place or one road past one, walking only through known
+places. Log: tick `view.known` (sorted union of everyone's known places; absent when off). Viewer: `viewer/fog.js`.
 
 ## Log fields for the viewer (task 13b)
 

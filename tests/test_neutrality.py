@@ -47,9 +47,10 @@ def test_villager_prompts_are_neutral_in_every_mode():
 
 def test_event_and_error_texts_are_neutral():
     """Fuzz bots touch every action; every observation they get (news, errors, board) is scanned."""
-    for mode in ("standard", "crafts"):
+    for mode, kinds in (("standard", ["random", "thief", "worker"]), ("crafts", ["random", "thief", "worker"]),
+                        ("survival", ["random", "thief", "builder"])):
         w = engine.new_world(runconfig.RunConfig(mode=mode, seed=4).world_override())
-        bots = bots_decider(w, ["random", "thief", "worker"], 4)
+        bots = bots_decider(w, kinds, 4)
         found: set[str] = set()
 
         def decide(name, obs, _bots=bots):

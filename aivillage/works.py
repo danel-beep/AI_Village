@@ -25,8 +25,6 @@ from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Project, World
 
-WORKS = "feature:works"  # progress.DEFAULT_UNLOCKS: a town_hall
-
 SITE = "square"
 NOT_ITEMS = ("labor", "coins")
 
@@ -43,6 +41,9 @@ def _w(cfg: dict) -> dict:
 
 def enabled(cfg: dict) -> bool:
     return bool(_w(cfg).get("enabled"))
+
+
+WORKS = "feature:works"  # progress.DEFAULT_UNLOCKS: a town_hall
 
 
 def catalog(cfg: dict) -> dict:
@@ -319,12 +320,9 @@ def board(world: World) -> list[dict]:
 def observe(world: World, name: str) -> dict:
     if not enabled(world.config):
         return {}
-    if not progress.unlocked(world, WORKS):  # «С нуля»: nothing can be started yet, so nothing is offered
-        from .governance import opens_when  # governance -> actions -> works: import here
-        return {"village_structures": {
-            "built": {s: level(world, s) for s in catalog(world.config)},
-            "not_yet": f"village projects (propose_build, contribute, build_work) start {opens_when(world.config, WORKS)}",
-        }}
+    if not progress.unlocked(world, WORKS):  # «С нуля»: nothing can be started before a town hall
+        built = {s: lvl for s in catalog(world.config) if (lvl := level(world, s))}
+        return {"village_structures": {"built": built}} if built else {}
     return {"village_structures": {
         "built": {s: level(world, s) for s in catalog(world.config)},
         "can_start": {s: {"level": lvl, "needs": needs_for(world.config, s, lvl),
@@ -335,7 +333,7 @@ def observe(world: World, name: str) -> dict:
 
 
 def facts(cfg: dict) -> str:
-    from .governance import opens_note
+    from .governance import opens_note  # governance -> actions -> works: import here
     return (f"- Village structures{opens_note(cfg, WORKS)}: the mayor (anyone while there is no mayor) can propose_build a well, bridge, "
             "watchtower or wall, or upgrade one (levels 1-3). Each needs items, coins and labor: contribute items "
             "and coins and build_work (one hour) at the square; the mayor can fund_project from the treasury. "
