@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, explore, graves, hire, labor, mapgen, modes, plots, pricing, threats, tiles, transport, works
+from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, mapgen, modes, plots, pricing, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -163,6 +163,7 @@ def view(world: World) -> dict:
             "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
             "works": works.view(world),  # village structures and open projects (works.py)
             **construction.view(world),  # building sites and common buildings (construction.py)
+            **honors.view(world),  # honors.py: the honor board (notes and titles), when not empty
             **hire.view(world),  # hire.py: hired outsiders and where they are, open jobs (hiring on)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}

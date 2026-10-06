@@ -42,7 +42,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import clock, construction, debts, governance, ops, progress
+from . import clock, construction, debts, governance, honors, ops, progress
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -51,7 +51,7 @@ from .state import Agent, Debt, World
 HALL = "town_hall"
 FORMS = ("assembly", "council", "ruler")
 TOPICS = ("name", "coin", "form", "leader")
-LAWS = ("tax", "fine", "grant", "payout", "expel")
+LAWS = ("tax", "fine", "grant", "payout", "expel", "title")
 ACTION_NAMES = ("join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
                 "give_to_polity", "polity_embezzle", "polity_audit")
 for _n in ACTION_NAMES:
@@ -454,9 +454,10 @@ def handover(ctx: Ctx, p: dict, old: str) -> None:
 # ---------- laws ----------
 
 class ProposeArgs(BaseModel):
-    law: Literal["tax", "fine", "grant", "payout", "expel"]
+    law: Literal["tax", "fine", "grant", "payout", "expel", "title"]
     value: int | None = Field(None, description="coins: tax per member each tax day, fine, grant")
-    person: str | None = Field(None, description="a member, for fine/grant/expel")
+    person: str | None = Field(None, description="a member, for fine/grant/expel/title")
+    text: str | None = Field(None, description="for title: the title's words")
 
 
 def _describe(p: dict, pr: dict) -> str:
@@ -465,13 +466,15 @@ def _describe(p: dict, pr: dict) -> str:
             "fine": f"fine {pr['person']} {pr['value']} {coin}",
             "grant": f"grant {pr['value']} {coin} from the treasury to {pr['person']}",
             "payout": "split the treasury equally among the members",
-            "expel": f"expel {pr['person']}"}[pr["law"]]
+            "expel": f"expel {pr['person']}",
+            "title": f"give {pr['person']} the title \"{pr.get('text')}\""}[pr["law"]]
 
 
 @ACTIONS.action("polity_propose", "Put a law to your polity, the way its form of government says (assembly: any "
                 "member proposes, all members vote; council: a council member proposes, the council votes; ruler: "
                 "the ruler's law passes at once). tax/fine/grant need value (coins); fine/grant/expel need person "
-                "(a member); payout splits the treasury among the members.", ProposeArgs,
+                "(a member); payout splits the treasury among the members; title needs person (a member) and text (a "
+                "title on the honor board, where World facts list it).", ProposeArgs,
                 available=lambda c, a: enabled(c.cfg) and a.name in deciders(of(c.world, a.name) or
                                                                              {"form": None, "members": []}))
 def polity_propose(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
@@ -486,12 +489,13 @@ def polity_propose(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
     if len(p["proposals"]) >= c["max_open_proposals"]:
         raise ActionError(f"at most {c['max_open_proposals']} proposals can be open at once")
     value = person = None
+    text = honors.check_title(ctx, args.text) if args.law == "title" else None
     if args.law in ("tax", "fine", "grant"):
         lo, hi = c["limits"][args.law]
         if args.value is None or not lo <= args.value <= hi:
             raise ActionError(f"{args.law} needs value between {lo} and {hi}")
         value = args.value
-    if args.law in ("fine", "grant", "expel"):
+    if args.law in ("fine", "grant", "expel", "title"):
         if not args.person:
             raise ActionError(f"{args.law} needs person")
         person = _agent(ctx, args.person).name
@@ -499,6 +503,8 @@ def polity_propose(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
             raise ActionError(f"{person} is not a member of {title(p)}")
     pr = {"id": w.new_id("plaw"), "law": args.law, "value": value, "person": person, "by": a.name,
           "closes": w.tick + clock.hours(cfg, c["law_vote_hours"]), "yes": [a.name], "no": []}
+    if text is not None:
+        pr["text"] = text
     p["proposals"][pr["id"]] = pr
     if p["form"] != "ruler":
         ctx.emit("polity_law_proposed", f"{a.name} proposes a law in {title(p)} ({pr['id']}): {_describe(p, pr)}. "
@@ -559,6 +565,8 @@ def _apply(ctx: Ctx, p: dict, pr: dict) -> str:
         return ""
     if pr["law"] != "payout" and (target is None or target.status == "dead" or target.name not in p["members"]):
         return f" {pr['person']} is not a member any more; nothing happens."
+    if pr["law"] == "title":
+        return honors.give_title(ctx, target.name, pr["text"], title(p))
     if pr["law"] == "fine":
         return " " + _charge(ctx, p, target, pr["value"], "fine")
     if pr["law"] == "grant":
@@ -718,7 +726,8 @@ def facts(cfg: dict) -> str:
             f"leads it; the ballot closes after {c['vote_hours']} hours. Forms: assembly ({form_text(cfg, 'assembly')}); "
             f"council ({form_text(cfg, 'council')}); ruler ({form_text(cfg, 'ruler')}). More than half of the "
             "members can change the form with sign_petition. Laws: tax (per member every tax day), fine, grant, "
-            f"payout, expel (no rejoining for {c['expel_days']} days). On tax day members pay their own polity "
+            f"payout, expel (no rejoining for {c['expel_days']} days)" + (", title" if honors.enabled(cfg) else "")
+            + ". On tax day members pay their own polity "
             f"only; {how}. Non-members pay no polity tax."
             + (" The treasury holder can polity_embezzle (take coins unnoticed: the books still show them); anyone at "
                "a polity's town hall can polity_audit it, and it is counted whenever the holder changes; then the "

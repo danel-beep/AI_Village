@@ -7,7 +7,8 @@ facts for everyone and no advice about what to do with them:
   poor / modest / well-off / rich, by the thresholds in `tiers`;
 - every `every_days` days at dawn a public "chronicle" event sums up the period: average coins earned from the
   trader and council orders by trade, trade changes and lost places, how many deals, gifts, loans and repaid
-  loans there were (counts only), public defaults and reported thefts (names), who worked most on village
+  loans there were (counts only), public defaults and reported thefts (names), who was praised on the honor
+  board (honors.py; names), who worked most on village
   projects. The last report stays in the observation as `last_chronicle`.
 
 State: `World.chronicle` (counts and earnings by trade since the last report; earnings come from
@@ -85,6 +86,8 @@ def _on_event(ctx: Ctx, ev: Event, names: list[str]) -> None:
         thief = ev.data.get("thief") or ev.data.get("person")
         if thief:
             _book(ctx.world)["thefts"].append(thief)
+    elif k == "praise" and ev.data.get("person"):
+        _book(ctx.world).setdefault("praised", []).append(ev.data["person"])
     elif k == "build_work" and ev.actor:
         b = _book(ctx.world)["build"]
         b[ev.actor] = b.get(ev.actor, 0) + 1
@@ -120,6 +123,8 @@ def report(world: World) -> str:
         parts.append(f"Did not repay on time: {_names(b['defaults'])}.")
     if b["thefts"]:
         parts.append(f"Reported for theft: {_names(b['thefts'])}.")
+    if b.get("praised"):
+        parts.append(f"Praised on the honor board: {_names(b['praised'])}.")
     if b["build"]:
         top = sorted(b["build"].items(), key=lambda kv: (-kv[1], kv[0]))[:5]
         parts.append("Hours on village projects: " + ", ".join(f"{n} {h}" for n, h in top) + ".")
@@ -166,4 +171,5 @@ def facts(cfg: dict) -> str:
             f"poor under {t[0]}, modest under {t[1]}, well-off under {t[2]}, rich from {t[2]}. Every "
             f"{_c(cfg)['every_days']} days at dawn the public village chronicle sums up the period: coins earned from "
             "the trader and council orders by trade, trade changes and lost places, numbers of deals, gifts, loans "
-            "and repayments, public defaults and reported thefts, hours on village projects, everyone's wealth.")
+            "and repayments, public defaults and reported thefts, " + ("who was praised on the honor board, "
+            if (cfg.get("honors") or {}).get("enabled") else "") + "hours on village projects, everyone's wealth.")

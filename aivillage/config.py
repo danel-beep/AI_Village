@@ -39,7 +39,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "propose_build", "fund_project", "embezzle", "start_building", "bring_materials",
             "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care",
             "join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
-            "give_to_polity", "polity_embezzle", "polity_audit",
+            "give_to_polity", "polity_embezzle", "polity_audit", "praise",
             "take_animal", "leave_animal", "lend_animal", "return_animal", "give_animal", "feed_animal", "buy_animal")},
         "error": 15,  # a failed action only costs a quarter hour
     },
@@ -585,6 +585,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Visible wealth and the village chronicle (aivillage/chronicle.py). Off here; on in the crafts mode.
     # Wealth levels poor / modest / well-off / rich start at these coins (goods at base value included).
     "chronicle": {"enabled": False, "every_days": 7, "tiers": [50, 150, 400]},
+    # The honor board (aivillage/honors.py). Off here; on in the crafts mode. `praise`: a public note about another
+    # villager, `per_day` a day, `note_len` characters; the board keeps `keep` notes, the observation shows `show`.
+    # A title law (village or polity) gives a title of `title_len` characters; a person keeps `max_titles`.
+    "honors": {"enabled": False, "per_day": 1, "note_len": 160, "keep": 40, "show": 10, "title_len": 40,
+               "max_titles": 3},
     # Village stages and unlocks (aivillage/progress.py, docs/specs/survival.md). Off here: everything is open.
     # On (the «С нуля» mode), the village climbs `stages` by what stands in it (`requires.buildings`: kind ->
     # how many; `kind@2` = at level 2+) and each stage or building opens mechanics (progress.DEFAULT_UNLOCKS,
