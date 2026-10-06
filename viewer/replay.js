@@ -11,7 +11,7 @@
   const KINDS = [
     { ic: '🤝', name: 'сделки', re: /^(trade|sell|buy|sale|order_delivered|land_bought|land_sold|lend|repay)$/ },
     { ic: '💬', name: 'разговоры', re: /^(say|whisper|gossip|letter_sent|hang_out)$/ },
-    { ic: '🎁', name: 'подарки и помощь', re: /^(gift|give|share|care|help_stranger|pour_water|defend)$/ },
+    { ic: '🎁', name: 'подарки и помощь', re: /^(gift|give|share|care|help_stranger|pour_water|defend|feast)$/ },
     { ic: '😠', name: 'ссоры, кражи, драки', re: /^(steal|steal_attempt|set_fire|default|debt_seized|evicted|divorce|proposal_refused|embezzle|dice_challenge)$|fight|attack|duel|brawl/ },
     { ic: '✝', name: 'смерти', re: /^death$/ },
   ];

@@ -348,6 +348,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
     # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.
+    # Feasts and goods on view (aivillage/luxury.py): a host shares food with everyone awake here (each guest's
+    # feeling about the host: family.on_event.feast); here.people shows the visible_items each person carries.
+    "luxury": {"enabled": False, "min_guests": 2, "min_food_each": 15, "visible_items": ["ring", "spear", "club", "tool"]},
     "family": {
         "feeling_max": 100,
         "friend_at": 30,      # label "friend" at or above, "enemy" at or below -friend_at
@@ -367,7 +370,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "give": ["to", 5], "lend": ["to", 4], "repay": ["lender", 4], "trade": ["both", 2],
             "whisper": ["both", 1], "letter": ["to", 1], "decline": ["to", -1],
             "steal_attempt": ["to", -20], "witness": ["to", -10], "default": ["lender", -15],
-            "fire_out": ["owner", 10], "extinguish": ["owner", 4],
+            "fire_out": ["owner", 10], "extinguish": ["owner", 4], "feast": ["to", 6],
         },
     },
     # Reputation and rumors (aivillage/reputation.py). Each agent keeps its own tally of deeds it saw or

@@ -3,7 +3,7 @@
 // ItemIcons.img(item) -> '<img ...>' or ''; ItemIcons.list({item: qty}, name) -> '<icon>3 wood, ...' (HTML).
 const ItemIcons = (() => {
   const MAP = { wood: 'wood', plank: 'planks', planks: 'planks', stone: 'stone', clay: 'clay', brick: 'brick', ore: 'ore',
-    iron: 'iron', gold: 'gold', coal: 'coal', hide: 'hide', leather: 'leather', wool: 'wool', cloth: 'cloth', rope: 'rope',
+    iron: 'iron', gold: 'gold', coal: 'coal', hide: 'hide', leather: 'leather', wool: 'wool', cloth: 'cloth', clothes: 'cloth', rope: 'rope',
     grain: 'grain', hay: 'grain', flour: 'flour', herbs: 'herbs', stone_axe: 'stone_axe', stone_pick: 'stone_pickaxe',
     stone_pickaxe: 'stone_pickaxe', stone_knife: 'stone_knife', stone_hoe: 'stone_hoe', iron_axe: 'iron_axe',
     iron_pick: 'iron_pickaxe', iron_pickaxe: 'iron_pickaxe', hoe: 'iron_hoe', iron_hoe: 'iron_hoe', tool: 'hammer',

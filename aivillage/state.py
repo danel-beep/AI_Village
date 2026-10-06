@@ -49,6 +49,7 @@ class Agent:
     trade_since_day: int = 0  # day the current trade place was taken with change_trade (0 = from the start)
     earned_since_tax: int = 0  # coins from the trader and council orders since the last tax day (taxes.py)
     skill_hours: int = 0
+    feast_day: int = 0  # luxury.py: last day this villager hosted a feast
     harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
     # dice.py: an open challenge {"to", "stake", "expires_tick"}
     dice_offer: dict | None = None
