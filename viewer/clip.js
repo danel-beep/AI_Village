@@ -301,8 +301,8 @@ const Clip = (() => {
   const idle = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });   // not throttled in hidden tabs
 
   function cue(J, s) {   // jump to a shot and let the camera settle on it before anything is recorded
-    if (s.it.who && s.it.who.length) { Camera.setDirector(false); selected = s.it.who[0]; }
-    else { selected = null; Camera.setDirector(true); }
+    if (s.it.who && s.it.who.length) { Camera.setDirector(false, false); selected = s.it.who[0]; }
+    else { selected = null; Camera.setDirector(true, false); }
     lastPanel = -1;
     const at = selected ? s.a : s.k;
     for (let f = 0; f < SETTLE; f++) draw(J, at, 1);
@@ -347,7 +347,7 @@ const Clip = (() => {
     }
     // end card over the village at the last moment
     const s = J.shots[n - 1];
-    if (J.cur !== 'end') { J.cur = 'end'; selected = null; Camera.setDirector(false); }
+    if (J.cur !== 'end') { J.cur = 'end'; selected = null; Camera.setDirector(false, false); }
     const t = draw(J, s.b, 1);
     map(cv, J.fx ?? cv.width / 2, J.fy ?? cv.height / 2, 1.3);
     outro(J, el - INTRO - n * MOMENT);
@@ -370,7 +370,7 @@ const Clip = (() => {
     const per = 60 / (ticks[0].view.tick_minutes || 60);
     const J = job = { spec, shots, top, total: INTRO + shots.length * MOMENT + OUTRO, cancelled: false, time: performance.now(),
       hourSec: MOMENT / ((shots[0].b - shots[0].a) / per) * .6, cur: null, fx: null, fy: null,
-      saved: { i, frac, playing, userPaused, selected, dir: (() => { try { return localStorage.getItem('aiv-director') === '1'; } catch (e) { return false; } })() } };
+      saved: { i, frac, playing, userPaused, selected, dir: Camera.directorOn() } };
     J.stats = stats(spec, shots);
     playing = false; userPaused = true;   // the clip drives i / frac itself; live ticks keep arriving
     box.hidden = false;
@@ -417,7 +417,7 @@ const Clip = (() => {
   }
   function restore(J) {
     const s = J.saved;
-    i = s.i; frac = s.frac; selected = s.selected; lastPanel = -1; Camera.setDirector(s.dir);
+    i = s.i; frac = s.frac; selected = s.selected; lastPanel = -1; Camera.setDirector(s.dir, false);
     playing = s.playing; userPaused = s.userPaused;
   }
   async function done(J, res, opts) {

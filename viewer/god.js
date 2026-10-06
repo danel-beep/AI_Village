@@ -118,8 +118,13 @@
       const shown = typeof ticks !== 'undefined' && ticks.length ? ticks[Math.min(i, ticks.length - 1)].tick : null;
       post('/api/god', { name: form.dataset.name, args: read(form), shown_tick: shown })
         .then(r => { msg.style.color = '#76b041';
-          msg.textContent = `Готово: сработает в ${r.at.replace('day', 'день')}` +
-            (r.lead_minutes ? ` (через ${r.lead_minutes} игровых минут)` : '') + '.'; })
+          const day = s => s.replace('day', 'день');
+          // Raid / beast / traveler: the order lands at r.at, the threat itself comes at r.arrives_at.
+          const who = { raid: 'Бандиты придут', beast: 'Зверь придёт', traveler: 'Путник придёт' }[form.dataset.name];
+          msg.textContent = who && r.arrives_at
+            ? `Готово: ${who} в ${day(r.arrives_at)}` + (read(form).warn ? `, деревню предупредят в ${day(r.at)}` : '') +
+              '. Авто-камера покажет, когда начнётся.'
+            : `Готово: сработает в ${day(r.at)}` + (r.lead_minutes ? ` (через ${r.lead_minutes} игровых минут)` : '') + '.'; })
         .catch(e => { msg.style.color = '#e4572e'; msg.textContent = 'Не вышло: ' + e.message; });
     };
   }

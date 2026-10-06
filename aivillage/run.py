@@ -299,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
     if rc.log:
         from . import scorecard
         print(f"  scorecard: {scorecard.write(rc.log)}")
+        from . import session  # the same end-of-session summary the app saves (aivillage/session.py)
+        session.save(rc.log, ended_by="finished", days_planned=rc.days)
+        print(f"  session: {session.paths(rc.log)['html']}")
     return 0
 
 
