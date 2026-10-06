@@ -89,15 +89,25 @@ function setPlaying(p, quiet) {
 function push(row) {
   if (row.type === 'diary') diaries.push({ ...row, at: ticks.length - 1 });
   else if (row.view) {
-    // Where each villager is still walking to (a move decision, kept until they arrive or decide something else),
-    // so a multi-hour walk is drawn as one continuous walk (viewer/pixelmap.js agentAt).
-    const before = ticks.length ? ticks[ticks.length - 1]._goal || {} : {}, goal = {};
+    // Per-villager state carried from tick to tick (quarter-hour ticks: one walk hop or one hour of work spans
+    // several ticks, the log only marks its first one):
+    //   _goal: where they are still walking to (a move decision, kept until they arrive or decide something else),
+    //          so a multi-hop trip is drawn as one continuous walk;
+    //   _hop:  {from, k, of} the hop that started k ticks ago and lasts `of` ticks (1 + busy minutes / tick minutes);
+    //   _acts: what they are doing, kept while the action that started it keeps them busy (chop the whole hour).
+    const last = ticks.length ? ticks[ticks.length - 1] : null, step = row.view.tick_minutes || 60;
+    const before = last && last._goal || {}, goal = {}, hop = {}, acts = Actors.activities(row);
     for (const [n, a] of Object.entries(row.view.agents)) {
       const d = (row.decisions || {})[n], act = d && d.action || {};
       const to = d ? act.name === 'move' && (act.args || {}).to : before[n];
       if (to && to !== a.location) goal[n] = to;
+      const pa = last && last.view.agents[n], ph = last && last._hop && last._hop[n];
+      if (pa && pa.location !== a.location) hop[n] = { from: pa.location, k: 0, of: 1 + Math.round((a.busy || 0) / step),
+        fk: names.filter(m => last.view.agents[m].location === pa.location && last.view.agents[m].status === 'active').indexOf(n) };
+      else if (ph && ph.k + 1 < ph.of && !d) hop[n] = { ...ph, k: ph.k + 1 };
+      if (!acts[n] && !d && pa && pa.busy > 0 && pa.location === a.location && last._acts && last._acts[n]) acts[n] = last._acts[n];
     }
-    row._goal = goal;
+    row._goal = goal; row._hop = hop; row._acts = acts;
     ticks.push(row); document.getElementById('scrub').max = ticks.length - 1;
   }
 }

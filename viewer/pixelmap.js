@@ -437,16 +437,19 @@ const PixelMap = (() => {
   // flows into the next leg instead of stopping at a crossroads.
   const WALK = 34, ease = u => u * u * (3 - 2 * u);
   function agentAt(prev, t, name, e, hourSec = 2) {
-    const a = prev.view.agents[name].location, bLoc = t.view.agents[name].location;
+    const hop = (t._hop || {})[name], bLoc = t.view.agents[name].location;
+    const a = hop ? hop.from : prev.view.agents[name].location;
     const p1 = spot(bLoc, here(t.view, name));
     if (a === bLoc) return { x: p1[0], y: p1[1], moving: false, dir: 'down' };   // a shifted spot is smoothed, not walked
-    const p0 = spot(a, here(prev.view, name));
+    const p0 = spot(a, hop ? hop.fk : here(prev.view, name));
     const pts = [p0, ...route(a, bLoc), p1];
     const seg = pts.slice(1).map((p, j) => Math.hypot(p[0] - pts[j][0], p[1] - pts[j][1]));
-    const total = seg.reduce((s, v) => s + v, 0), onward = (t._goal || {})[name], cont = (prev._goal || {})[name];
-    let f = e;
+    const total = seg.reduce((s, v) => s + v, 0), onward = (t._goal || {})[name];
+    const of = hop ? hop.of : 1, P = hop ? (hop.k + e) / of : e;   // progress over the whole hop
+    const cont = hop && hop.k ? false : (prev._goal || {})[name];
+    let f = P;
     if (!onward) {
-      const span = Math.min(1, Math.max(.15, total / WALK / Math.max(.1, hourSec))), u = Math.min(1, e / span);
+      const span = Math.min(1, Math.max(.15 / of, total / WALK / Math.max(.1, hourSec * of))), u = Math.min(1, P / span);
       f = cont ? u : ease(u);   // a trip's last leg keeps the pace it arrived with; a short walk eases in and out
     }
     let d = total * f;
@@ -500,7 +503,7 @@ const PixelMap = (() => {
     }
     // villagers, back to front (poses, tools, idle strolls and bubbles live in viewer/actors.js)
     const dt = lastTime === null ? 0 : Math.min(.1, Math.max(0, (time - lastTime) / 1000)); lastTime = time;
-    const acts = Actors.activities(t), prevPos = lastPos, shown = [];
+    const acts = t._acts || Actors.activities(t), prevPos = lastPos, shown = [];
     names.forEach((n, idx) => {
       const v = t.view.agents[n]; if (v.status !== 'active') return;
       const r = agentAt(prev, t, n, e, hourSec), info = v.asleep ? { act: 'sleep', text: '' } : acts[n] || { act: 'idle', text: '' };
