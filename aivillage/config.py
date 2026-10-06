@@ -46,6 +46,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "hospital_days": 2,
     # Economy
     "start_coins": 20,
+    "start_items": {"tool": 0},  # given to every villager at the start (crafts mode: a tool)
     "tax_every_days": 7,
     "tax_amount": 20,
     "eviction_days": 2,
@@ -76,6 +77,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Items. value = base price; NPC buys at value*npc_buy_ratio, sells at value*npc_sell_ratio.
     "npc_buy_ratio": 0.5,
     "npc_sell_ratio": 1.5,
+    # Trader prices that follow his stock (aivillage/pricing.py). Off here; the crafts mode turns it on.
+    # Every unit he holds (per 5 villagers) lowers both his prices of that good by drop_per_unit, down to
+    # floor; each dawn he keeps keep_per_day of his stock.
+    "market": {"stock_prices": False, "drop_per_unit": 0.08, "floor": 0.3, "keep_per_day": 0.5},
     "items": {
         "grain": {"value": 2},
         "fish": {"value": 3, "food": 15},
@@ -97,6 +102,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # weapons for fights (aivillage/conflict.py, config combat.weapons); a tool works as a shovel/pick
         "club": {"value": 4},
         "spear": {"value": 15},
+        # dishes from two or three trades' goods: more food per ingredient than bread or soup
+        "stew": {"value": 12, "food": 75},
+        "pancakes": {"value": 10, "food": 60},
+        "honey_cake": {"value": 12, "food": 70},
+        # jewellery: what gold can become at the smithy
+        "ring": {"value": 30},
     },
     # Recipes: where they can be made and by whom (None = anyone).
     "recipes": {
@@ -106,6 +117,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "lock": {"inputs": {"ore": 1, "stone": 1}, "output": 1, "where": "smithy", "profession": "smith"},
         "club": {"inputs": {"wood": 3}, "output": 1, "where": "home", "profession": None},
         "spear": {"inputs": {"wood": 2, "ore": 1}, "output": 1, "where": "smithy", "profession": "smith"},
+        "stew": {"inputs": {"fish": 1, "grain": 1, "wood": 1}, "output": 1, "where": "home", "profession": None},
+        "pancakes": {"inputs": {"grain": 1, "egg": 1, "milk": 1}, "output": 1, "where": "home", "profession": None},
+        "honey_cake": {"inputs": {"grain": 2, "honey": 1}, "output": 1, "where": "home", "profession": None},
+        "ring": {"inputs": {"gold": 1}, "output": 1, "where": "smithy", "profession": "smith"},
     },
     "professions": {
         "farmer": ["grain"],
@@ -457,7 +472,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # The trader deals in limited amounts each day, for the whole village, per 5 villagers
         # (population scales them): how many of each item he buys from villagers / has for sale.
         "trader_buys_per_day": {"default": 6, "gold": 2},
-        "trader_sells_per_day": {"default": 2},
+        "trader_sells_per_day": {"default": 2, "tool": 2},
     },
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},

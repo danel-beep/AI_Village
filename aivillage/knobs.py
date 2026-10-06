@@ -109,6 +109,30 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "trader_sells", "path": "labor.trader_sells_per_day.default", "group": "Ремёсла", "type": "range",
      "label": "Торговец продаёт в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
      "hint": "Сколько штук каждого товара у торговца есть на продажу за день (на 5 жителей)."},
+    {"key": "trader_sells_tool", "path": "labor.trader_sells_per_day.tool", "group": "Ремёсла", "type": "range",
+     "label": "Из них инструментов", "min": 0, "max": 10, "step": 1, "unit": " шт.",
+     "hint": "Мало: инструменты приходится покупать у кузнеца."},
+
+    # --- prices and tools (aivillage/pricing.py) ---
+    {"key": "stock_prices", "path": "market.stock_prices", "group": "Цены и инструменты", "type": "toggle",
+     "label": "Цены торговца зависят от его запаса",
+     "hint": "Чем больше товара жители недавно продали торговцу, тем дешевле он его покупает и продаёт. "
+             "Каждую ночь запас уменьшается."},
+    {"key": "price_drop", "path": "market.drop_per_unit", "group": "Цены и инструменты", "type": "range",
+     "label": "Насколько падает цена за штуку в запасе", "min": 0, "max": 25, "step": 1, "scale": 0.01, "unit": "%",
+     "hint": "На 5 жителей. 8%: после 5 проданных штук цена ниже на 40%."},
+    {"key": "price_floor", "path": "market.floor", "group": "Цены и инструменты", "type": "range",
+     "label": "Ниже какой доли цена не падает", "min": 5, "max": 100, "step": 5, "scale": 0.01, "unit": "%"},
+    {"key": "stock_keep", "path": "market.keep_per_day", "group": "Цены и инструменты", "type": "range",
+     "label": "Сколько запаса торговец оставляет за ночь", "min": 0, "max": 100, "step": 10, "scale": 0.01, "unit": "%"},
+    {"key": "gold_value", "path": "items.gold.value", "group": "Цены и инструменты", "type": "range",
+     "label": "Цена золота", "min": 2, "max": 40, "step": 1, "unit": " мон.",
+     "hint": "Базовая цена; торговец платит половину. Шахтёр добывает до 2 слитков в час."},
+    {"key": "tool_hours", "path": "tool_durability_hours", "group": "Цены и инструменты", "type": "range",
+     "label": "Инструмент живёт", "min": 4, "max": 60, "step": 1, "unit": " ч работы",
+     "hint": "С инструментом добыча вдвое больше. Новые делает кузнец."},
+    {"key": "start_tool", "path": "start_items.tool", "group": "Цены и инструменты", "type": "range",
+     "label": "Инструментов у каждого на старте", "min": 0, "max": 3, "step": 1, "unit": " шт."},
 
     # --- theft ---
     {"key": "steal_notice_chance", "path": "steal_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,

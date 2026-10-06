@@ -20,7 +20,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, conflict, crises, dice, governance, graves, illness, keys, labor, land, plots, seasons, threats, works
+from . import (clock, conflict, crises, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
+               threats, works)
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -150,6 +151,9 @@ def world_facts(cfg: dict) -> str:
         lines.append(land.facts(cfg))
     if labor.enabled(cfg):
         lines.append(labor.facts(cfg))
+    lines.append(pricing.tool_fact(cfg))
+    if pricing.enabled(cfg):
+        lines.append(pricing.facts(cfg))
     if death := graves.facts(cfg):
         lines.append(death)
     if works.enabled(cfg):
