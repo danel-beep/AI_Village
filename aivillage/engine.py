@@ -13,8 +13,8 @@ from typing import Any
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (chronicle, clock, conflict, crises, debts, dice, explore, family, governance, graves, handbook, illness,
-               labor, land, mapgen, market, ops, places, plots, pricing, progress, reputation, seasons, spoilage, taxes,
-               threats, tiles, works)
+               labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
+               taxes, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -36,6 +36,7 @@ def new_world(config: dict | None = None) -> World:
     if "layout" in cfg["map"]:  # a generated map has its own lots; the hand-made map's ones must not leak in
         for lid in [k for k, s in cfg["locations"].items() if "lot" in s and k not in cfg["map"]["layout"]["places"]]:
             del cfg["locations"][lid]
+    modes.bare_start(cfg)
     w = World(config=cfg, hour=cfg["day_start_hour"])
     for lid, spec in cfg["locations"].items():
         res = {r: v["start"] for r, v in spec.get("resources", {}).items()}
@@ -469,7 +470,7 @@ def night(ctx: Ctx) -> None:
             if crises.blocks_regrowth(w, loc.id, r):
                 continue
             cap = tiles.capacity(s) if s.get("slots") else s["max"]
-            tiles.grow(loc, r, seasons.regen(cfg, w.day, r, s["regen"]), cap, s["max"])
+            tiles.grow(loc, r, seasons.regen(cfg, w.day, r, tiles.regen(cfg, loc, r, s)), cap, s["max"])
     for loc in w.locations.values():
         if not loc.planted:
             continue
