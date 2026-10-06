@@ -549,19 +549,32 @@ const PixelMap = (() => {
     return [];
   }
   // Position along the walking route between the previous and the current location.
-  function agentAt(prev, t, name, e) {
-    const a = prev.view.agents[name].location, bLoc = t.view.agents[name].location;
+  // Villagers walk at a steady pace (WALK map pixels per second on screen): a short walk ends early in the hour and
+  // they get to work; a leg of a longer trip (t._goal says they walk on next hour) fills the whole hour, so the walk
+  // flows into the next leg instead of stopping at a crossroads.
+  const WALK = 34, ease = u => u * u * (3 - 2 * u);
+  function agentAt(prev, t, name, e, hourSec = 2) {
+    const hop = (t._hop || {})[name], bLoc = t.view.agents[name].location;
+    const a = hop ? hop.from : prev.view.agents[name].location;
     const p1 = spot(bLoc, here(t.view, name));
     if (a === bLoc) return { x: p1[0], y: p1[1], moving: false, dir: 'down' };   // a shifted spot is smoothed, not walked
-    const p0 = spot(a, here(prev.view, name));
+    const p0 = spot(a, hop ? hop.fk : here(prev.view, name));
     const pts = [p0, ...route(a, bLoc), p1];
     const seg = pts.slice(1).map((p, j) => Math.hypot(p[0] - pts[j][0], p[1] - pts[j][1]));
-    let d = seg.reduce((s, v) => s + v, 0) * e;
+    const total = seg.reduce((s, v) => s + v, 0), onward = (t._goal || {})[name];
+    const of = hop ? hop.of : 1, P = hop ? (hop.k + e) / of : e;   // progress over the whole hop
+    const cont = hop && hop.k ? false : (prev._goal || {})[name];
+    let f = P;
+    if (!onward) {
+      const span = Math.min(1, Math.max(.15 / of, total / WALK / Math.max(.1, hourSec * of))), u = Math.min(1, P / span);
+      f = cont ? u : ease(u);   // a trip's last leg keeps the pace it arrived with; a short walk eases in and out
+    }
+    let d = total * f;
     for (let j = 0; j < seg.length; j++) {
       if (d <= seg[j] || j === seg.length - 1) {
-        const f = seg[j] ? Math.min(1, d / seg[j]) : 1, [x0, y0] = pts[j], [x1, y1] = pts[j + 1];
-        const dx = x1 - x0, dy = y1 - y0, moving = seg[j] > 0 && e < 1;
-        return { x: x0 + dx * f, y: y0 + dy * f, moving, dir: !moving ? 'down' : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up' };
+        const k = seg[j] ? Math.min(1, d / seg[j]) : 1, [x0, y0] = pts[j], [x1, y1] = pts[j + 1];
+        const dx = x1 - x0, dy = y1 - y0, moving = seg[j] > 0 && f < 1;
+        return { x: x0 + dx * k, y: y0 + dy * k, moving, dir: !moving ? 'down' : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up' };
       }
       d -= seg[j];
     }
@@ -574,7 +587,7 @@ const PixelMap = (() => {
   }
 
   // ---------- per-frame drawing ----------
-  function draw(ctx, { t, prev, frac, selected, time, tr }) {
+  function draw(ctx, { t, prev, frac, selected, time, tr, hourSec }) {
     const e = Math.min(1, frac), sec = time / 1000;
     b.drawImage(bg, 0, 0);
     // water shimmer
@@ -607,12 +620,12 @@ const PixelMap = (() => {
     }
     // villagers, back to front (poses, tools, idle strolls and bubbles live in viewer/actors.js)
     const dt = lastTime === null ? 0 : Math.min(.1, Math.max(0, (time - lastTime) / 1000)); lastTime = time;
-    const acts = Actors.activities(t), prevPos = lastPos, shown = [];
+    const acts = t._acts || Actors.activities(t), prevPos = lastPos, shown = [];
     names.forEach((n, idx) => {
       const v = t.view.agents[n]; if (v.status !== 'active') return;
-      const r = agentAt(prev, t, n, e), info = v.asleep ? { act: 'sleep', text: '' } : acts[n] || { act: 'idle', text: '' };
+      const r = agentAt(prev, t, n, e, hourSec), info = v.asleep ? { act: 'sleep', text: '' } : acts[n] || { act: 'idle', text: '' };
       if (v.asleep && v.location === 'home_' + n && !r.moving) return;
-      const k = here(t.view, n), a = { n, k: idx, loc: v.location, text: info.text, act: r.moving ? 'walk' : info.act,
+      const k = here(t.view, n), a = { n, k: idx, loc: v.location, text: info.text, act: r.moving ? 'walk' : info.act === 'walk' ? 'idle' : info.act,
         dir: r.dir, moving: r.moving, carry: r.moving && fires.size > 0 && (v.inventory.water || 0) > 0 };
       let tx = r.x, ty = r.y;
       if (!r.moving) {
@@ -630,6 +643,7 @@ const PixelMap = (() => {
     shown.sort((p, q) => p.y - q.y);
     lastPos = {};
     for (const a of shown) { lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8]; Actors.paint(b, sheets[a.n], a, sec, a.n === selected); }
+    if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
     // night
     const h0 = prev.view.hour + (prev.view.minute || 0) / 60, h1 = t.view.hour + (t.view.minute || 0) / 60;
     const hour = h1 > h0 && h1 - h0 <= 1 ? h0 + e * (h1 - h0) : h0, dark = darkness(hour);
@@ -646,7 +660,9 @@ const PixelMap = (() => {
       layout.houses.forEach(h => { if (homeNow.has(h.name)) h.windows.forEach(([x, y]) => R(b, x + 1, y + 1, 7, 6, C.lit)); });
     }
     Camera.attach(ctx.canvas, W, H, S);
-    Camera.update(dt, selected, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8]);
+    const posOf = n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8];
+    Camera.direct(dt, t, posOf, loc => layout.anchors[loc], tr || String);
+    Camera.update(dt, selected, posOf);
     const cam = Camera.view();
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(buf, cam.x0, cam.y0, W / cam.z, H / cam.z, 0, 0, W * S, H * S);
