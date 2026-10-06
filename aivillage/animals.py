@@ -90,9 +90,12 @@ def auto_habitats(world: World) -> dict[str, dict[str, int]]:
                         key=lambda lid: (dist.get(lid, 99), lid))
         if not places:
             continue
+        wild = [lid for lid in places if cfg["locations"][lid].get("biome") in s.get("biomes", ())]
+        if wild:  # a big map has its far biomes (mapgen `biome`): this species lives only there
+            places = wild
         if s.get("farthest"):
             places = places[-1:]
-        elif s.get("far"):
+        elif s.get("far") and not wild:
             places = places[len(places) // 2:]
         for lid in places:
             out.setdefault(lid, {})[sp] = int(s["start"])

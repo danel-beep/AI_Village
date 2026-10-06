@@ -202,3 +202,13 @@ def test_big_game_opens_with_the_hamlet_stage():
     w2 = world(progress={"enabled": True, "start_stage": "hamlet"})
     at_forest(w2, "Anna")
     assert "deer" in engine.observe(w2, "Anna", consume_inbox=False)["animals_here"]
+
+
+def test_big_game_lives_in_the_deep_forest_of_a_big_map():
+    w = world()
+    for lid in ("forest", "mine"):  # pretend the big map made two far deep forests
+        w.config["locations"][lid] = {**w.config["locations"][lid], "biome": "deep_forest",
+                                      "resources": {**w.config["locations"][lid].get("resources", {}), "wood": {}}}
+    hab = animals.auto_habitats(w)
+    assert {"deer", "boar"} <= set(hab["forest"]) and {"deer", "boar"} <= set(hab["mine"])
+    assert sum("elk" in h for h in hab.values()) == 1

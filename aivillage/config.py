@@ -559,7 +559,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
                "max_own_sales": 3, "show": 10, "seen_show": 10},
     # Game animals and hunting (aivillage/animals.py), off here (the "from scratch" mode turns it on).
     # Herds per place: `habitats` {loc: {species: count}} if set (the map may fill it), else every place
-    # with the species' `lives_by` resource; `far` species only in the farther half of those (road hops from
+    # with the species' `lives_by` resource, only those of its `biomes` if the map has any (big maps: mapgen's
+    # `deep_forest`, `lake`); otherwise `far` species only in the farther half of those (road hops from
     # `center`), `farthest` only in the farthest. Counts and caps scale with villagers / `base_size`.
     # Small game (`min_hunters` 1): one roll d`combat.die` + weapon attack >= `hit_at` catches one.
     # Big game: a hunt party at the place; at the end of the hour (party open `party_hours`), with
@@ -577,12 +578,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
                      "loot": {"meat": 1, "hide": 1}},
             "duck": {"lives_by": "fish", "start": 5, "cap": 8, "breed": 0.4, "min_hunters": 1, "hit_at": 13,
                      "loot": {"meat": 1}},
-            "deer": {"lives_by": "wood", "far": True, "start": 3, "cap": 5, "breed": 0.3, "min_hunters": 2,
-                     "hit_at": 10, "hp": 16, "loot": {"meat": 6, "hide": 2}},
-            "boar": {"lives_by": "wood", "far": True, "start": 2, "cap": 4, "breed": 0.35, "min_hunters": 2,
-                     "hit_at": 11, "hp": 20, "attack": 3, "damage_die": 6, "loot": {"meat": 6, "hide": 1}},
-            "elk": {"lives_by": "wood", "farthest": True, "start": 2, "cap": 3, "breed": 0.25, "min_hunters": 3,
-                    "hit_at": 10, "hp": 30, "attack": 2, "damage_die": 8, "loot": {"meat": 12, "hide": 3}},
+            "deer": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 3, "cap": 5, "breed": 0.3,
+                     "min_hunters": 2, "hit_at": 10, "hp": 16, "loot": {"meat": 6, "hide": 2}},
+            "boar": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 2, "cap": 4, "breed": 0.35,
+                     "min_hunters": 2, "hit_at": 11, "hp": 20, "attack": 3, "damage_die": 6,
+                     "loot": {"meat": 6, "hide": 1}},
+            "elk": {"lives_by": "wood", "biomes": ["deep_forest"], "farthest": True, "start": 2, "cap": 3,
+                    "breed": 0.25, "min_hunters": 3, "hit_at": 10, "hp": 30, "attack": 2, "damage_die": 8,
+                    "loot": {"meat": 12, "hide": 3}},
         },
     },
     # Food goes bad (aivillage/spoilage.py). Off here; a mode or the start screen turns it on.
