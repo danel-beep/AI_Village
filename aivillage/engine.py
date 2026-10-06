@@ -13,8 +13,8 @@ from typing import Any
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (chronicle, clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor,
-               land, mapgen, market, ops, places, plots, pricing, reputation, seasons, spoilage, taxes, threats, tiles,
-               works)
+               land, mapgen, market, ops, places, plots, pricing, progress, reputation, seasons, spoilage, taxes, threats,
+               tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -64,6 +64,7 @@ def new_world(config: dict | None = None) -> World:
     for pid, spec in cfg["projects"].items():
         w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]), structure=spec.get("structure"),
                                   level=1 if spec.get("structure") else 0, proposer="council")
+    progress.setup(w)
     for a in w.agents.values():
         a.busy_until = w.tick + wake_offset(w, a.name)
     return w
@@ -159,6 +160,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(taxes.observe(world, name))
     obs.update(places.observe(world, name))
     obs.update(chronicle.observe(world, name))
+    obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
@@ -333,6 +335,7 @@ def wake_busy_agents(ctx: Ctx) -> None:
 def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
     governance.end_of_hour(ctx)
+    progress.end_of_hour(ctx)
     for a in w.agents.values():
         if a.status != "active":
             continue
