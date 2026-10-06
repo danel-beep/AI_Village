@@ -58,6 +58,18 @@ class RandomBot(Bot):
             lessons = obs.get("lessons_offered") or [{"teacher": "nobody", "recipe": "cake"}]
             les = r.choice(lessons)
             args = {"teacher": les["teacher"], "recipe": les["recipe"]}
+        elif name in ("catch_animal", "buy_animal"):  # transport.py
+            args = {"animal": r.choice(["horse", "donkey", "unicorn"])}
+        elif name in ("take_animal", "feed_animal"):
+            t = obs.get("transport") or {}
+            ids = [x["id"] for x in t.get("animals_here", []) + t.get("your_animals", [])] + ["horse0"]
+            args = {"animal": r.choice(ids)}
+            if name == "feed_animal":
+                args.update(item=r.choice(["hay", "grain", "stone"]), qty=r.randint(1, 3))
+        elif name in ("lend_animal", "give_animal"):
+            args = {"to": r.choice(people + ["nobody"])}
+            if name == "lend_animal":
+                args["days"] = r.randint(1, 3)
         elif name in ("eat", "buy", "sell", "pick_up"):
             args = {"item": pick_item(), "qty": r.randint(1, 3)}
         elif name in ("say",):

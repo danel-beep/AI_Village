@@ -98,7 +98,7 @@ A villager has a roof when their plot has `house >= 1` or a `shelter` yard build
 Today: `grain fish berries wood stone ore water bread fish_soup tool lock egg milk honey gold club spear stew
 pancakes honey_cake ring`. Added by the plan: raw `clay meat hide hay`; materials `plank brick iron leather
 flour`; tools `stone_axe stone_pick iron_axe iron_pick hoe fishing_rod` (`tool` stays as the generic iron
-tool of today's modes); weapons `bow sword`; armor `leather_armor iron_armor`; food `smoked_meat`.
+tool of today's modes); weapons `bow sword`; armor `leather_armor iron_armor`; food `smoked_meat`; transport `cart` (task 17).
 
 ## Crafting (`aivillage/crafting.py`, task 7)
 
@@ -114,6 +114,35 @@ everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(worl
 `recipe:<id>: {"building": kind}` in `progress.DEFAULT_UNLOCKS`. Log: `craft` events carry `recipe` and
 `amount`; `tool_broke` carries `tool`; `trade_changed` with `profession` and `workshop` when an owner takes a trade.
 
+## Transport (`aivillage/transport.py`, task 17, done)
+
+Config `transport` (off by default; on in `survival`). With progress on, everything opens at the `village` stage
+(`feature:transport`, `action:<name>` for the actions below, `recipe:cart`, `building:stable`, `building:stable@2` at
+`town`); before that nothing applies, the carry limit included.
+
+- Carry limit: more than `carry` items carried (coins do not count, `cart` counts 0) makes every road of a walk take
+  `1 / overloaded_pace` times as long (the walker waits an extra hour per road at the end of the hour).
+- Animals `horse`, `donkey` (`kinds`: `speed` roads an hour, `carry` added, `price`, `catch_chance`, `wild` per
+  habitat place, `habitat` resources). One led at a time (`lead_max`). Weak (strength <= `weak_at`): a person's pace,
+  half the carry. A `cart` carried adds `cart.carry_led` with an animal led, `cart.carry_hand` without.
+- Actions: `catch_animal(animal)` (wild ones where they roam), `buy_animal(animal)` (trader at the market,
+  `feature:trader`, `trader_per_day`), `take_animal(animal)` / `leave_animal`, `lend_animal(to, days)` /
+  `return_animal`, `give_animal(to)` (ownership), `feed_animal(item, qty, animal?)` (hay or grain into its trough),
+  `cut_hay` (where animals graze). Only the owner gives or lends. Leading away an unled animal of someone else is
+  `animal_taken` (location, owner told) plus `witness` for each bystander (reputation counts it); the owner can take
+  their animal back from whoever leads it at the same place.
+- Night (the day's last hour): eat `eats_per_night` from the trough, else graze at a place with `graze_resources`,
+  else strength -1 (`animal_hungry`); 0 = `animal_ran_off` (back to the wild count). Fed at the owner's home with a
+  free `stable` stall (`stalls` per level; with construction off the home counts): +`stable_rest`. A loan past its
+  due day: `animal_overdue` once, to owner and borrower.
+- State `world.transport`: `animals` {id: {id, kind, owner, holder, location, strength, food, lent_to, due_day,
+  overdue_told}}, `wild` {loc: {kind: n}}, `pace` {name: credit}, `sold` {kind: n today}. Observation
+  `transport`: `carrying` {items, full_pace_up_to}, `your_animals`, `animals_here`, `wild_animals_here`.
+- Events: `animal_caught`, `catch_miss`, `animal_bought`, `animal_led`, `animal_left`, `animal_taken`,
+  `animal_reclaimed`, `animal_lent`, `animal_returned` (`late`), `animal_given`, `animal_fed`, `animal_hungry`,
+  `animal_overdue`, `animal_ran_off`.
+- Art keys (viewer library): `horse`, `donkey`, `cart`, `stable` (levels 1–2).
+
 ## Log fields for the viewer (task 13b)
 
 - `village_stage` events (above).
@@ -122,3 +151,5 @@ everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(worl
   the last `team_window_minutes`. Common buildings: tick `view.buildings` = `[{"id", "kind", "level", "location"}]`.
 - Buildings with levels: plot building dicts carry `level` (default 1); works keep `works.levels`.
 - Unexplored places (task 6): tick `view.known` = location ids someone has seen.
+- Transport (task 17): tick `view.transport` = `{"animals": [{"id", "kind", "owner", "holder", "location", "strength"}], "wild": {loc: {kind: n}}}`;
+  a led animal's `location` is its holder's.

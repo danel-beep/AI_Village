@@ -166,6 +166,7 @@ MODES["survival"] = {
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
                                               "animals": {"enabled": True},
+                                              "transport": {"enabled": True},
                                               "construction": {"enabled": True},
                                               "crafting": {"enabled": True, "secrets": {"enabled": True}},
                                               # clay for bricks a short walk away on every map (the clay hills
