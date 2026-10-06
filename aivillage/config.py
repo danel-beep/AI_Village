@@ -556,7 +556,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Empty start of the «С нуля» mode (modes.bare_start). On, and with progress starting below `until_stage`:
     # no houses (level 0), no coins, empty pockets, no buildings in the yards, everyone a laborer who may
     # gather anything by hand (no trade places). From `until_stage` on, the start is the ready village.
-    "bare_start": {"enabled": False, "until_stage": "hamlet"},
+    "bare_start": {"enabled": False, "until_stage": "hamlet", "coins_from_stage": "village"},
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with

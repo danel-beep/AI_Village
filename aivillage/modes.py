@@ -176,7 +176,8 @@ def bare_start(cfg: dict) -> None:
 
     Does nothing unless `bare_start.enabled`, progress is on and the start stage is before
     `bare_start.until_stage`. Then: houses at level 0, no coins, empty pockets and yards, everyone a
-    laborer who may gather anything by hand, no trade places."""
+    laborer who may gather anything by hand, no trade places. A start before `coins_from_stage` (the stage
+    whose buildings bring the trader) has no coins either, even when it is the ready village."""
     from . import progress
     b = cfg.get("bare_start") or {}
     if not b.get("enabled") or b.get("applied") or not progress.enabled(cfg):
@@ -184,8 +185,14 @@ def bare_start(cfg: dict) -> None:
     ids = progress.stage_ids(cfg)
     start = cfg["progress"].get("start_stage", 0)
     idx = ids.index(start) if isinstance(start, str) else int(start)
+    coins_from = b.get("coins_from_stage")
+    if coins_from in ids and idx < ids.index(coins_from):  # no market yet: nobody has coins
+        cfg["start_coins"] = 0
+        for st in cfg["map"].get("start", {}).values():
+            st["coins"] = 0
     until = b.get("until_stage")
     if until in ids and idx >= ids.index(until):
+        b["applied"] = True
         return
     cfg["start_coins"] = 0
     cfg["start_items"] = {k: 0 for k in cfg.get("start_items", {})}
