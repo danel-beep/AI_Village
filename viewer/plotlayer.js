@@ -203,6 +203,28 @@ const PlotLayer = (() => {
       if (yd.house) houseLevel(g, yd.house, p.house || 1);
       else lotSign(g, yd, p);
     }
+    // graves.py: a headstone by the dead villager's house (several stand side by side)
+    const byHome = {};
+    for (const gr of (t.view.graves || [])) {
+      const yd = yards[gr.home];
+      if (!yd || !yd.house) continue;
+      const k = byHome[gr.home] = (byHome[gr.home] || 0) + 1;
+      grave(g, yd.house.x - 4 - 16 * k, yd.house.y + 3 * K.T - 20, gr, t.view.day);
+    }
+  }
+
+  // A mound of earth and a grey headstone with a cross; flowers once a day has passed.
+  function grave(g, x, y, gr, day) {
+    const { R } = K;
+    R(g, x - 2, y + 14, 16, 5, '#4e3c28'); R(g, x - 1, y + 13, 14, 2, '#6e5838');  // mound
+    R(g, x + 1, y + 1, 10, 14, '#2e2e34'); R(g, x + 3, y - 1, 6, 2, '#2e2e34');     // outline, rounded top
+    R(g, x + 2, y + 1, 8, 13, '#a2a2ac'); R(g, x + 4, y, 4, 1, '#a2a2ac');          // stone
+    R(g, x + 2, y + 1, 8, 2, '#c4c4ce'); R(g, x + 9, y + 3, 1, 11, '#7a7a84');      // light on top, shade on the side
+    R(g, x + 5, y + 3, 2, 8, '#4a4a54'); R(g, x + 3, y + 5, 6, 2, '#4a4a54');       // cross
+    if (day > gr.day) {
+      R(g, x - 2, y + 15, 3, 3, '#e05a6a'); R(g, x - 1, y + 14, 1, 1, '#ffd0d8');
+      R(g, x + 11, y + 16, 3, 2, '#f0d050'); R(g, x + 12, y + 15, 1, 1, '#fff2a0');
+    }
   }
 
   return { init, draw, pack };

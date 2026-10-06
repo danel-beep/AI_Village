@@ -49,7 +49,10 @@
     msg.textContent = days.length ? 'Нажмите на момент, чтобы перемотать к нему.'
       : 'Хайлайты появятся в конце каждого игрового дня.';
     for (const d of days.slice().reverse()) {
-      list.append(el('h4', { textContent: `День ${d.day}` + (d.partial ? ' · пока идёт' : '') }));
+      const h = el('h4', { textContent: `День ${d.day}` + (d.partial ? ' · пока идёт' : '') });
+      if (typeof Clip !== 'undefined' && Clip.supported() && d.items.length)   // vertical video of the day (viewer/clip.js)
+        h.append(Clip.button({ day: d.day, items: d.items.map(it => ({ ...it, line: say({ ...it, source: d.source }) })) }));
+      list.append(h);
       for (const it of d.items) {
         const row = el('div', { className: 'hl' });
         row.append(el('div', { className: 'when', textContent: it.time + (it.who.length ? ' · ' + it.who.join(', ') : '') }),

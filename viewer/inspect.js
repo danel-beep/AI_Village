@@ -28,10 +28,10 @@ const Inspect = (() => {
 
   const ITEM = { grain: 'зерно', fish: 'рыба', berries: 'ягоды', wood: 'древесина', stone: 'камень', ore: 'руда', water: 'вода',
     bread: 'хлеб', fish_soup: 'уха', tool: 'инструмент', lock: 'замок', egg: 'яйца', milk: 'молоко', honey: 'мёд',
-    gold: 'золото', club: 'дубина', spear: 'копьё' };
+    gold: 'золото', club: 'дубина', spear: 'копьё', stew: 'рагу', pancakes: 'блины', honey_cake: 'медовик', ring: 'кольцо' };
   const OBJ = { wood: 'Дерево', berries: 'Ягодный куст', fish: 'Косяк рыбы', grain: 'Грядка', stone: 'Камень', ore: 'Рудная жила',
     gold: 'Золотая жила' };
-  const PROJECT = { bridge: 'мост через реку' };
+  const PROJECT = { bridge: 'мост через реку', well: 'колодец', watchtower: 'сторожевая башня', wall: 'стена вокруг деревни' };
   const BUILD = { garden_bed: 'грядка', chicken_coop: 'курятник', cow_pen: 'коровник', beehive: 'улей', fence: 'забор' };
   const PLACE = { square: 'Площадь', market: 'Рынок', smithy: 'Кузница', forest: 'Лес', mine: 'Шахта', river: 'Река',
     field: 'Поле', grove: 'Роща', pond: 'Пруд', quarry: 'Каменоломня', hamlet: 'Хутор', waypoint: 'Развилка' };
@@ -165,12 +165,15 @@ const Inspect = (() => {
       s += `<div>Мэр: ${v.mayor ? who(v.mayor) : '<span class="muted">нет</span>'} · казна ${v.treasury || 0} монет</div>`;
       const ord = v.orders || [];
       s += `<h4>Доска заказов</h4>` + (ord.length ? table(ord.map(o => [goods(o.needs), `${o.reward} монет, до дня ${o.until}`])) : '<span class="muted">заказов нет</span>');
-      for (const [id, p] of Object.entries(v.projects || {})) {
+      const wk = v.works || {};
+      for (const p of wk.open || []) {
         const need = Object.values(p.needs).reduce((a, b) => a + b, 0), got = Object.values(p.contributed || {}).reduce((a, b) => a + b, 0);
-        s += `<h4>Стройка: ${PROJECT[id] || esc(tr(p.name))}${p.done ? ' ✅' : ''}</h4>` +
+        s += `<h4>Стройка: ${PROJECT[p.structure || p.id] || esc(tr(p.name))}</h4>` +
           Object.entries(p.needs).map(([r, q]) => `<div>${it(r)}: ${(p.contributed || {})[r] || 0} из ${q}</div>`).join('') + bar(got / need, '#f2c14e') +
-          (Object.keys(p.contributors || {}).length ? `<div class="muted">Вложили: ${Object.entries(p.contributors).map(([n, q]) => `${who(n)} ${q}`).join(', ')}</div>` : '');
+          (Object.keys(p.helpers || {}).length ? `<div class="muted">Вложили: ${Object.entries(p.helpers).map(([n, q]) => `${who(n)} ${typeof q === 'object' ? goods(q) : q}`).join(', ')}</div>` : '');
       }
+      const built = Object.entries(wk.levels || {}).filter(([, l]) => l);
+      if (built.length) s += `<h4>Построено в деревне</h4>` + table(built.map(([n, l]) => [PROJECT[n] || esc(n), `уровень ${l}`]));
     }
     if (id === 'smithy' || k === 'smithy') {
       const rec = Object.entries(header.config.recipes || {}).filter(([, r]) => r.where === 'smithy');

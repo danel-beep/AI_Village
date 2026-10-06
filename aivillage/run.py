@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import clock, crises, engine, mapgen, modes, plots, tiles
+from . import clock, crises, engine, graves, labor, mapgen, modes, plots, pricing, threats, tiles, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -29,11 +29,11 @@ DecideFn = Callable[[str, dict], dict]
 
 
 class JsonlLog:
-    def __init__(self, path: str | Path | None):
+    def __init__(self, path: str | Path | None, append: bool = False):
         self.f = None
         if path:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-            self.f = open(path, "w", encoding="utf-8")
+            self.f = open(path, "a" if append else "w", encoding="utf-8")
 
     def write(self, rec: dict) -> None:
         if self.f:
@@ -50,7 +50,8 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         on_tick: Callable[[World, list], None] | None = None,
         on_night: Callable[[World, int], dict] | None = None,
         on_record: Callable[[dict], None] | None = None, meta: dict | None = None,
-        max_cost: float = 0.0) -> dict:
+        max_cost: float = 0.0, checkpoint: Callable[[World], None] | None = None,
+        resume_header: dict | None = None) -> dict:
     """Drive the world for `days` days. Returns summary stats.
 
     `on_night(world, day)` runs after each day ends; whatever it returns is logged as a `diary` record
@@ -58,8 +59,11 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
     (the live server streams them). `meta` goes into the header; who plays whom (`brains`: villager -> model
     id or "bot:<kind>") is read from `decide.agents` / `decide.bots` when not given, and LLM token use and cost
     are logged as a `usage` record after every night and at the end (aivillage/scorecard.py reads both).
-    `max_cost` (USD, 0 = no limit): stop early once the LLM villagers together have spent this much."""
-    log = JsonlLog(log_path)
+    `max_cost` (USD, 0 = no limit): stop early once the LLM villagers together have spent this much.
+    `checkpoint(world)` runs before every tick, when the world, the log and the villagers' memory agree
+    (aivillage/saves.py saves there); it may raise to stop the run. `resume_header`: the world was loaded from a
+    save (aivillage/saves.py), so append to the log at `log_path` and only hand its old header to `on_record`."""
+    log = JsonlLog(log_path, append=resume_header is not None)
     meta = {"brains": brains_of(decide), **(meta or {})}
     llm = getattr(decide, "agents", None) or {}
 
@@ -68,11 +72,17 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         if on_record:
             on_record(rec)
 
-    emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
+    if resume_header is not None:
+        if on_record:
+            on_record(resume_header)
+    else:
+        emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
     stats: Counter = Counter()
     end_day = world.day + days
     try:
         while world.day < end_day:
+            if checkpoint:
+                checkpoint(world)
             asked = engine.waiting_agents(world)
             observations = [(name, engine.observe(world, name)) for name in asked]
             # All agents think at the same time: a slow model does not slow the others down.
@@ -142,30 +152,29 @@ def view(world: World) -> dict:
                        for a in world.agents.values() if a.reputation or a.rumors},
             "plots": plots.view(world),
             "crises": crises.view(world),  # active world crises (crises.py)
+            "threats": threats.view(world),  # raids, beasts, travelers here or warned (threats.py)
+            "graves": graves.view(world),  # graves.py: who is buried where
+            **({"labor": lab} if (lab := labor.view(world)) else {}),  # labor.py: skills, trader's day
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
+            "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
+            "works": works.view(world),  # village structures and open projects (works.py)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
                     for l in world.locations.values() if l.slots},
-            # for the viewer's object panels (viewer/inspect.js): chests, the square's board and projects, prices
+            # for the viewer's object panels (viewer/inspect.js): chests, the square's order board, trader prices
             "chests": [{"id": c.id, "owner": c.owner, "location": c.location, "items": dict(c.items), "coins": c.coins,
                         "locked": c.locked} for c in world.chests.values()],
             "orders": [{"id": o.id, "needs": o.needs, "reward": o.reward, "until": o.expires_day}
                        for o in world.orders.values() if o.status == "open"],
-            "projects": {p.id: {"name": p.name, "needs": p.needs, "contributed": dict(p.contributed),
-                                "contributors": dict(p.contributors), "done": p.done} for p in world.projects.values()},
             "market": market_prices(world)}
 
 
 def market_prices(world: World) -> dict:
-    """What the NPC trader charges ("buy") and pays ("sell") now, same formula as actions._price."""
-    cfg, out = world.config, {}
-    for item, info in cfg["items"].items():
-        if info.get("tradable", True):
-            out[item] = [max(1, int(info["value"] * cfg[r] * crises.price_factor(world, item, side)))
-                         for r, side in (("npc_sell_ratio", "buy"), ("npc_buy_ratio", "sell"))]
-    return out
+    """What the NPC trader charges ("buy") and pays ("sell") now, same as actions._price (pricing.py)."""
+    return {item: [pricing.price(world, item, "buy"), pricing.price(world, item, "sell")]
+            for item, info in world.config["items"].items() if info.get("tradable", True)}
 
 
 def read_log(path: str | Path) -> Iterable[dict]:
@@ -210,8 +219,8 @@ def summary(world: World, stats: dict) -> str:
         chest = world.chests[f"chest_{a.name}"]
         lines.append(f"  {a.name:8} {a.profession:10} {a.status:8} hp={a.health:3} food={a.satiety:3} "
                      f"coins={a.coins:4} chest_coins={chest.coins:3} inv={a.inventory}")
-    keys = ["trade", "give", "steal", "witness", "lend", "repay", "default", "order_done", "contribute",
-            "project_done", "fire_out", "house_burned", "hospital", "evicted", "error"]
+    keys = ["trade", "give", "steal", "witness", "lend", "promise", "repay", "default", "debt_collected", "debt_seized",
+            "order_done", "contribute", "project_done", "fire_out", "house_burned", "hospital", "evicted", "error"]
     lines.append("  events: " + ", ".join(f"{k}={stats.get(k, 0)}" for k in keys))
     return "\n".join(lines)
 

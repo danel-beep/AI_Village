@@ -21,6 +21,7 @@ const Sprites = (() => {
     if (o.alpha != null) g.globalAlpha = o.alpha;
     if (o.flip) { g.save(); g.translate(dx + dw, dy); g.scale(-1, 1); g.drawImage(img, sx, sy, w, h, 0, 0, dw, dh); g.restore(); }
     else g.drawImage(img, sx, sy, w, h, dx, dy, dw, dh);
+    if (window.Depth) Depth.sprite(g, n, img, sx, sy, w, h, dx, dy, dw, dh, o.flip);   // tall objects hide villagers behind them
     if (o.alpha != null) g.globalAlpha = 1;
     return true;
   }

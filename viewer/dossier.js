@@ -104,7 +104,8 @@
     }).join('') : '<div class="muted">Пока ни с кем не общался.</div>';
     const rumors = (social.rumors || []).slice().reverse();
     if (rumors.length) out += '<h4>Услышанные слухи</h4>' + rumors.map(r => `<div class="row"><span class="muted">д${r.day},
-      ${r.from ? pname(r.from) : 'кто-то'} про ${pname(r.about)}:</span> <span class="thought">«${esc(tr(r.text))}»</span></div>`).join('');
+      ${r.from ? pname(r.from) : 'кто-то'}${r.overheard ? ' (подслушано)' : ''}${r.retold
+        ? ` (пересказ №${r.retold}, ${r.started_by ? 'начал ' + pname(r.started_by) : 'автор забыт'})` : ''} про ${pname(r.about)}:</span> <span class="thought">«${esc(tr(r.text))}»</span></div>`).join('');
     return out;
   }
 
