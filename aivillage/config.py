@@ -542,6 +542,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (`seen_show` lines; co-presence and events with a place update it).
     "market": {"enabled": True, "remote": True, "place": "square", "sale_hours": 24, "max_sale_hours": 72,
                "max_own_sales": 3, "show": 10, "seen_show": 10},
+    # Food goes bad (aivillage/spoilage.py). Off here; a mode or the start screen turns it on.
+    # `days`: how many days a unit keeps from the day it reached its owner (bag + own chests + own market
+    # listings count as one store, so moving food between them does not refresh it); items not listed never
+    # spoil. What has run out of days is gone at dawn. `storage_factor` (buildings later) multiplies the days.
+    "spoilage": {"enabled": False,
+                 "days": {"meat": 2, "fish": 2, "milk": 2, "berries": 3, "bread": 3, "fish_soup": 3, "stew": 3,
+                          "pancakes": 3, "egg": 4, "honey_cake": 4, "grain": 14}},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

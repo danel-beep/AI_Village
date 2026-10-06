@@ -750,5 +750,5 @@ const PixelMap = (() => {
   const gfx = { C, R, P, blob, rnd };
   // Where a villager was last drawn, in map pixels (head height), or undefined; used by viewer/clip.js.
   const where = n => lastPos[n];
-  return { init, draw, pick, where, gfx };
+  return { init, draw, pick, where, gfx, sheet: n => sheets[n] };
 })();
