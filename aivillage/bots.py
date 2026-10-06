@@ -118,6 +118,10 @@ class RandomBot(Bot):
         elif name in ("build_work", "fund_project"):
             projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
             args = {"project_id": r.choice(projs), **({"coins": r.randint(-2, 50)} if name == "fund_project" else {})}
+        elif name == "treasury_order":
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
+            args = {"project_id": r.choice(projs), "needs": {r.choice(["wood", "stone", "ore", pick_item()]): r.randint(1, 6)},
+                    "reward": r.randint(-1, 40), "days": r.randint(1, 3)}
         elif name == "propose_build":
             args = {"structure": r.choice(["well", "bridge", "watchtower", "wall", "castle"])}
         elif name == "embezzle":
@@ -137,7 +141,8 @@ class RandomBot(Bot):
         elif name in ("vote", "report_theft"):
             args = {"candidate" if name == "vote" else "person": r.choice(people + ["Nobody"])}
         elif name == "propose_law":
-            args = {"law": r.choice(["tax", "theft_fine", "mayor_salary", "exile", "payout", "grant", "bogus"]),
+            args = {"law": r.choice(["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "payout",
+                                     "grant", "bogus"]),
                     "value": r.randint(-5, 70), "person": r.choice(people)}
         elif name == "vote_law":
             props = [p["id"] for p in obs.get("government", {}).get("proposals", [])] or ["law0"]

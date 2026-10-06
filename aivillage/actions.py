@@ -503,6 +503,8 @@ def sell(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     pricing.trader_bought(ctx.world, args.item, args.qty)
     ops.burn(ctx.world, a.inventory, args.item, args.qty)
     ops.mint_coins(ctx.world, a, price * args.qty)
+    from . import taxes  # taxes imports actions
+    taxes.record_income(ctx.world, a, price * args.qty)
     ctx.emit("sell", f"{a.name} sold {args.qty} {args.item} to the trader for {price * args.qty} coins.",
              actor=a.name, location=a.location, visibility="location")
 
@@ -702,6 +704,9 @@ def fulfill_order(ctx: Ctx, a: Agent, args: OrderArgs) -> None:
         raise ActionError(f"no open order '{args.order_id}'")
     if o.by == a.name:
         raise ActionError("that is your own order")
+    from . import taxes  # taxes imports actions
+    if taxes.partial(o, ctx.cfg):
+        return taxes.deliver(ctx, a, o)
     _need(a.inventory, o.needs)
     buyer = ctx.world.agents.get(o.by)
     for k, v in o.needs.items():
@@ -710,6 +715,8 @@ def fulfill_order(ctx: Ctx, a: Agent, args: OrderArgs) -> None:
         else:
             ops.burn(ctx.world, a.inventory, k, v)
     ops.mint_coins(ctx.world, a, o.reward)
+    if buyer is None:
+        taxes.record_income(ctx.world, a, o.reward)
     o.status, o.fulfilled_by = "fulfilled", a.name
     ctx.emit("order_done", f"{a.name} fulfilled order {o.id}{' for ' + o.by if o.by else ''} and received "
              f"{o.reward} coins.", actor=a.name, visibility="public", order=o.id, buyer=o.by)

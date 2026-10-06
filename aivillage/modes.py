@@ -56,6 +56,11 @@ MODES: dict[str, dict[str, Any]] = {
             # tools wear out in two to three days of work; everyone starts with one, then buys from the smith
             "start_items": {"tool": 1},
             "tool_durability_hours": 14,
+            # tax by income and wealth instead of a flat 20 (taxes.py); council orders pay 1.6x the goods
+            # and take part deliveries
+            "tax_amount": 10,
+            "taxes": {"enabled": True},
+            "council_orders": {"enabled": True},
         },
     },
     "peaceful": {
