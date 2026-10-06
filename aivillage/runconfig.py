@@ -15,7 +15,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .bots import BOT_TYPES
-from . import modes
+from . import modes, roster as roster_mod
 from .config import DEFAULT_CONFIG
 from .registry import ACTIONS, GOD
 
@@ -66,6 +66,12 @@ class RunConfig(Strict):
     bot: str = "worker"
     # Backup OpenRouter models for when the main one is rate-limited or down (empty = env AIVILLAGE_FALLBACK_MODELS).
     fallback_models: list[str] = Field(default_factory=list)
+    # Model comparison (aivillage/roster.py): villagers without their own `model`/`bot` get these brains, dealt
+    # over a seating fixed by the seed. Entries: model ids, "default", "stub" or "bot:<kind>"; "auto" = the newest
+    # ultra-cheap model of each company from OpenRouter's list. `rotate` shifts the deal (0..len-1 = every model
+    # in every seat once over the same village).
+    models: list[str] | Literal["auto"] | None = None
+    rotate: int = Field(default=0, ge=0)
     mode: str = modes.DEFAULT_MODE  # economy mode, see aivillage/modes.py
     agents: list[AgentSpec] | None = None  # None = the default villagers
     # How many villagers: `agents` (or the default five) first, the rest generated (aivillage/population.py).
@@ -100,7 +106,11 @@ class RunConfig(Strict):
         for a in self.agents or []:
             if a.profession not in professions:
                 errs.append(f"agent {a.name}: unknown profession '{a.profession}'")
-        for kind in {self.bot} | {a.bot for a in self.agents or [] if a.bot}:
+        listed = self.models if isinstance(self.models, list) else []
+        roster_bots = {m[4:] for m in listed if roster_mod.is_bot(m)}
+        if isinstance(self.models, list) and not self.models:
+            errs.append("models: give at least one model, or leave it out")
+        for kind in {self.bot} | {a.bot for a in self.agents or [] if a.bot} | roster_bots:
             if kind not in BOT_TYPES:
                 errs.append(f"unknown bot '{kind}' (have: {', '.join(BOT_TYPES)})")
         start = self.world.get("day_start_hour", DEFAULT_CONFIG["day_start_hour"])
@@ -139,9 +149,13 @@ class RunConfig(Strict):
             out["disabled_actions"] = sorted(off)
         return out
 
-    def brains(self, names: list[str]) -> dict[str, tuple[Literal["model", "bot"], str]]:
-        """name -> ("model", id) or ("bot", kind)."""
+    def brains(self, names: list[str], roster: list[str] | None = None) -> dict[str, tuple[Literal["model", "bot"], str]]:
+        """name -> ("model", id) or ("bot", kind). `roster`: the resolved `models` list (needed for "auto")."""
         per = {a.name: a for a in self.agents or []}
+        if roster is None and isinstance(self.models, list):
+            roster = self.models
+        free = [n for n in names if not (per.get(n) and (per[n].model or per[n].bot))]
+        dealt = roster_mod.assign(free, roster or [], self.seed, self.rotate)
         out = {}
         for n in names:
             a = per.get(n)
@@ -149,6 +163,9 @@ class RunConfig(Strict):
                 out[n] = ("model", a.model)
             elif a and a.bot:
                 out[n] = ("bot", a.bot)
+            elif n in dealt:
+                b = dealt[n]
+                out[n] = ("bot", b[4:]) if roster_mod.is_bot(b) else ("model", b)
             elif self.model:
                 out[n] = ("model", self.model)
             else:

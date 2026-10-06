@@ -48,20 +48,24 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         log_path: str | Path | None = None, check_every_tick: bool = True,
         on_tick: Callable[[World, list], None] | None = None,
         on_night: Callable[[World, int], dict] | None = None,
-        on_record: Callable[[dict], None] | None = None) -> dict:
+        on_record: Callable[[dict], None] | None = None, meta: dict | None = None) -> dict:
     """Drive the world for `days` days. Returns summary stats.
 
     `on_night(world, day)` runs after each day ends; whatever it returns is logged as a `diary` record
     (outside the engine, so replay ignores it). `on_record` sees every log record as it is written
-    (the live server streams them)."""
+    (the live server streams them). `meta` goes into the header; who plays whom (`brains`: villager -> model
+    id or "bot:<kind>") is read from `decide.agents` / `decide.bots` when not given, and LLM token use and cost
+    are logged as a `usage` record after every night and at the end (aivillage/compare.py reads both)."""
     log = JsonlLog(log_path)
+    meta = {"brains": brains_of(decide), **(meta or {})}
+    llm = getattr(decide, "agents", None) or {}
 
     def emit(rec: dict) -> None:
         log.write(rec)
         if on_record:
             on_record(rec)
 
-    emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash()})
+    emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
     stats: Counter = Counter()
     end_day = world.day + days
     try:
@@ -88,9 +92,30 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
                 entries = on_night(world, day)
                 if entries:
                     emit({"type": "diary", "day": day, "entries": entries})
+            if llm and world.day != day:
+                emit(usage_record(llm, world.tick))
     finally:
+        if llm:
+            emit(usage_record(llm, world.tick))
         log.close()
     return dict(stats)
+
+
+def brains_of(decide: DecideFn) -> dict[str, str]:
+    """{villager: model id or "bot:<kind>"} from a decider built by `llm_agents` / `bots_decider` / `main`."""
+    kinds = {cls: k for k, cls in BOT_TYPES.items()}
+    out = {n: f"bot:{kinds.get(type(b), type(b).__name__)}" for n, b in (getattr(decide, "bots", None) or {}).items()}
+    out.update({n: getattr(ag.client, "model", "?") for n, ag in (getattr(decide, "agents", None) or {}).items()})
+    return dict(sorted(out.items()))
+
+
+def usage_record(agents: dict, tick: int) -> dict:
+    """Cumulative token use and cost per LLM villager (the last `usage` record in a log is the total)."""
+    return {"type": "usage", "tick": tick,
+            "agents": {n: {"model": getattr(ag.client, "model", "?"), "calls": ag.usage.calls,
+                           "failures": ag.usage.failures, "prompt_tokens": ag.usage.prompt_tokens,
+                           "completion_tokens": ag.usage.completion_tokens, "cost_usd": round(ag.usage.cost_usd, 6),
+                           "by_model": dict(ag.usage.by_model)} for n, ag in sorted(agents.items())}}
 
 
 def view(world: World) -> dict:
@@ -143,7 +168,11 @@ def replay(path: str | Path) -> World:
 def bots_decider(world: World, kinds: list[str], seed: int) -> DecideFn:
     names = sorted(world.agents)
     bots = {n: BOT_TYPES[kinds[i % len(kinds)]](n, seed) for i, n in enumerate(names)}
-    return lambda name, obs: bots[name].decide(obs)
+
+    def decide(name: str, obs: dict) -> dict:
+        return bots[name].decide(obs)
+    decide.bots = bots  # brains_of() names them in the log header
+    return decide
 
 
 def summary(world: World, stats: dict) -> str:
@@ -176,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: env AIVILLAGE_FALLBACK_MODELS)")
     p.add_argument("--agents", type=int, default=0,
                    help="number of villagers: the first N, or more with generated names (resources scale up)")
+    p.add_argument("--rotate", type=int, default=None,
+                   help="model comparison: shift the roster (`models:` in the config) by this many seats")
     p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
                                                 "standard, peaceful, scarcity, debt, gold_rush, lawless")
     mapgen.add_args(p)
@@ -191,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     except runconfig.ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    for key in ("days", "seed", "log", "mode"):
+    for key in ("days", "seed", "log", "mode", "rotate"):
         if getattr(a, key) is not None:
             setattr(rc, key, getattr(a, key))
     if rc.mode not in modes.MODES:
@@ -202,7 +233,12 @@ def main(argv: list[str] | None = None) -> int:
         override["population"] = {**(override.get("population") or {}), "size": a.agents}
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     names = sorted(world.agents)
-    brains = rc.brains(names)
+    try:
+        roster = resolve_roster(rc, len(names))
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 2
+    brains = rc.brains(names, roster)
     # Old-style flags cycle over agents and override the file.
     if a.models:
         models = a.models.split(",")
@@ -216,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
 
     def decide(name: str, obs: dict) -> dict:
         return agents[name].decide(obs) if name in agents else bots[name].decide(obs)
+    decide.agents, decide.bots = agents, bots
 
     god = rc.god_script(world.config)
     if a.fire_day:
@@ -223,7 +260,8 @@ def main(argv: list[str] | None = None) -> int:
         victim = names[rc.seed % len(names)]
         god.setdefault((a.fire_day - 1) * hours + 4, []).append({"name": "fire", "args": {"person": victim}})
     on_night = (lambda w, day: night_reflection(w, agents, day)) if agents else None
-    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night)
+    meta = {"roster": roster, "rotate": rc.rotate} if roster else None
+    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night, meta=meta)
     print(summary(world, stats))
     for name, ag in agents.items():
         u = ag.usage
@@ -235,6 +273,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  queue {model}: {g.calls} calls, max {g.limit} at once, {g.rate_limited} rate-limited, "
               f"{g.paced} paused before the limit, {g.waited:.0f}s waiting")
     return 0
+
+
+def resolve_roster(rc, villagers: int) -> list[str] | None:
+    """The run config's `models` as a list ("auto" asks OpenRouter's public model list once)."""
+    if rc.models != "auto":
+        return rc.models
+    from . import roster
+    try:
+        return roster.auto(count=villagers)
+    except OSError as e:
+        raise RuntimeError(f"models: auto needs openrouter.ai to pick the models ({e}); list them instead") from None
 
 
 def night_reflection(world: World, agents: dict, day: int) -> dict:

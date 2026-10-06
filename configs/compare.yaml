@@ -1,0 +1,16 @@
+# Model comparison:  python scripts/compare_models.py --config configs/compare.yaml
+# Same village for every run (seed), the models swap seats between runs (rotate), one report at the end.
+# One run by hand:  python -m aivillage.run --config configs/compare.yaml --rotate 1
+
+days: 3
+seed: 7
+mode: standard
+villagers: 10
+characters: default     # neutral prompt for everyone, so only the model differs
+
+# Who plays: `auto` = the newest ultra-cheap model of each company on OpenRouter (OpenAI = GPT-6 Luna, direct).
+# Or list them yourself; the same list in the same order gives the same seating for a seed:
+# models: [openai/gpt-6-luna, google/<model>, deepseek/<model>, anthropic/<model>]
+# Offline check of the whole pipeline with scripted bots:  models: [bot:worker, bot:thief, bot:trader]
+models: auto
+rotate: 0
