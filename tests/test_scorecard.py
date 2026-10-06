@@ -49,13 +49,13 @@ def test_log_names_brains_and_usage(tmp_path):
 
 
 def test_scorecard_rows_and_grouping(tmp_path):
-    logs = [_main(tmp_path, f"s{seed}", {"days": 3, "seed": seed, "villagers": 6,
-                                         "agents": [{"name": "Anna", "profession": "farmer", "bot": "thief"}]})
+    logs = [_main(tmp_path, f"s{seed}", {"days": 3, "seed": seed, "villagers": 6, "bot": "thief",
+                                         "agents": [{"name": "Anna", "profession": "farmer", "bot": "worker"}]})
             for seed in (2, 3)]
     rep = scorecard.compute(logs)
     assert rep["seeds"] == [2, 3] and rep["wealth_exact"] and len(rep["villagers"]) == 12
     thief = rep["models"]["bot:thief"]
-    assert thief["villagers"] == 2 and thief["villager_days"] == 6
+    assert thief["villagers"] == 10 and thief["villager_days"] == 30
     assert thief["actions"].get("steal", 0) > 0 and thief["thefts_tried"] == thief["actions"]["steal"]
     assert rep["models"]["bot:worker"]["thefts_tried"] == 0
     for v in rep["villagers"]:

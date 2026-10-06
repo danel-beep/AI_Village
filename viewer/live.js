@@ -14,6 +14,7 @@
 
   function append(rec) {
     if (typeof window.viewerAppend === 'function') return window.viewerAppend(rec);
+    if (rec.type !== 'tick') return;
     const follow = i >= ticks.length - 3;  // watching the newest ticks: keep following, never fall behind
     ticks.push(rec);
     document.getElementById('scrub').max = ticks.length - 1;
@@ -29,7 +30,7 @@
     ws.onmessage = e => {
       const rec = JSON.parse(e.data);
       if (rec.type === 'header') { buffer = [e.data]; loaded = false; return; }
-      if (rec.type === 'tick') {
+      if (rec.type === 'tick' || rec.type === 'diary') {  // diaries: the dossier's "Дневник" tab
         if (loaded) append(rec);
         else buffer.push(e.data);
       } else if (rec.type === 'end') setBadge('■ прогон завершён', '#9db0a4');

@@ -18,22 +18,27 @@ import asyncio
 import json
 import os
 import random
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import engine, keys, llm, mapgen, modes, reports
+from . import clock, engine, keys, knobs, llm, mapgen, modes, reports
 from .highlights import Highlighter, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, when as day_of, write_sidecar
 from .registry import GOD, ActionError
-from .run import bots_decider, llm_agents, night_reflection, run
+from .run import bots_decider, llm_agents, night_reflection, run, with_tick_minutes
 from .state import World
 
-VIEWER = Path(__file__).resolve().parent.parent / "viewer"
+ROOT = Path(__file__).resolve().parent.parent
+VIEWER = ROOT / "viewer"
+VIEW_LAG_MINUTES = 30  # two quarter-hour ticks of buffer: smooth, and a god click lands half an hour later
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
 
 
@@ -42,22 +47,24 @@ class _Stop(Exception):
 
 
 class GodQueue:
-    """Stands in for run()'s `god_script` dict: each tick drains whatever the viewer queued."""
+    """Stands in for run()'s `god_script` dict: each tick takes the queued events that are due.
+    An event is never lost: one whose tick already went by (a click racing the sim) lands next tick."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._pending: list[dict] = []
+        self._pending: list[tuple[int, dict]] = []
 
     def __bool__(self) -> bool:
         return True
 
-    def put(self, ev: dict) -> None:
+    def put(self, ev: dict, tick: int = 0) -> None:
         with self._lock:
-            self._pending.append(ev)
+            self._pending.append((tick, ev))
 
-    def get(self, _tick: int, _default=None) -> list[dict]:
+    def get(self, tick: int, _default=None) -> list[dict]:
         with self._lock:
-            out, self._pending = self._pending, []
+            out = [ev for t, ev in self._pending if t <= tick]
+            self._pending = [(t, ev) for t, ev in self._pending if t > tick]
         return out
 
 
@@ -66,7 +73,7 @@ class LiveSim:
 
     def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0,
                  on_night=None, summarizer: Summarizer | None = None, reports_dir: str | None = None,
-                 reveal_reports: bool = False):
+                 reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES):
         self.world, self.decide, self.days, self.log_path = world, decide, days, log_path
         self.on_night = on_night
         # Recaps ("Что произошло?"): one per finished game day in the background, plus on demand.
@@ -80,9 +87,13 @@ class LiveSim:
         self.reports_dir = reports_dir or str(Path(log_path or "runs/live.jsonl").parent / "reports")
         self.reveal_reports = reveal_reports
         self.pace = pace
+        # The picture trails the simulation by this many ticks (the viewer's buffer, for smooth play);
+        # a god event lands at least one tick after the moment on screen, at the sim's next tick.
+        self.view_lag_ticks = max(1, -(-view_lag_minutes // clock.tick_minutes(world.config)))
         self.god = GodQueue()
         self.header: dict | None = None
         self.ticks: deque[dict] = deque(maxlen=BACKLOG_TICKS)
+        self.diaries: list[tuple[int, dict]] = []  # (tick it followed, diary record): reloads get them too
         self.running = threading.Event()
         self.running.set()
         self.finished = False
@@ -107,6 +118,12 @@ class LiveSim:
             self.error = f"{type(e).__name__}: {e}"
             self._publish({"type": "error", "text": self.error})
         self.finished = True
+        if self.log_path:  # end-of-run scorecard next to the log (aivillage/scorecard.py)
+            try:
+                from . import scorecard
+                scorecard.write(self.log_path)
+            except Exception as e:
+                print(f"scorecard failed: {e}")
         if self.ticks and not self.stopping:  # the last day has no "next morning" to trigger its recap
             last = day_of(self.ticks[-1], self.world.config)[0]
             threading.Thread(target=self._end_of_day, args=(last,), daemon=True).start()
@@ -120,17 +137,21 @@ class LiveSim:
             self.ticks.append(rec)
             if new_day:
                 threading.Thread(target=self._end_of_day, args=(rec["view"]["day"] - 1,), daemon=True).start()
+        elif rec["type"] == "diary":
+            with self._lock:
+                self.diaries.append((self.ticks[-1]["tick"] if self.ticks else -1, rec))
         self._publish(rec)
         if rec["type"] == "tick":
             self._wait()
 
     def _wait(self) -> None:
-        """Pace the sim so people can watch; block while paused."""
-        deadline = time.monotonic() + self.pace
+        """Pace the sim so people can watch; block while paused. `pace` is seconds per game hour."""
+        per_tick = self.pace / clock.per_hour(self.world.config)
+        deadline = time.monotonic() + per_tick
         while not self.stopping:
             if not self.running.is_set():
                 self.running.wait(0.2)
-                deadline = time.monotonic() + self.pace
+                deadline = time.monotonic() + per_tick
                 continue
             left = deadline - time.monotonic()
             if left <= 0:
@@ -162,6 +183,18 @@ class LiveSim:
             if self.log_path:
                 write_highlights(self.log_path, self.highlights)
         self._publish({"type": "highlights", **rec})
+
+    def today_highlights(self) -> dict | None:
+        """The current, unfinished day so far, by rules (no model call): shown until the day's own pick."""
+        ticks = list(self.ticks)
+        if not ticks:
+            return None
+        day = day_of(ticks[-1], self.world.config)[0]
+        if self.finished or any(h["day"] == day for h in self.highlights):
+            return None
+        today = [t for t in ticks if day_of(t, self.world.config)[0] == day]
+        rec = Highlighter(None, self.world.config).pick(today)
+        return {**rec, "partial": True} if rec else None
 
     def _summarize_day(self, days: list[list[dict]]) -> None:
         done = max((s["to_tick"] for s in self.summaries), default=-1)
@@ -213,7 +246,12 @@ class LiveSim:
         """New client: a queue for future records and the backlog to send first."""
         q: asyncio.Queue = asyncio.Queue()
         with self._lock:
-            backlog = ([self.header] if self.header else []) + list(self.ticks)
+            backlog = [self.header] if self.header else []
+            first = self.ticks[0]["tick"] if self.ticks else 0
+            backlog += [d for after, d in self.diaries if after < first]  # older than the tick backlog
+            for t in self.ticks:
+                backlog.append(t)
+                backlog += [d for after, d in self.diaries if after == t["tick"]]
             self._subs.add((asyncio.get_running_loop(), q))
         return q, [json.dumps(r, ensure_ascii=False) for r in backlog]
 
@@ -222,12 +260,27 @@ class LiveSim:
             self._subs = {s for s in self._subs if s[1] is not q}
 
     # --- controls ---
-    def queue_god(self, name: str, args: dict) -> None:
+    def queue_god(self, name: str, args: dict, shown_tick: int | None = None) -> dict:
+        """Schedule a god event. `shown_tick` = the tick on the player's screen when they clicked: the event
+        lands at the sim's next tick, never before shown_tick + 1, so the viewer can play a lead-in
+        animation from the click until the picture reaches the landing tick (announced as `god_pending`)."""
         GOD.parse(name, args)  # reject bad input now; world-dependent errors show up as god_error events
-        self.god.put({"name": name, "args": args})
+        tick = self.world.tick
+        if shown_tick is not None:
+            tick = max(tick, int(shown_tick) + 1)
+        ev = {"name": name, "args": args}
+        self.god.put(ev, tick)
+        cfg = self.world.config
+        pending = {"type": "god_pending", "tick": tick, "at": clock.label(cfg, tick), **ev,
+                   "shown_tick": shown_tick, "lead_minutes": None if shown_tick is None else
+                   (tick - int(shown_tick)) * clock.tick_minutes(cfg)}
+        self._publish(pending)
+        return pending
 
     def status(self) -> dict:
         return {"tick": self.world.tick, "day": self.world.day, "hour": self.world.hour,
+                "minute": self.world.minute, "tick_minutes": clock.tick_minutes(self.world.config),
+                "view_lag_ticks": self.view_lag_ticks,
                 "paused": not self.running.is_set(), "pace": self.pace, "finished": self.finished,
                 "error": self.error}
 
@@ -239,16 +292,88 @@ class LiveSim:
                 **self.status()}
 
 
-def create_app(sim: LiveSim) -> FastAPI:
+def make_sim(world: World, *, models: list[str] | None, bots: list[str], seed: int, days: int,
+             log_path: str | None, pace: float = 1.0, summary_model: str | None = None,
+             reports_dir: str | None = None, reveal_reports: bool = False,
+             view_lag_minutes: int = VIEW_LAG_MINUTES) -> LiveSim:
+    """Villager brains, nightly diaries and recaps around a fresh world (CLI and start screen alike)."""
+    on_night = None
+    if models:
+        agents = llm_agents(world, models)
+        decide = lambda name, obs: agents[name].decide(obs)
+        decide.agents = agents  # lets problem reports name the models
+        on_night = lambda w, day: night_reflection(w, agents, day)
+    else:
+        decide = bots_decider(world, bots, seed)
+    sm = summary_model or ("default" if keys.has_any_key() else "off")
+    summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
+    return LiveSim(world, decide, days, log_path, pace, on_night, summarizer, reports_dir, reveal_reports,
+                   view_lag_minutes)
+
+
+class Host:
+    """The app's current village. With `setup` (the launcher), there is none until the start screen's
+    "Play" (`POST /api/start`), and "New village" (`POST /api/stop`) goes back to the start screen."""
+
+    def __init__(self, sim: LiveSim | None = None, runs_dir: str | None = None, reports_dir: str | None = None,
+                 reveal_reports: bool = False, setup: bool = False):
+        self.sim, self.setup = sim, setup
+        self.runs_dir = Path(runs_dir or "runs")
+        self.reports_dir = reports_dir
+        self.reveal_reports = reveal_reports
+        self.last: dict | None = None  # start-screen answers of the current run, to prefill the next one
+        self._lock = threading.Lock()
+
+    def start(self, opts: dict) -> LiveSim:
+        run_opts = knobs.to_run(opts)  # ValueError on bad input, before anything stops
+        seed = run_opts["seed"] or random.SystemRandom().randrange(1, 1_000_000)
+        with self._lock:
+            self.stop()
+            world = engine.new_world(with_tick_minutes({**run_opts["override"], "seed": seed}, run_opts["tick_minutes"]))
+            self.runs_dir.mkdir(parents=True, exist_ok=True)
+            log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.jsonl"
+            sm = None if run_opts["llm"] and run_opts["summaries"] else "off"
+            self.sim = make_sim(world, models=["default"] if run_opts["llm"] else None, bots=run_opts["bots"],
+                                seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
+                                summary_model=sm, reports_dir=self.reports_dir,
+                                reveal_reports=self.reveal_reports)
+            self.last = {**run_opts["values"], "seed": None}
+            if opts.get("roster"):
+                self.last["roster"] = world.config["agents"]
+            self.sim.start()
+            print(f"Village seed {seed}: {log}")
+            return self.sim
+
+    def stop(self) -> None:
+        if self.sim is not None:
+            self.sim.stop()
+            self.sim = None
+
+    def runs(self) -> list[Path]:
+        return sorted(self.runs_dir.glob("*.jsonl"), reverse=True) if self.runs_dir.is_dir() else []
+
+
+def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     app = FastAPI(title="AI Village live")
-    app.state.sim = sim
+    host = host or Host(sim)
+    app.state.host = host
+
+    def need() -> LiveSim:
+        if host.sim is None:
+            raise HTTPException(409, "Деревня ещё не запущена: настройте её и нажмите «Играть».")
+        return host.sim
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         # The map viewer stays a plain log viewer; live mode and the god panel are injected here.
         html = (VIEWER / "index.html").read_text(encoding="utf-8")
-        inject = ('<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
-                  '<script src="/report.js"></script>\n<script src="/settings.js"></script>\n')
+        if host.sim is None:  # start screen only: settings first, the map comes after "Play"
+            inject = '<script src="/settings.js"></script>\n<script src="/setup.js"></script>\n'
+        else:
+            inject = ('<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
+                      '<script src="/report.js"></script>\n<script src="/settings.js"></script>\n')
+            if host.setup:
+                inject += '<script src="/setup.js"></script>\n'
         return html.replace("</body>", inject + "</body>", 1)
 
     @app.get("/pixelmap.js")
@@ -277,14 +402,20 @@ def create_app(sim: LiveSim) -> FastAPI:
 
     @app.get("/api/summary")
     def summaries() -> dict:
+        sim = need()
         return {"enabled": sim.summarizer is not None, "summaries": sim.summaries}
 
     @app.get("/api/highlights")
     def highlights() -> dict:
-        return {"highlights": sim.highlights}
+        sim = host.sim
+        if not sim:
+            return {"highlights": []}
+        today = sim.today_highlights()
+        return {"highlights": sim.highlights + ([today] if today else [])}
 
     @app.post("/api/summary")
     def summary_now() -> dict:
+        sim = need()
         if sim.summarizer is None:
             raise HTTPException(400, "Сводки выключены: нужен ключ OpenRouter.")
         rec = sim.summarize()
@@ -300,7 +431,7 @@ def create_app(sim: LiveSim) -> FastAPI:
         if not note:
             raise HTTPException(400, "Напишите пару слов, что не так.")
         tick = body.get("tick")
-        path = sim.report(note[:5000], int(tick) if isinstance(tick, (int, float)) else None)
+        path = need().report(note[:5000], int(tick) if isinstance(tick, (int, float)) else None)
         return {"ok": True, "path": str(path), "name": path.name}
 
     def local_only(request: Request) -> None:
@@ -334,24 +465,102 @@ def create_app(sim: LiveSim) -> FastAPI:
         local_only(request)
         return llm.check()
 
+    # --- start screen (viewer/setup.js) ---
+    @app.get("/api/setup")
+    def setup_info() -> dict:
+        return {**knobs.schema(), "running": host.sim is not None, "can_restart": host.setup,
+                "last": host.last, "has_key": keys.has_any_key(),
+                "model": keys.get("model") or llm.DEFAULT_MODEL,
+                "finished": bool(host.sim and host.sim.finished)}
+
+    @app.post("/api/roster")
+    def roster(body: dict) -> dict:
+        # Villagers for the "one by one" editor: keeps the ones given, adds seeded names up to n.
+        try:
+            n = max(1, min(int(body.get("n") or 5), 60))
+            seed = int(body.get("seed") or random.SystemRandom().randrange(1, 1_000_000))
+            existing = body.get("existing")
+            if existing is not None:
+                existing = knobs.clean_roster(existing, n)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"roster": knobs.roster(n, seed, existing)}
+
+    @app.post("/api/start")
+    def start(body: dict, request: Request) -> dict:
+        local_only(request)
+        opts = dict(body or {})
+        if opts.get("brains", "llm") == "llm" and not keys.has_any_key():
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+                                     "Или выберите ботов, они бесплатные.")
+        try:
+            sim = host.start(opts)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, **sim.status()}
+
+    @app.post("/api/stop")
+    def stop(request: Request) -> dict:
+        local_only(request)
+        if not host.setup:
+            raise HTTPException(400, "this server runs one village (started without --setup)")
+        host.stop()
+        return {"ok": True}
+
+    @app.get("/api/runs")
+    def past_runs(request: Request) -> dict:
+        local_only(request)
+        current = host.sim.log_path if host.sim else None
+        return {"runs": [{"name": r.stem, "kb": r.stat().st_size // 1024} for r in host.runs()[:15]
+                         if str(r) != current]}
+
+    @app.get("/replay/{name}", response_class=HTMLResponse)
+    def replay_run(name: str, request: Request) -> FileResponse:
+        local_only(request)
+        log = host.runs_dir / f"{name}.jsonl"
+        if not name.replace("-", "").replace("_", "").isalnum() or not log.is_file():
+            raise HTTPException(404)
+        out = log.with_suffix(".html")
+        if not out.is_file() or out.stat().st_mtime < log.stat().st_mtime:
+            subprocess.run([sys.executable, str(ROOT / "scripts" / "build_demo.py"), str(log), str(out)],
+                           check=True, stdout=subprocess.DEVNULL)
+        return FileResponse(out, media_type="text/html")
+
+    @app.post("/api/report-last")
+    def report_last(body: dict, request: Request) -> dict:
+        local_only(request)
+        note = str(body.get("note") or "").strip()
+        runs = host.runs()
+        if not note or not runs:
+            raise HTTPException(400, "Напишите пару слов, что не так." if runs else "Прошлых прогонов пока нет.")
+        path = reports.make_report(host.reports_dir or str(host.runs_dir.parent / "reports"), runs[0], note[:5000])
+        if host.reveal_reports:
+            reports.reveal(path)
+        return {"ok": True, "path": str(path), "name": path.name}
+
     @app.get("/api/meta")
     def meta() -> dict:
-        return sim.meta()
+        return need().meta()
 
     @app.get("/api/status")
     def status() -> dict:
-        return sim.status()
+        return need().status()
 
     @app.post("/api/god")
     def god(body: dict) -> dict:
+        sim = need()
         try:
-            sim.queue_god(str(body.get("name")), body.get("args") or {})
+            shown = body.get("shown_tick")
+            pending = sim.queue_god(str(body.get("name")), body.get("args") or {},
+                                    int(shown) if isinstance(shown, (int, float)) else None)
         except ActionError as e:
             raise HTTPException(400, str(e)) from None
-        return {"ok": True, "queued_for_tick": sim.world.tick}
+        return {"ok": True, "queued_for_tick": pending["tick"], "at": pending["at"],
+                "lead_minutes": pending["lead_minutes"]}
 
     @app.post("/api/control")
     def control(body: dict) -> dict:
+        sim = need()
         cmd = body.get("cmd")
         if cmd == "pause":
             sim.running.clear()
@@ -366,6 +575,10 @@ def create_app(sim: LiveSim) -> FastAPI:
     @app.websocket("/ws")
     async def ws(socket: WebSocket) -> None:
         await socket.accept()
+        sim = host.sim
+        if sim is None:
+            await socket.close()
+            return
         q, backlog = sim.subscribe()
         try:
             for msg in backlog:
@@ -390,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mode", default=modes.DEFAULT_MODE, choices=list(modes.MODES),
                    help="economy mode (aivillage/modes.py)")
     p.add_argument("--log", default="runs/live.jsonl", help="also write the replayable log here")
-    p.add_argument("--pace", type=float, default=1.0, help="seconds between ticks (min wait)")
+    p.add_argument("--pace", type=float, default=1.0, help="seconds per game hour (min wait; split over its ticks)")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--summary-model", default=None,
@@ -398,6 +611,13 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: llm.DEFAULT_MODEL when OPENROUTER_API_KEY is set, else off)")
     p.add_argument("--reports", default=None, help="where problem reports go (default: <log dir>/reports)")
     p.add_argument("--reveal-reports", action="store_true", help="open the file manager on a new report")
+    p.add_argument("--setup", action="store_true",
+                   help="start with the in-app start screen (all settings in the browser, then Play)")
+    p.add_argument("--runs", default=None, help="with --setup: where run logs go (default: the --log folder)")
+    p.add_argument("--tick-minutes", type=int, default=None, choices=clock.ALLOWED,
+                   help=f"game minutes per tick (default {clock.RUN_DEFAULT}; 60 = the old hourly turns)")
+    p.add_argument("--view-lag-minutes", type=int, default=VIEW_LAG_MINUTES,
+                   help="game minutes the picture trails the simulation (viewer buffer for smooth play)")
     mapgen.add_args(p)
     a = p.parse_args(argv)
     if a.seed is None:
@@ -405,25 +625,25 @@ def main(argv: list[str] | None = None) -> int:
 
     import uvicorn
 
+    if a.setup:  # the app's start screen picks everything; the CLI flags are not used
+        runs = a.runs or str(Path(a.log).parent)
+        host = Host(None, runs, a.reports, a.reveal_reports, setup=True)
+        print(f"AI Village: http://{a.host}:{a.port} (настройте деревню и нажмите «Играть»)")
+        uvicorn.run(create_app(host=host), host=a.host, port=a.port, log_level="warning")
+        return 0
+
     override: dict = {**modes.world_override(a.mode), "seed": a.seed}
     if modes.disabled(a.mode):
         override["disabled_actions"] = modes.disabled(a.mode)
     if a.agents:
         override["population"] = {"size": a.agents}
+    with_tick_minutes(override, a.tick_minutes)
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     print(f"Village seed {a.seed} (run again with --seed {a.seed} to get the same map)")
-    on_night = None
-    if a.models:
-        agents = llm_agents(world, a.models.split(","))
-        decide = lambda name, obs: agents[name].decide(obs)
-        decide.agents = agents  # lets problem reports name the models
-        on_night = lambda w, day: night_reflection(w, agents, day)
-    else:
-        decide = bots_decider(world, a.bots.split(","), a.seed)
-    sm = a.summary_model or ("default" if keys.has_any_key() else "off")
-    summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
-    days = a.days or (3 if a.models else 30)
-    sim = LiveSim(world, decide, days, a.log, a.pace, on_night, summarizer, a.reports, a.reveal_reports)
+    sim = make_sim(world, models=a.models.split(",") if a.models else None, bots=a.bots.split(","), seed=a.seed,
+                   days=a.days or (3 if a.models else 30), log_path=a.log, pace=a.pace,
+                   summary_model=a.summary_model, reports_dir=a.reports, reveal_reports=a.reveal_reports,
+                   view_lag_minutes=a.view_lag_minutes)
     sim.start()
     print(f"AI Village live: http://{a.host}:{a.port}")
     uvicorn.run(create_app(sim), host=a.host, port=a.port, log_level="warning")

@@ -62,6 +62,7 @@
 <script src="pixelmap.js"></script>
 <script src="actors.js"></script>
 <script src="camera.js"></script>
+<script src="omens.js"></script>
 <script src="dossier.js"></script>
 <script src="highlights.js"></script>
 <script>
@@ -87,7 +88,28 @@ function setPlaying(p, quiet) {
 }
 function push(row) {
   if (row.type === 'diary') diaries.push({ ...row, at: ticks.length - 1 });
-  else if (row.view) { ticks.push(row); document.getElementById('scrub').max = ticks.length - 1; }
+  else if (row.view) {
+    // Per-villager state carried from tick to tick (quarter-hour ticks: one walk hop or one hour of work spans
+    // several ticks, the log only marks its first one):
+    //   _goal: where they are still walking to (a move decision, kept until they arrive or decide something else),
+    //          so a multi-hop trip is drawn as one continuous walk;
+    //   _hop:  {from, k, of} the hop that started k ticks ago and lasts `of` ticks (1 + busy minutes / tick minutes);
+    //   _acts: what they are doing, kept while the action that started it keeps them busy (chop the whole hour).
+    const last = ticks.length ? ticks[ticks.length - 1] : null, step = row.view.tick_minutes || 60;
+    const before = last && last._goal || {}, goal = {}, hop = {}, acts = Actors.activities(row);
+    for (const [n, a] of Object.entries(row.view.agents)) {
+      const d = (row.decisions || {})[n], act = d && d.action || {};
+      const to = d ? act.name === 'move' && (act.args || {}).to : before[n];
+      if (to && to !== a.location) goal[n] = to;
+      const pa = last && last.view.agents[n], ph = last && last._hop && last._hop[n];
+      if (pa && pa.location !== a.location) hop[n] = { from: pa.location, k: 0, of: 1 + Math.round((a.busy || 0) / step),
+        fk: names.filter(m => last.view.agents[m].location === pa.location && last.view.agents[m].status === 'active').indexOf(n) };
+      else if (ph && ph.k + 1 < ph.of && !d) hop[n] = { ...ph, k: ph.k + 1 };
+      if (!acts[n] && !d && pa && pa.busy > 0 && pa.location === a.location && last._acts && last._acts[n]) acts[n] = last._acts[n];
+    }
+    row._goal = goal; row._hop = hop; row._acts = acts;
+    ticks.push(row); document.getElementById('scrub').max = ticks.length - 1;
+  }
 }
 function load(text) {
   const lines = text.split('\n').filter(Boolean).map(JSON.parse);
@@ -96,8 +118,9 @@ function load(text) {
 window.Viewer = { start, push, load, setPlaying };
 // Live feed (viewer/live.js): append a row and keep following if the viewer was at the newest ticks.
 window.viewerAppend = row => {
-  const follow = i >= ticks.length - 3; push(row);
-  if (follow && row.view && !userPaused) { if (ticks.length - 1 - i > 2) { i = ticks.length - 2; frac = 0; } playing = true; }
+  live = true;
+  const follow = i >= ticks.length - 7; push(row);
+  if (follow && row.view && !userPaused) { if (ticks.length - 1 - i > 6) { i = ticks.length - 2; frac = 0; } playing = true; }
 };
 // Translations: sidecar <log>.ru.json from aivillage/translate.py maps original text -> Russian.
 let TR = null, lang = 'en';
@@ -145,11 +168,13 @@ cv.onclick = e => {
 function render() {
   if (!ticks.length) return;
   const t = ticks[i], prev = ticks[Math.max(0, i - 1)];
-  PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr });
+  PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr, hourSec });
   document.getElementById('scrub').value = i;
   // Minutes run with the animation, so the clock keeps ticking while the next hour is being computed.
-  const mm = t.view.hour === prev.view.hour + 1 ? Math.min(59, Math.floor(frac * 60)) : 0;
-  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(prev.view.hour).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  // A tick is view.tick_minutes (15, or 60 in old logs); view.minute is absent in old logs.
+  const m0 = prev.view.hour * 60 + (prev.view.minute || 0), m1 = t.view.hour * 60 + (t.view.minute || 0);
+  const now = Math.floor(m1 > m0 && m1 - m0 <= 60 ? m0 + Math.min(0.99, frac) * (m1 - m0) : m0);
+  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}`;
 }
 
 function panel() {
@@ -170,23 +195,37 @@ function panel() {
   for (let k = i; k >= 0 && feed.length < 40; k--) for (const e of ticks[k].events.slice().reverse()) {
     const mine = selected && (e.actor === selected || e.to.includes(selected));
     if ((selected ? mine : e.visibility !== 'private') && feed.length < 40)
-      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:00</span> ${esc(tr(e.text))}</div>`);
+      feed.push(`<div><span class="muted">д${e.day} ${String(e.hour).padStart(2, '0')}:${String(e.minute || 0).padStart(2, '0')}</span> ${esc(tr(e.text))}</div>`);
   }
   document.getElementById('feed').innerHTML = feed.join('');
 }
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
-let seenLen = 0, gap = 0, lastArrive = 0;
+let seenLen = 0, gap = 0, lastArrive = 0, live = false, hourSec = 2, rate = 0, arrivals = 0;
 function loop(ts) {
-  const speed = +document.getElementById('speed').value, dt = (ts - last) / 1000; last = ts;
-  // Live: when showing the newest tick, stretch the hour to the usual gap between ticks, so villagers keep moving
-  // until the next one arrives instead of rushing for half a second and freezing.
-  if (ticks.length === seenLen + 1) { const now = ts / 1000; if (lastArrive) gap = gap ? gap * .7 + (now - lastArrive) * .3 : now - lastArrive; lastArrive = now; }
+  const speed = +document.getElementById('speed').value, dt = Math.min(.1, (ts - last) / 1000); last = ts;
+  // Usual gap between live ticks; the backlog burst on connect and quick runs of ticks (night) are not counted.
+  if (ticks.length > seenLen) { const now = ts / 1000, d = now - lastArrive;
+    if (live && ticks.length === seenLen + 1 && d > .5 && arrivals++ > 0) gap = gap ? gap * .7 + Math.min(60, d) * .3 : Math.min(60, d);
+    lastArrive = now; }
   seenLen = ticks.length;
   if (playing && ticks.length) {
-    frac += dt / Math.max(2 / speed, i >= ticks.length - 1 && gap ? Math.min(gap, 30) : 0);
-    if (frac >= 1) { if (i < ticks.length - 1) { i++; frac = 0; } else { frac = 1; playing = false; } }
-  }
+    let want;   // ticks per second; the speed slider is in game hours, a tick may be a quarter of one
+    const q = (ticks[Math.min(i, ticks.length - 1)].view.tick_minutes || 60) / 60;
+    if (live) {
+      // Live: stay a little over half an hour of game time behind the newest tick and play at the pace ticks arrive, a bit
+      // faster when further behind and a bit slower when close. So a late tick only slows villagers down for a moment
+      // (no "all freeze, then all run"), and a burst of ticks is caught up gently.
+      const behind = ticks.length - i - frac;   // hours of game time not shown yet (tick i is done at frac 1)
+      hourSec = Math.max(2 / speed * q, gap || 6 * q);
+      want = behind <= 0 ? 0 : Math.max(.3, Math.min(3, 1 + (behind - .6) * .4 + Math.max(0, behind - 2) * .6)) / hourSec;
+      if (behind < .15) want *= behind / .15;   // ease into the newest moment instead of stopping dead
+    } else { hourSec = 2 / speed * q; want = 1 / hourSec; }
+    rate += (want - rate) * (1 - Math.exp(-dt * 3));   // the speed itself changes smoothly
+    frac += dt * rate;
+    while (frac >= 1 && i < ticks.length - 1) { i++; frac -= 1; }
+    if (frac >= 1) { frac = 1; rate = 0; if (!live) playing = false, document.getElementById('play').textContent = '▶'; }
+  } else rate = 0;
   render(); panel();
   requestAnimationFrame(loop);
 }

@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import crises, engine, mapgen, modes, plots, tiles
+from . import clock, crises, engine, mapgen, modes, plots, tiles
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -119,11 +119,15 @@ def usage_record(agents: dict, tick: int) -> dict:
 
 
 def view(world: World) -> dict:
-    """Small snapshot for the viewer (not used by replay)."""
-    return {"day": world.day, "hour": world.hour,
+    """Small snapshot for the viewer (not used by replay). Time is the moment after the tick;
+    `busy` = game minutes until the villager acts again (0: free next tick), `task` = move | work | None."""
+    tm = clock.tick_minutes(world.config)
+    return {"day": world.day, "hour": world.hour, "minute": world.minute, "tick_minutes": tm,
             "agents": {a.name: {"location": a.location, "status": a.status, "asleep": a.asleep,
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
-                                "profession": a.profession, "inventory": a.inventory}
+                                "profession": a.profession, "inventory": a.inventory,
+                                "busy": max(0, a.busy_until - world.tick) * tm,
+                                "task": (a.task or {}).get("kind")}
                        for a in world.agents.values()},
             "kin": {"feelings": world.kin.feelings, "couples": [m.spouses for m in world.kin.marriages.values()]},
             # reputation.py: each villager's own tally of others and the rumors they heard (non-empty only)
@@ -207,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="number of villagers: the first N, or more with generated names (resources scale up)")
     p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
                                                 "standard, peaceful, scarcity, debt, gold_rush, lawless")
+    p.add_argument("--tick-minutes", type=int, default=None, choices=clock.ALLOWED,
+                   help=f"game minutes per tick (default {clock.RUN_DEFAULT}; 60 = the old hourly turns)")
     mapgen.add_args(p)
     a = p.parse_args(argv)
 
@@ -229,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     override = rc.world_override()
     if a.agents:
         override["population"] = {**(override.get("population") or {}), "size": a.agents}
+    with_tick_minutes(override, a.tick_minutes)
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     names = sorted(world.agents)
     brains = rc.brains(names)
@@ -249,9 +256,9 @@ def main(argv: list[str] | None = None) -> int:
 
     god = rc.god_script(world.config)
     if a.fire_day:
-        hours = world.config["day_end_hour"] - world.config["day_start_hour"]
         victim = names[rc.seed % len(names)]
-        god.setdefault((a.fire_day - 1) * hours + 4, []).append({"name": "fire", "args": {"person": victim}})
+        fire_at = clock.tick_of(world.config, a.fire_day, world.config["day_start_hour"] + 4)
+        god.setdefault(fire_at, []).append({"name": "fire", "args": {"person": victim}})
     on_night = (lambda w, day: night_reflection(w, agents, day)) if agents else None
     stats = run(world, decide, rc.days, god, rc.log, on_night=on_night)
     print(summary(world, stats))
@@ -268,6 +275,14 @@ def main(argv: list[str] | None = None) -> int:
         from . import scorecard
         print(f"  scorecard: {scorecard.write(rc.log)}")
     return 0
+
+
+def with_tick_minutes(override: dict, flag: int | None) -> dict:
+    """Real runs think in quarter hours unless the flag or the run config's `world:` says otherwise."""
+    if flag is not None:
+        override["tick_minutes"] = flag
+    override.setdefault("tick_minutes", clock.RUN_DEFAULT)
+    return override
 
 
 def night_reflection(world: World, agents: dict, day: int) -> dict:

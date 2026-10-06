@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops, tiles
+from . import clock, ops, tiles
 from .actions import ItemMap, _agent
 from .ops import Ctx, fmt_items
 from .registry import GOD, ActionError
@@ -46,7 +46,7 @@ def treasure(ctx: Ctx, _god, args: TreasureArgs) -> None:
         who = _agent(ctx, args.tell)
         ctx.world.mail.append(Letter("anonymous", who.name,
                                      f"Psst. There is {fmt_items(args.items)} lying at {loc.name}.",
-                                     ctx.world.tick + 1))
+                                     ctx.world.tick + clock.per_hour(ctx.cfg)))
     ctx.emit("god_treasure", f"[god] treasure at {loc.id}: {fmt_items(args.items)}", visibility="private")
 
 
@@ -58,7 +58,7 @@ class RumorArgs(BaseModel):
 @GOD.action("rumor", "Send an anonymous letter (true or false) to a villager.", RumorArgs)
 def rumor(ctx: Ctx, _god, args: RumorArgs) -> None:
     who = _agent(ctx, args.to)
-    ctx.world.mail.append(Letter("anonymous", who.name, args.text[: ctx.cfg["max_text_len"]], ctx.world.tick + 1))
+    ctx.world.mail.append(Letter("anonymous", who.name, args.text[: ctx.cfg["max_text_len"]], ctx.world.tick + clock.per_hour(ctx.cfg)))
 
 
 class DroughtArgs(BaseModel):

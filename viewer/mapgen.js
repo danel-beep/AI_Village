@@ -77,20 +77,26 @@ const GenMap = (() => {
 
   function paint(g, L, K) {
     const { T, C, R, P, blob, rnd, rock } = K, lay = L.gen;
-    // dock and reeds along the river banks
+    const SP = K.SP || (() => false), pat = n => window.Sprites && Sprites.has(n) && Sprites.pattern(g, n);
+    // dock, reeds and lily pads along the river
     const d = lay.river.dock, dx0 = Math.min(...d.x) * T, y = d.y * T;
-    for (let x = dx0; x < dx0 + 3 * T; x++) for (let yy = y + 3; yy < y + T - 2; yy++)
+    if (K.planks) K.planks(g, dx0, y + 3, 3 * T, T - 5);
+    else for (let x = dx0; x < dx0 + 3 * T; x++) for (let yy = y + 3; yy < y + T - 2; yy++)
       P(g, x, yy, yy === y + 3 || yy === y + T - 3 ? C.k : x % 5 === 0 ? C.woodD : C.woodL);
     for (const x of [dx0 + 2, dx0 + 2 * T + 6]) R(g, x, y + T - 2, 2, 4, C.woodD);
     lay.river.x.forEach((x0, ty) => {
-      if (Math.abs(ty - d.y) < 2 || rnd(x0, ty, 5) > .45) return;
+      if (Math.abs(ty - d.y) < 2) return;
+      if (rnd(x0, ty, 8) < .12) SP(g, 'lilypads', (x0 + 1) * T + (rnd(ty, 9) * T | 0), ty * T + 12);
+      if (rnd(x0, ty, 5) > .45) return;
       const bx = (lay.river.side === 'left' ? x0 + 3 : x0) * T + (lay.river.side === 'left' ? -3 : 1) + (rnd(ty, 3) * 3 | 0), by = ty * T + 4;
+      if (rnd(ty, 4) < .5 && SP(g, 'reeds', bx + 1, by + 8)) return;
       R(g, bx, by, 1, 5, C.leafD); R(g, bx + 2, by + 1, 1, 4, C.leaf); P(g, bx, by - 1, '#7a5030');
     });
     for (const pl of Object.values(lay.places)) {
       if (!pl.box && pl.kind !== 'waypoint') continue;
       if (pl.kind === 'waypoint') { // signpost
         const [x, yy] = [pl.anchor[0] * T + 12, pl.anchor[1] * T - 2];
+        if (SP(g, 'signpost', x + 1, yy + 12)) continue;
         R(g, x, yy, 2, 12, C.woodD); R(g, x - 5, yy + 1, 12, 4, C.k); R(g, x - 4, yy + 2, 10, 2, C.woodL);
         continue;
       }
@@ -98,20 +104,28 @@ const GenMap = (() => {
       if (pl.kind === 'hamlet') { // a small green with a well
         blob(g, x0 + w / 2, y0 + h / 2, w / 2 - 2, h / 2 - 3, [C.grassL, C.grass, C.grassD], null);
         const cx = x0 + w / 2, cy = y0 + h / 2 - 4;
+        if (SP(g, 'well', cx, cy + 14, { s: .8 })) continue;
         blob(g, cx, cy + 9, 7, 4, [C.stoneL, C.stone, C.stoneD]); blob(g, cx, cy + 8, 4, 2, ['#1d3550', '#1d3550', '#1d3550'], null);
         R(g, cx - 7, cy - 3, 2, 11, C.woodD); R(g, cx + 5, cy - 3, 2, 11, C.woodD); R(g, cx - 8, cy - 4, 16, 2, '#8f3328');
       } else if (pl.kind === 'pond') {
+        if (SP(g, 'lilypads', x0 + w * .3, y0 + h * .45)) { SP(g, 'lilypads', x0 + w * .72, y0 + h * .8, { flip: true }); SP(g, 'reeds', x0 + 4, y0 + h + 4); SP(g, 'reeds', x0 + w - 2, y0 + 6); continue; }
         for (let i = 0; i < 5; i++) { const bx = x0 + rnd(i, 7) * w | 0, by = y0 + h - 4 + (i % 2) * 3;
           R(g, bx, by, 1, 5, C.leafD); R(g, bx + 2, by + 1, 1, 4, C.leaf); }
-      } else if (pl.kind === 'quarry') {
-        blob(g, x0 + w / 2, y0 + h / 2 + 2, w / 2 + 2, h / 2, ['#b0a898', '#9a9284', '#7a7466'], null);
-      } else if (pl.kind === 'grove') {
-        blob(g, x0 + w / 2, y0 + h / 2, w / 2 + 4, h / 2 + 2, [C.grassL, C.grassD, C.grassDD], null);
+      } else if (pl.kind === 'quarry') {   // a gravel pit with a dark rim
+        const gp = pat('tex_gravel');
+        if (gp) { g.beginPath(); g.ellipse(x0 + w / 2, y0 + h / 2 + 2, w / 2 + 3, h / 2 + 1, 0, 0, Math.PI * 2);
+                  g.fillStyle = gp; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(40,34,28,.65)'; g.stroke(); SP(g, 'rubble', x0 + w - 4, y0 + h + 2); }
+        else blob(g, x0 + w / 2, y0 + h / 2 + 2, w / 2 + 2, h / 2, ['#b0a898', '#9a9284', '#7a7466'], null);
+      } else if (pl.kind === 'grove') {   // forest floor under the birches
+        const mp = pat('tex_moss');
+        if (mp) { g.beginPath(); g.ellipse(x0 + w / 2, y0 + h / 2, w / 2 + 4, h / 2 + 2, 0, 0, Math.PI * 2); g.fillStyle = mp; g.globalAlpha = .7; g.fill(); g.globalAlpha = 1; }
+        else blob(g, x0 + w / 2, y0 + h / 2, w / 2 + 4, h / 2 + 2, [C.grassL, C.grassD, C.grassDD], null);
       } else if (pl.kind === 'home') { // fenced yard around the house
         const [px0, py0, pw, ph] = pl.plot.map(v => v * T);
         for (let yy = py0 + 2; yy < py0 + ph - 1; yy += 6) for (let xx = px0 + 2; xx < px0 + pw - 2; xx += 6)
           if (rnd(xx, yy, 31) < .35) P(g, xx, yy, C.grassL);
         const gate = pl.anchor[0] * T + 8;
+        if (K.fence) { K.fence(g, px0, py0, px0 + pw - 1, py0 + ph - 1, gate); continue; }
         for (let xx = px0; xx < px0 + pw; xx++) for (const yy of [py0, py0 + ph - 1]) if (!(yy > py0 && Math.abs(xx - gate) < 6)) {
           P(g, xx, yy, C.woodD); if (xx % 6 === 0) R(g, xx, yy - 3, 2, 5, C.wood); }
         for (let yy = py0; yy < py0 + ph; yy++) for (const xx of [px0, px0 + pw - 1]) { P(g, xx, yy, C.woodD); if (yy % 6 === 0) R(g, xx - 1, yy, 2, 4, C.wood); }

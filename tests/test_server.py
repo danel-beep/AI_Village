@@ -116,3 +116,64 @@ def test_highlights_without_key_last_day_too(tmp_path):
     assert any(it["kind"] == "fire" and it["who"] == ["Anna"] for it in got[0]["items"])
     assert json.loads((tmp_path / "live.highlights.json").read_text(encoding="utf-8")) == got
     replay(tmp_path / "live.jsonl")
+
+
+def test_diaries_reach_late_joiners_and_today_has_highlights(tmp_path):
+    world = engine.new_world({"seed": 3})
+    nights = []
+    sim = LiveSim(world, bots_decider(world, ["worker"], 3), 2, str(tmp_path / "live.jsonl"), 0.1,
+                  on_night=lambda w, day: nights.append(day) or {"Anna": {"day": day, "text": "ok", "people": {}}})
+    client = TestClient(create_app(sim))
+    sim.start()
+    wait(lambda: len(sim.ticks) >= 10)
+    sim.running.clear()
+    today = client.get("/api/highlights").json()["highlights"]  # mid-day 1: the day so far, by rules
+    assert today and today[-1]["partial"] and today[-1]["day"] == 1
+    sim.pace = 0.0
+    sim.running.set()
+    wait(lambda: sim.finished)
+    assert nights and sim.diaries
+    with client.websocket_connect("/ws") as ws:
+        rows = [json.loads(ws.receive_text()) for _ in range(1 + len(sim.ticks) + len(sim.diaries))]
+    diary = next(k for k, r in enumerate(rows) if r["type"] == "diary")
+    assert rows[diary - 1]["type"] == "tick" and rows[diary - 1]["tick"] == sim.diaries[0][0]
+    assert not any(h.get("partial") for h in client.get("/api/highlights").json()["highlights"])
+
+
+def test_god_queue_lands_due_events_and_never_loses_late_ones():
+    from aivillage.server import GodQueue
+    q = GodQueue()
+    q.put({"name": "a"}, 5)
+    q.put({"name": "b"}, 2)
+    assert q.get(1) == []
+    assert q.get(3) == [{"name": "b"}]  # tick 2 went by: lands now
+    assert q.get(4) == [] and q.get(5) == [{"name": "a"}] and q.get(6) == []
+
+
+def test_god_click_lands_after_the_moment_on_screen(tmp_path):
+    world = engine.new_world({"seed": 3, "tick_minutes": 15})
+    sim = LiveSim(world, bots_decider(world, ["worker"], 3), 1, str(tmp_path / "live.jsonl"), 0.0)
+    client = TestClient(create_app(sim))
+    assert client.get("/api/meta").json()["view_lag_ticks"] == 2
+    sim.running.clear()
+    sim.start()
+    wait(lambda: len(sim.ticks) >= 1)
+    victim = sorted(world.agents)[0]
+    with client.websocket_connect("/ws") as ws:
+        json.loads(ws.receive_text())  # header
+        for _ in sim.ticks:
+            ws.receive_text()
+        now = sim.world.tick
+        r = client.post("/api/god", json={"name": "fire", "args": {"person": victim}, "shown_tick": now + 3}).json()
+        assert r["queued_for_tick"] == now + 4 and r["lead_minutes"] == 15
+        pending = json.loads(ws.receive_text())
+        assert pending["type"] == "god_pending" and pending["tick"] == now + 4 and pending["name"] == "fire"
+        r = client.post("/api/god", json={"name": "gift", "args": {"person": victim, "coins": 1},
+                                           "shown_tick": now - 2}).json()
+        assert r["queued_for_tick"] == now  # the sim is ahead of the screen: the next tick it plays
+    client.post("/api/control", json={"cmd": "resume"})
+    wait(lambda: sim.finished)
+    assert sim.error is None
+    landed = {t["god"][0]["name"]: t["tick"] for t in sim.ticks if t["god"]}
+    assert landed == {"fire": now + 4, "gift": now}
+    replay(tmp_path / "live.jsonl")

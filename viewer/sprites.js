@@ -25,9 +25,33 @@ const Sprites = (() => {
     return true;
   }
 
+  // One sprite on its own canvas (cached): ground textures are read pixel by pixel and used as fill patterns.
+  const canvases = {};
+  function canvas(n) {
+    if (!has(n)) return null;
+    if (!canvases[n]) {
+      const [sx, sy, w, h] = A.frames[n], c = document.createElement('canvas');
+      c.width = w; c.height = h; c.getContext('2d').drawImage(img, sx, sy, w, h, 0, 0, w, h); canvases[n] = c;
+    }
+    return canvases[n];
+  }
+  const pixels = n => { const c = canvas(n); return c && c.getContext('2d').getImageData(0, 0, c.width, c.height); };
+  const pattern = (g, n) => { const c = canvas(n); return c && g.createPattern(c, 'repeat'); };
+
+  // Fight effects for whoever shows a brawl (dice rolls, hits): a dust cloud with stars and sparks over (x, y), t in
+  // seconds drives the wobble. Names of the separate pieces: fight_dust, hit_star, dizzy, d20, d6, heart, heart_broken.
+  function brawl(g, x, y, t, o = {}) {
+    if (!has('fight_dust')) return false;
+    const k = Math.floor(t * 8);
+    draw(g, 'fight_dust', x + Math.sin(t * 13) * 2, y + 4, { s: (o.s || 1) * (1 + .06 * Math.sin(t * 17)), flip: k % 2 === 1 });
+    draw(g, 'hit_star', x + [-9, 8, -3, 10][k % 4], y - [14, 8, 18, 16][k % 4], { s: .7 + (k % 3) * .2 });
+    if (o.dice) draw(g, 'd20', x, y - 26 - Math.abs(Math.sin(t * 6)) * 6);
+    return true;
+  }
+
   // A villager sheet in the layout viewer/actors.js expects: rows down / up / side (facing right), columns stand /
   // step / step. The art has one step per view, so the second step is the first one mirrored (down) or bobbed.
-  const LOOKS = 12;
+  const LOOKS = 24;
   function villager(k) {
     const id = 'v' + (k % LOOKS), poses = ['down', 'step', 'up', 'side'].map(p => id + '_' + p);
     if (!poses.every(has)) return null;
@@ -43,6 +67,6 @@ const Sprites = (() => {
 
   const meta = n => (A.meta || {})[n];
 
-  return { get ok() { return ok; }, has, size, meta, draw, onReady, villager };
+  return { get ok() { return ok; }, has, size, meta, draw, onReady, villager, canvas, pixels, pattern, brawl, LOOKS };
 })();
 window.Sprites = Sprites;

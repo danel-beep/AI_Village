@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 from .llm import DEFAULT_MODEL, Client, parse_json_object
-from .summary import StubSummaryClient, by_day, digest, make_client, ticks_of, when
+from .summary import StubSummaryClient, by_day, clock_of, digest, make_client, ticks_of, when
 
 MAX_PICKS, MIN_PICKS = 5, 3
 MAX_CANDIDATES = 60
@@ -36,7 +36,10 @@ DRAMA = {
     "election": 4, "law_proposed": 3, "candidate": 3, "fire_grows": 3, "hang_out": 1,
     # world crises (crises.py)
     "crisis": 6, "rats": 5, "crop_failed": 3,
+    # everyday life: only fills a quiet day up to MIN_PICKS (score below DRAMATIC)
+    "election_day": 2, "say": 2, "build": 2, "craft": 1, "plant": 1, "sell": 1, "buy": 1, "order": 1,
 }
+DRAMATIC = 3  # a day's highlights are these first; lower scores only fill a quiet day
 TITLES = {
     "death": "Смерть в деревне", "house_burned": "Сгорел дом", "steal": "Кража", "robbed": "Кража",
     "fire": "Пожар", "default": "Долг не вернули", "evicted": "Выселение", "steal_attempt": "Попытка кражи",
@@ -53,6 +56,8 @@ TITLES = {
     "gossip_heard": "Слух", "law_failed": "Закон провалился", "election": "Выборы", "law_proposed": "Новый закон",
     "candidate": "Кандидат в старосты", "fire_grows": "Пожар разгорается", "hang_out": "Провели время вместе",
     "crisis": "Беда в деревне", "rats": "Крысы", "crop_failed": "Погиб урожай",
+    "election_day": "День выборов", "say": "Разговор", "build": "Стройка", "craft": "Ремесло", "plant": "Посадка",
+    "sell": "Продажа", "buy": "Покупка", "order": "Новый заказ",
 }
 
 PROMPT = """You pick the highlights of one day in a village life simulation where every villager is an AI.
@@ -72,7 +77,7 @@ def candidates(ticks: list[dict], cfg: dict | None = None) -> list[dict]:
     names = {n for rec in ticks for n in (rec.get("decisions") or {})}
     out, first = [], {}
     for rec in ticks:
-        day, hour = when(rec, cfg)
+        day, hour, minute = clock_of(rec, cfg)
         for e in rec.get("events") or []:
             score = DRAMA.get(e.get("kind"), 0)
             if not score or not e.get("text"):
@@ -87,7 +92,7 @@ def candidates(ticks: list[dict], cfg: dict | None = None) -> list[dict]:
                 continue
             who = [n for n in [e.get("actor"), *to] if n]
             who += sorted(n for n in names if n in text and n not in who)  # "Anna's house is on fire"
-            first[key] = {"tick": rec["tick"], "day": day, "hour": hour, "kind": e["kind"], "score": score,
+            first[key] = {"tick": rec["tick"], "day": day, "hour": hour, "minute": minute, "kind": e["kind"], "score": score,
                           "who": list(dict.fromkeys(who)), "event": text, "times": 1}
             out.append(first[key])
     if len(out) > MAX_CANDIDATES:
@@ -98,24 +103,27 @@ def candidates(ticks: list[dict], cfg: dict | None = None) -> list[dict]:
 
 def by_rules(cands: list[dict], n: int = MAX_PICKS) -> list[int]:
     """Indexes of the best candidates: by score, skipping the same incident seen twice
-    (theft + robbed + witness in one tick) and more than two of one kind."""
+    (theft + robbed + witness in one tick) and more than two of one kind. A quiet day (fewer than
+    MIN_PICKS dramatic moments) is filled up with everyday ones, so every day gets highlights."""
     picked: list[int] = []
     kinds: dict[str, int] = {}
-    for k in sorted(range(len(cands)), key=lambda k: (-cands[k]["score"], cands[k]["tick"])):
-        c = cands[k]
-        if c["score"] < 3 or kinds.get(c["kind"], 0) >= 2:
-            continue
-        if any(cands[p]["tick"] == c["tick"] and set(cands[p]["who"]) & set(c["who"]) for p in picked):
-            continue
-        picked.append(k)
-        kinds[c["kind"]] = kinds.get(c["kind"], 0) + 1
-        if len(picked) >= n:
-            break
+    order = sorted(range(len(cands)), key=lambda k: (-cands[k]["score"], cands[k]["tick"]))
+    for floor, limit, per_kind in ((DRAMATIC, n, 2), (1, MIN_PICKS, 1)):
+        for k in order:
+            c = cands[k]
+            if len(picked) >= limit:
+                break
+            if k in picked or c["score"] < floor or kinds.get(c["kind"], 0) >= per_kind:
+                continue
+            if any(cands[p]["tick"] == c["tick"] and set(cands[p]["who"]) & set(c["who"]) for p in picked):
+                continue
+            picked.append(k)
+            kinds[c["kind"]] = kinds.get(c["kind"], 0) + 1
     return sorted(picked, key=lambda k: cands[k]["tick"])
 
 
 def _item(c: dict, title: str | None = None, text: str | None = None) -> dict:
-    return {"tick": c["tick"], "day": c["day"], "hour": c["hour"], "time": f"день {c['day']}, {c['hour']:02d}:00",
+    return {"tick": c["tick"], "day": c["day"], "hour": c["hour"], "time": f"день {c['day']}, {c['hour']:02d}:{c.get('minute', 0):02d}",
             "kind": c["kind"], "who": c["who"], "title": title or TITLES.get(c["kind"], c["kind"]),
             "text": text or c["event"] + (f" (×{c['times']} за день)" if c["times"] > 1 else ""),
             "event": c["event"], "times": c["times"]}
@@ -143,7 +151,7 @@ class Highlighter:
                 "items": items, "cost_usd": cost}
 
     def _ask(self, ticks: list[dict], cands: list[dict]) -> tuple[list[dict], float, str]:
-        listing = "\n".join(f"#{k} D{c['day']} {c['hour']:02d}:00 [{c['kind']}] {c['event'][:200]}"
+        listing = "\n".join(f"#{k} D{c['day']} {c['hour']:02d}:{c.get('minute', 0):02d} [{c['kind']}] {c['event'][:200]}"
                             + (f" (x{c['times']} that day)" if c["times"] > 1 else "")
                             for k, c in enumerate(cands))
         text = f"Candidates:\n{listing}\n\nDigest:\n{digest(ticks, CONTEXT_LINES, self.cfg)}"
