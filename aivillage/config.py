@@ -472,6 +472,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "loot_coins_max": 10,
         "weapons": {"tool": {"attack": 1, "damage": 2}, "club": {"attack": 0, "damage": 3},
                     "spear": {"attack": 2, "damage": 5}},
+        # Weapon tiers and armor (conflict.py, «С нуля» plan task 9). Works only with crafting on (the recipes
+        # are rows of crafting.recipes) and `enabled`. `weapons` join the ones above (club -> spear / bow ->
+        # sword); `hunt` adds to the to-hit roll against animals (animals.py) only. `armor`: the best one worn
+        # takes `block` off every hit its wearer takes (a hit still hurts at least 1), in fights, from big game
+        # and from raiders or the beast. `uses`: fights / hunts / defends an item lasts before it breaks (the
+        # weapon or armor used counts one use each time; items not listed never break). Everyone sees the
+        # weapon and armor of the people next to them (`here.people[].gear`).
+        "gear": {
+            "enabled": True,
+            "weapons": {"bow": {"attack": 1, "damage": 3, "hunt": 5}, "sword": {"attack": 3, "damage": 7}},
+            "hunt": {"spear": 1},
+            "armor": {"leather_armor": {"block": 2}, "iron_armor": {"block": 4}},
+            "uses": {"club": 8, "spear": 15, "bow": 15, "sword": 30, "leather_armor": 12, "iron_armor": 30},
+        },
         # feelings (family.py) and reputation (reputation.py) toward the attacker / arsonist
         "feelings": {"victim": -30, "witness": -10},
         "reputation": {"victim": -5, "witness": -3},
@@ -631,6 +645,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "stone_axe": {"value": 6}, "stone_pick": {"value": 6}, "iron_axe": {"value": 24},
             "iron_pick": {"value": 26}, "hoe": {"value": 12}, "fishing_rod": {"value": 6},
             "smoked_meat": {"value": 9, "food": 35},
+            # weapons and armor (combat.gear, conflict.py)
+            "bow": {"value": 10}, "sword": {"value": 40}, "leather_armor": {"value": 25}, "iron_armor": {"value": 60},
             "clothes": {"value": 26},
         },
         # inputs -> output; `building`: a workshop of that kind must stand where the crafter is (None = by hand,
@@ -653,6 +669,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # food: bread now goes through flour; meat keeps longer smoked
             "bread": {"inputs": {"flour": 1, "wood": 1}, "output": 1, "where": "home"},
             "smoked_meat": {"inputs": {"meat": 2, "wood": 1}, "output": 2, "building": "smokehouse"},
+            # weapons and armor (combat.gear): club by hand (above), spear and bow at a workbench, iron at the smithy
+            "spear": {"inputs": {"plank": 1, "stone": 1}, "building": "workbench", "profession": None},
+            "bow": {"inputs": {"plank": 1, "hide": 1}, "output": 1, "building": "workbench"},
+            "leather_armor": {"inputs": {"leather": 3}, "output": 1, "building": "workbench"},
+            "sword": {"inputs": {"iron": 2, "plank": 1}, "output": 1, "building": "smithy", "hours": 2},
+            "iron_armor": {"inputs": {"iron": 4, "leather": 1}, "output": 1, "building": "smithy", "hours": 3},
             # clothes: leather sewn at a weaving shed (construction.py, task 10)
             "clothes": {"inputs": {"leather": 2}, "output": 1, "building": "weaving_shed"},
         },

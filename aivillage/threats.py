@@ -428,8 +428,9 @@ def defend(ctx: Ctx, a: Agent, _args) -> None:
     if t["hp"] > 0:
         back = rng.randint(1, c["die"])
         if back == c["die"] or (back != 1 and back + int(k["attack"]) >= c["hit_at"]):
-            hurt = min(a.health, rng.randint(1, int(k["damage_die"])))
+            hurt = min(a.health, conflict.soak(ctx, a, rng.randint(1, int(k["damage_die"]))))
             a.health -= hurt
+    conflict.wear(ctx, a, item)
     what = "the bandits" if t["kind"] == "raid" else "the beast"
     arms = f" with a {item}" if item else " bare-handed"
     text = (f"{a.name} fought {what}{arms}: " + (f"hit for {dealt}" if hit else "missed") +

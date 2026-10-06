@@ -521,6 +521,12 @@ class HunterBot(WorkerBot):
         inv = me["inventory"]
         if me["satiety"] < 45 and inv.get("meat"):
             return decision("eat", {"item": "meat"}, "eat meat")
+        crafts = obs.get("crafts_here", {})
+        if "bow" in crafts and inv.get("plank") and inv.get("hide") and not inv.get("bow"):
+            return decision("craft", {"recipe": "bow"}, "make a bow")
+        if "bow" in obs["board"]["recipes"] and not obs.get("your_gear", {}).get("weapon") \
+                and inv.get("wood", 0) >= 3 and me["location"] == me["home"]:
+            return decision("craft", {"recipe": "club"}, "make a club")
         day = 8 <= t["hour"] < t["day_ends_at"] - 3
         if not day or me["health"] < 30 or me["satiety"] < 20 or ("hunt" not in obs["available_actions"] \
                                                                    and me["location"] == self.GROUND):
