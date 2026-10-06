@@ -167,6 +167,7 @@ MODES["survival"] = {
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
                                               "animals": {"enabled": True},
                                               "construction": {"enabled": True},
+                                              "hire": {"enabled": True},
                                               "crafting": {"enabled": True, "secrets": {"enabled": True}},
                                               # clay for bricks a short walk away on every map (the clay hills
                                               # of a large map are far): a clay bank at the mine
