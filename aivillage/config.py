@@ -416,7 +416,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "expand_price": 25,       # first purchase; each next one costs expand_price_step more
         "expand_price_step": 15,
         "house_max": 3,
-        "house_upgrade": {"2": {"coins": 60, "items": {"wood": 8, "stone": 6}},
+        # "1": a level-0 villager (no house yet, the «С нуля» camp) builds a level-1 house
+        "house_upgrade": {"1": {"coins": 0, "items": {"wood": 6, "stone": 2}},
+                          "2": {"coins": 60, "items": {"wood": 8, "stone": 6}},
                           "3": {"coins": 150, "items": {"wood": 12, "stone": 12}}},
         "house_bonus_cells": 2,   # per upgrade
         "house_bonus_health": 5,  # extra night health at home per level above 1
@@ -548,6 +550,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         ],
         "unlocks": {},
     },
+    # Empty start of the «С нуля» mode (modes.bare_start). On, and with progress starting below `until_stage`:
+    # no houses (level 0), no coins, empty pockets, no buildings in the yards, everyone a laborer who may
+    # gather anything by hand (no trade places). From `until_stage` on, the start is the ready village.
+    "bare_start": {"enabled": False, "until_stage": "hamlet"},
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with
