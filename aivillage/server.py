@@ -93,6 +93,7 @@ class LiveSim:
         self.god = GodQueue()
         self.header: dict | None = None
         self.ticks: deque[dict] = deque(maxlen=BACKLOG_TICKS)
+        self.diaries: list[tuple[int, dict]] = []  # (tick it followed, diary record): reloads get them too
         self.running = threading.Event()
         self.running.set()
         self.finished = False
@@ -130,6 +131,9 @@ class LiveSim:
             self.ticks.append(rec)
             if new_day:
                 threading.Thread(target=self._end_of_day, args=(rec["view"]["day"] - 1,), daemon=True).start()
+        elif rec["type"] == "diary":
+            with self._lock:
+                self.diaries.append((self.ticks[-1]["tick"] if self.ticks else -1, rec))
         self._publish(rec)
         if rec["type"] == "tick":
             self._wait()
@@ -173,6 +177,18 @@ class LiveSim:
             if self.log_path:
                 write_highlights(self.log_path, self.highlights)
         self._publish({"type": "highlights", **rec})
+
+    def today_highlights(self) -> dict | None:
+        """The current, unfinished day so far, by rules (no model call): shown until the day's own pick."""
+        ticks = list(self.ticks)
+        if not ticks:
+            return None
+        day = day_of(ticks[-1], self.world.config)[0]
+        if self.finished or any(h["day"] == day for h in self.highlights):
+            return None
+        today = [t for t in ticks if day_of(t, self.world.config)[0] == day]
+        rec = Highlighter(None, self.world.config).pick(today)
+        return {**rec, "partial": True} if rec else None
 
     def _summarize_day(self, days: list[list[dict]]) -> None:
         done = max((s["to_tick"] for s in self.summaries), default=-1)
@@ -224,7 +240,12 @@ class LiveSim:
         """New client: a queue for future records and the backlog to send first."""
         q: asyncio.Queue = asyncio.Queue()
         with self._lock:
-            backlog = ([self.header] if self.header else []) + list(self.ticks)
+            backlog = [self.header] if self.header else []
+            first = self.ticks[0]["tick"] if self.ticks else 0
+            backlog += [d for after, d in self.diaries if after < first]  # older than the tick backlog
+            for t in self.ticks:
+                backlog.append(t)
+                backlog += [d for after, d in self.diaries if after == t["tick"]]
             self._subs.add((asyncio.get_running_loop(), q))
         return q, [json.dumps(r, ensure_ascii=False) for r in backlog]
 
@@ -380,7 +401,11 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
 
     @app.get("/api/highlights")
     def highlights() -> dict:
-        return {"highlights": host.sim.highlights if host.sim else []}
+        sim = host.sim
+        if not sim:
+            return {"highlights": []}
+        today = sim.today_highlights()
+        return {"highlights": sim.highlights + ([today] if today else [])}
 
     @app.post("/api/summary")
     def summary_now() -> dict:

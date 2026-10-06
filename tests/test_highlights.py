@@ -68,3 +68,14 @@ def test_second_person_events_name_who_and_stay_apart():
     c = highlights.candidates(ticks)
     assert [(x["event"].split(":")[0], x["times"], x["who"]) for x in c] == [("Boris", 2, ["Boris"]),
                                                                              ("Clara", 1, ["Clara"])]
+
+
+def test_quiet_day_is_filled_with_everyday_moments():
+    ev = lambda kind, who, text: {"kind": kind, "actor": who, "to": [], "text": text}
+    ticks = [{"tick": 0, "decisions": {"Anna": {}}, "view": {"day": 1, "hour": 7},
+              "events": [ev("build", "Anna", "Anna built a beehive."), ev("build", "Boris", "Boris built a fence."),
+                         ev("move", "Anna", "Anna walks.")]},
+             {"tick": 1, "decisions": {}, "view": {"day": 1, "hour": 8},
+              "events": [ev("say", "Boris", 'Boris says: "Hi."'), ev("sell", "Clara", "Clara sold 3 fish.")]}]
+    got = highlights.Highlighter(None).pick(ticks)
+    assert sorted(it["kind"] for it in got["items"]) == ["build", "say", "sell"]  # one of each, no "move"
