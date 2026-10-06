@@ -22,8 +22,7 @@ from dataclasses import dataclass, field
 
 from . import clock, conflict, crises, dice, governance, graves, illness, keys, labor, land, plots, seasons, threats, works
 from .bots import WorkerBot
-from . import reputation
-from .registry import ACTIONS
+from . import handbook, reputation
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -41,8 +40,7 @@ Whenever you are free to act you get a JSON observation and answer with ONE JSON
   "say": "optional words spoken out loud to people here, or null",
   "notes": "optional: your updated private notes about people and plans (replaces old notes)"}}
 
-Actions:
-{actions}
+{handbook}
 
 World facts:
 {facts}
@@ -53,7 +51,7 @@ Rules of thumb:
 - If "last_error" is set, your previous action failed: read why and do something different.
 - Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
 - Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.
-- Plan a few hours ahead: travel takes hours, and work/craft only pay off if you finish them.
+- Travel takes hours; work and craft give their result only when they are finished.
 
 Item maps look like {{"bread": 2, "coins": 5}}. A thought is optional: most turns need none."""
 
@@ -82,7 +80,10 @@ CHARACTER_MAX_CHARS = 300
 
 def character_text(value: str | None, *, mode: str = "default", seed: int = 0, name: str = "") -> str:
     """The character line for one villager: a preset key, custom text, or (no value and mode "random") a preset
-    picked from the seed and name, so a run is reproducible. Empty = the neutral default."""
+    picked from the seed and name, so a run is reproducible. Empty = the neutral default. Mode "off" (experiments)
+    gives everyone the neutral prompt, even villagers with their own character."""
+    if mode == "off":
+        return ""
     if not value and mode == "random":
         value = random.Random(f"{seed}:character:{name}").choice(sorted(CHARACTERS))
     if not value or value == "default":
@@ -117,6 +118,9 @@ def world_facts(cfg: dict) -> str:
         lines.append(f"- Time runs in {clock.tick_minutes(cfg)}-minute steps. Quick actions take a quarter of an "
                      f"hour: {quick}. Everything else (work, craft, each step of a walk, plant, build, hang_out, "
                      "wait) takes an hour. You are asked again as soon as your action is done.")
+    if cfg.get("craft_hint", True):
+        lines.append("- \"you.can_craft_now\": recipes your own goods cover right now, how many times and where. "
+                     "\"you.not_edible\": raw goods you carry that are not food, and what they go into.")
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
     lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days. If you cannot pay, it takes "
@@ -631,7 +635,7 @@ class LLMAgent:
     character: str = ""  # character_text(); "" = neutral default
 
     def messages(self, obs: dict) -> list[dict]:
-        system = SYSTEM.format(name=self.name, profession=self.profession, actions=ACTIONS.describe(self.disabled_actions),
+        system = SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(self.disabled_actions),
                                facts=self.facts or "(none)", character="\n" + self.character if self.character else "")
         memory = {"notes": self.notes or "none", "your_last_actions": self.recent}
         if self.people:

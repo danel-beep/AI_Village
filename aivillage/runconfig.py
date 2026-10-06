@@ -73,8 +73,8 @@ class RunConfig(Strict):
     # How many villagers: `agents` (or the default five) first, the rest generated (aivillage/population.py).
     villagers: int | None = Field(default=None, ge=1, le=60)
     # LLM villagers without their own `character`: "default" = neutral prompt, "random" = a preset per villager
-    # picked from the seed (aivillage/llm.py CHARACTERS).
-    characters: Literal["default", "random"] = "default"
+    # picked from the seed (aivillage/llm.py CHARACTERS); "off" = everyone neutral, own characters ignored (experiments).
+    characters: Literal["default", "random", "off"] = "default"
     mechanics: Mechanics = Field(default_factory=Mechanics)
     world: dict = Field(default_factory=dict)  # overrides of config.DEFAULT_CONFIG
     god: list[GodEvent] = Field(default_factory=list)
