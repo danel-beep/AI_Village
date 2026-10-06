@@ -27,7 +27,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import clock, ops, progress, theft
+from . import clock, honors, ops, progress, theft
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -35,7 +35,7 @@ from .state import Agent, LawProposal, World
 
 NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax")
 TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enabled (taxes.py)
-LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant")
+LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant", "title")
 ELECTIONS = "feature:elections"  # progress.DEFAULT_UNLOCKS: a town_hall
 # The village-wide government's actions; with polities on each polity governs itself instead (polity.py).
 REPLACED = ("run_for_mayor", "vote", "propose_law", "vote_law", "embezzle", "audit_treasury", "treasury_order")
@@ -160,6 +160,8 @@ def describe_law(p: LawProposal) -> str:
         return f"take {p.person}'s trade place"
     if p.law == "grant":
         return f"grant {p.value} coins from the treasury to {p.person}"
+    if p.law == "title":
+        return f"give {p.person} the title \"{p.text}\""
     return "pay out the treasury equally to all villagers"
 
 
@@ -203,7 +205,7 @@ def facts(cfg: dict) -> str:
     return (f"- Government{opens_note(cfg, ELECTIONS)}: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
-            + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant); everyone votes with vote_law; a law passes when "
+            + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant" + (", title" if honors.enabled(cfg) else "") + "); everyone votes with vote_law; a law passes when "
             "more than half of all villagers vote yes. Tax goes to the village treasury. Witnesses and victims of a "
             "theft, attack or arson can report_theft: the culprit "
             + ("gets a bill for the theft_fine in the debt book (paid with pay_bill or left unpaid)."
@@ -281,16 +283,18 @@ def vote(ctx: Ctx, a: Agent, args: VoteArgs) -> None:
 
 class ProposeArgs(BaseModel):
     law: Literal["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "revoke_place", "payout",
-                 "grant"]
+                 "grant", "title"]
     value: int | None = Field(None, description="coins, for tax/theft_fine/mayor_salary/grant; percent, for "
                               "sales_tax/wealth_tax")
-    person: str | None = Field(None, description="for exile/revoke_place/grant")
+    person: str | None = Field(None, description="for exile/revoke_place/grant/title")
+    text: str | None = Field(None, description="for title: the title's words")
 
 
 @ACTIONS.action("propose_law", "Mayor only: put a law to the vote. tax/theft_fine/mayor_salary need value "
                 "(coins), sales_tax/wealth_tax need value (percent; where World facts list them); exile needs "
                 "person; revoke_place needs person (takes their trade place, where World facts list it); grant "
-                "needs person and value (paid from the treasury); payout splits the treasury equally.", ProposeArgs,
+                "needs person and value (paid from the treasury); payout splits the treasury equally; title needs person and "
+                "text (a title on the honor board, where World facts list it).", ProposeArgs,
                 available=lambda c, a: enabled(c.cfg) and c.world.governance.mayor == a.name)
 def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
     _require(ctx)
@@ -305,20 +309,21 @@ def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
         raise ActionError(f"this village has no {args.law}")
     if args.law == "revoke_place" and not (ctx.cfg.get("places") or {}).get("enabled"):
         raise ActionError("trades have no places in this village")
+    text = honors.check_title(ctx, args.text) if args.law == "title" else None
     if args.law in NUMBER_LAWS or args.law == "grant":
         lo, hi = gc["limits"][args.law]
         if value is None or not lo <= value <= hi:
             raise ActionError(f"{args.law} needs value between {lo} and {hi}")
     else:
         value = None
-    if args.law in ("exile", "revoke_place", "grant"):
+    if args.law in ("exile", "revoke_place", "grant", "title"):
         if not args.person:
             raise ActionError(f"{args.law} needs person")
         target = _agent(ctx, args.person)
         if target.status == "dead":
             raise ActionError(f"{target.name} is dead")
         person = target.name
-    p = LawProposal(w.new_id("law"), args.law, a.name, w.tick + clock.hours(ctx.cfg, gc["law_vote_hours"]), value, person, yes=[a.name])
+    p = LawProposal(w.new_id("law"), args.law, a.name, w.tick + clock.hours(ctx.cfg, gc["law_vote_hours"]), value, person, yes=[a.name], text=text)
     g.proposals[p.id] = p
     ctx.emit("law_proposed", f"Mayor {a.name} proposes a law ({p.id}): {describe_law(p)}. Vote with vote_law "
              f"until {tick_time(ctx.cfg, p.closes_tick)}.", actor=a.name, visibility="public", law=p.id)
@@ -459,6 +464,8 @@ def _apply_law(ctx: Ctx, p: LawProposal) -> str:
             return " There is no place to take."
         places.lose_place(ctx, target, "taken by law")
         return ""
+    if p.law == "title":
+        return honors.give_title(ctx, p.person, p.text, "the village")
     if p.law == "grant":
         if target is None or target.status == "dead":
             return " Nobody to pay."

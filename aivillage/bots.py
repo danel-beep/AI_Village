@@ -90,6 +90,8 @@ class RandomBot(Bot):
                 args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""])}
             if r.random() < 0.5:
                 args["to"] = r.choice(people)
+        elif name == "praise":
+            args = {"person": r.choice(people + ["nobody"]), "text": r.choice(["helped with the roof", "fair trade", ""])}
         elif name in ("whisper", "letter"):
             args = {"to": r.choice(people), "text": "psst"}
         elif name == "give":

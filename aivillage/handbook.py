@@ -48,7 +48,7 @@ MODULE_TOPIC = {
     "reputation": "Talk and news", "conflict": "Taking and force", "threats": "Outsiders and dangers", "animals": "Gathering and making",
     "transport": "Body and time",
     "illness": "People and family", "dice": "Trade and money",
-    "debts": "Trade and money", "market": "Trade and money", "taxes": "Village affairs", "places": "Gathering and making", "chronicle": "Talk and news",
+    "debts": "Trade and money", "market": "Trade and money", "taxes": "Village affairs", "places": "Gathering and making", "chronicle": "Talk and news", "honors": "Talk and news",
     "construction": "Home, chests and land", "crafting": "Gathering and making", "hire": "Trade and money",
 }
 
