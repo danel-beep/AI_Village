@@ -271,6 +271,31 @@ def bare_start(cfg: dict) -> None:
     b["applied"] = True
 
 
+# Food the world gives, chosen on its own on top of any mode (start screen «Еды в мире»): «Дефицит» is a whole
+# mode with the ready village, so «С нуля» with little food needs this (Danel's run 2026-10-06).
+FOOD_SUPPLY = ("mode", "scarce")
+WILD_FOOD = ("fish", "berries", "grain")  # wild food at map places (grain: the forest's wild grain in «С нуля»)
+
+
+def scarce_food(cfg: dict) -> dict:
+    """World overrides that make the food of a full config `cfg` scarce, like «Дефицит» does to the standard
+    world: a garden bed gives half its grain, wild fish, berries and grain stand at half and regrow at 40%,
+    the trader's food costs at least 2.5x what he pays, everyone starts at most half fed."""
+    bed = cfg["plots"]["buildings"]["garden_bed"]
+    locs: dict = {}
+    for loc_id, loc in cfg["locations"].items():
+        for res, r in (loc.get("resources") or {}).items():
+            if res in WILD_FOOD:
+                mx = max(1, r["max"] // 2)
+                locs.setdefault(loc_id, {"resources": {}})["resources"][res] = {
+                    "start": min(r.get("start", mx), mx), "max": mx, "regen": max(1, round(r["regen"] * 0.4))}
+    return {"plots": {"buildings": {"garden_bed": {"yield": max(1, bed["yield"] // 2)}}},
+            "locations": locs,
+            "npc_sell_ratio": max(cfg["npc_sell_ratio"], 2.5),
+            "satiety_start": min(cfg["satiety_start"], 50),
+            "food_supply": "scarce"}
+
+
 def check(mode: str) -> None:
     if mode not in MODES:
         raise ValueError(f"unknown economy mode '{mode}' (have: {', '.join(MODES)})")

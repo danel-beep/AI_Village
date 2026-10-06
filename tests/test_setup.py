@@ -72,6 +72,26 @@ def test_world_from_start_screen_has_the_settings():
     assert len(w.agents) == 7 and w.config["tax_amount"] == 5 and w.config["start_coins"] == 55
 
 
+
+def test_little_food_goes_with_any_mode_and_keeps_the_camp_start():
+    """«Еды в мире: мало» on «С нуля»: still an empty camp, with the food of «Дефицит» (Danel's run 2026-10-06)."""
+    from aivillage import engine
+    base = knobs.to_run({"brains": "bots", "mode": "survival", "start_stage": "camp"})["override"]
+    r = knobs.to_run({"brains": "bots", "mode": "survival", "start_stage": "camp", "food": "scarce"})
+    o = r["override"]
+    assert o["food_supply"] == "scarce" and o["progress"]["start_stage"] == "camp"
+    assert o["plots"]["buildings"]["garden_bed"]["yield"] == base["plots"]["buildings"]["garden_bed"]["yield"] // 2
+    w = engine.new_world({**o, "seed": 3})
+    assert modes.camp_start(w.config) and all(a.coins == 0 for a in w.agents.values())
+    assert w.config["satiety_start"] == 50 and w.config["npc_sell_ratio"] == 2.5
+    full = engine.new_world({**base, "seed": 3}).config["locations"]
+    for loc in ("river", "forest"):
+        for res, v in w.config["locations"][loc]["resources"].items():
+            if res in modes.WILD_FOOD:
+                assert v["max"] == max(1, full[loc]["resources"][res]["max"] // 2)
+    # «Дефицит» is little food already: the answer changes nothing there
+    assert knobs.to_run({"mode": "scarcity", "food": "scarce"})["override"] == knobs.to_run({"mode": "scarcity"})["override"]
+
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
