@@ -38,12 +38,18 @@ MODES: dict[str, dict[str, Any]] = {
         "title": "Обычный",
         "about": "Каждый добывает только своё: рыбу ловит рыбак, лес рубит лесоруб, зерно и ягоды собирает фермер, "
                  "камень, руду и золото копает шахтёр; общая только вода, так что еду остальные берут у соседей. Работать можно 6 часов в день, мастерство растёт "
-                 "с часами работы. Хлеб и уха готовятся на дровах. Торговец каждый день покупает и продаёт понемногу, на всю деревню. "
+                 "с часами работы. Хлеб и уха готовятся на дровах. Торговец каждый день покупает и продаёт понемногу, на всю деревню, и на товары одного ремесла тратит не больше определённой суммы. Грядка даёт немного, еды впритык. "
                  "Цены у торговца падают, когда у него много товара. Инструмент изнашивается за 14 часов работы, у всех есть "
                  "один на старте, дальше их делает кузнец. Остальное как в обычном режиме.",
         "world": {
             # the trader sells at most one tool a day (per 5 villagers): tools come from the smith
-            "labor": {"enabled": True, "trader_sells_per_day": {"tool": 1}},
+            # one purse per trade at the trader: the miner's stone, ore and gold share 12 coins a day per 5
+            # villagers (economy audit: three item limits made miners 4.5x richer); a laborer who lost a place
+            # gathers berries and wood instead of starving
+            "labor": {"enabled": True, "trader_sells_per_day": {"tool": 1}, "trader_coins_per_trade": 12,
+                      "laborer_goods": ["berries", "wood"]},
+            # a finished project's coins go to those who built it, by contribution (not 20 to everyone)
+            "works": {"reward_split": "contribution"},
             # wild berries belong to the farmer's trade too: everyone else eats what neighbours grow and catch
             "professions": {"farmer": ["grain", "berries"]},
             # cooking needs firewood: grain is not edible raw, so bread needs a woodcutter too
@@ -52,15 +58,20 @@ MODES: dict[str, dict[str, Any]] = {
             # it has uses (a ring at the smithy, a level-3 house)
             "items": {"gold": {"value": 12}},
             "trader_pricing": {"stock_prices": True, "nearest": True},
-            "plots": {"house_upgrade": {"3": {"items": {"gold": 2}}}},
+            # food partly scarce (Danel, 2026-10-06: «частично дефицитная, как в жизни»): the economy audit found
+            # 2.2-3.5x the food needed; a garden bed gives 4 grain (+2 for a farmer) instead of 6 (+3)
+            "plots": {"house_upgrade": {"3": {"items": {"gold": 2}}},
+                      "buildings": {"garden_bed": {"yield": 4, "profession_bonus": 2}}},
             # tools wear out in two to three days of work; everyone starts with one, then buys from the smith
             "start_items": {"tool": 1},
             "tool_durability_hours": 14,
-            # tax by income and wealth instead of a flat 20 (taxes.py); council orders pay 1.6x the goods
+            # tax by income and wealth instead of a flat 20 (taxes.py); council orders pay the goods
             # and take part deliveries
             "tax_amount": 10,
             "taxes": {"enabled": True},
-            "council_orders": {"enabled": True},
+            # council orders pay the goods' value (1.0x, was 1.6x: one order was worth 10-20 days of a fisher's sales)
+            "council_orders": {"enabled": True, "reward_mult": 1.0},
+
             # limited places per trade: no work at your trade for 3 days frees your place (places.py)
             "places": {"enabled": True},
             # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
@@ -169,6 +180,14 @@ MODES["survival"] = {
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
                                               "settle": {"enabled": True},
+                                              # pace (progression audit R3, Danel 2026-10-06 «подгоняй
+                                              # настройки»): 2 units an hour by hand instead of 1; builder
+                                              # bots reach the town on d10-12 instead of d14-18
+                                              "work_base_yield": 2,
+                                              # the camp lives off beds before any trade: they keep the old
+                                              # yield, so the pace of the climb stays where it was tuned
+                                              "plots": {"buildings": {"garden_bed": {"yield": 6,
+                                                                                     "profession_bonus": 3}}},
                                               "animals": {"enabled": True},
                                               # each town hall founds a polity (polity.py), so a
                                               # second one may stand at any common place

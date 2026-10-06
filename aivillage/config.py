@@ -221,6 +221,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # are noticed `notice_bonus_per_level` more often; wall = `defense_per_level` against raids.
     "works": {
         "enabled": True,
+        # a finished project's `reward_coins_each` (config `projects`): "everyone" gets it, or "contribution":
+        # the same pool (reward x villagers) shared by what each one gave, nothing for the idle
+        "reward_split": "everyone",
         "max_open": 2,
         "council_idle_days": 3,
         "catalog": {
@@ -604,6 +607,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # Only a villager of the right profession gathers (or sows) the goods in `professions`;
         # anything no profession owns (berries, water) stays open to everyone.
         "own_trade_only": True,
+        # goods a laborer (no trade place, places.py) may gather anyway, so losing a place is not starving
+        "laborer_goods": [],
         "trade_anywhere": True,       # accept an offer from anywhere (the goods are carried both ways)
         "work_hours_per_day": 6,      # hours of work (gathering) a day; 0 = no limit
         "skill_levels": [6, 18, 36],  # hours worked at your own trade to reach level 1, 2, 3
@@ -611,6 +616,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # The trader deals in limited amounts each day, for the whole village, per 5 villagers
         # (population scales them): how many of each item he buys from villagers / has for sale.
         "trader_buys_per_day": {"default": 6, "gold": 2},
+        # coins a day (per 5 villagers) the trader pays for the goods of one trade, all its goods together
+        # (`professions`); 0 = only the item limits above
+        "trader_coins_per_trade": 0,
         "trader_sells_per_day": {"default": 2, "tool": 2},
     },
     # Trade places (aivillage/places.py). Off here; the crafts mode turns them on. Each trade has

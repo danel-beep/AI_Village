@@ -142,7 +142,10 @@ def observe(world: World, name: str) -> dict:
         places = [p for p in places if p in k]
     out = {"house_sites": {"yours": None if unsettled(world, name) else world.locations[a.home].neighbors[0],
                            "free_here": len(free_sites(world, a.location)),
-                           "free_by_place": {p: n for p in places if (n := len(free_sites(world, p)))}}}
+                           "free_by_place": {p: n for p in places if (n := len(free_sites(world, p)))},
+                           # who lives by which place: each settle is a public event
+                           "homes": {n: world.locations[world.agents[n].home].neighbors[0]
+                                     for n in sorted(world.settle["homes"]) if n != name}}}
     return out
 
 
@@ -153,7 +156,7 @@ def facts(cfg: dict) -> str:
             "there, one road from it, with no yard to build or keep things in. settle takes a free house site at the "
             "place where you stand (first come): your home (bed, chest, yard) moves there and is one road from that "
             "place. It can move again until something stands or is being built in the yard. \"house_sites\" lists "
-            "your site and the free sites by place.")
+            "your site, the free sites by place and by which place the others live.")
 
 
 def _trail(ctx: Ctx, ev: Event, recipients: list[str]) -> None:

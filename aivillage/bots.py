@@ -353,6 +353,8 @@ class WorkerBot(Bot):
             spot = "mine"
         if loc == spot:
             want = "ore" if spot == "mine" and me["profession"] == "smith" else None
+            if me["profession"] == "laborer" and obs["here"]["resources"].get("berries"):
+                want = "berries"  # no trade place: food first (crafts: labor.laborer_goods)
             return decision("work", {"hours": 4, **({"resource": want} if want else {})}, "work")
         return go(spot, "go to work")
 
@@ -747,8 +749,14 @@ class BuilderBot(WorkerBot):
         if self.game[loc]:
             self.game_ever.add(loc)
         self.res_ever.setdefault(loc, set()).update(k for k, v in here["resources"].items() if v)
+        homes = (obs.get("house_sites") or {}).get("homes") or {}
+        known = (obs.get("explored") or {}).get("places")
 
         def go(dest: str, why: str) -> dict:
+            # someone's house by a place I have not been to: that place first (settle.py, explore.py)
+            place = homes.get(dest[5:]) if dest.startswith("home_") else None
+            if known is not None and place and place not in known and loc != place:
+                dest = place
             return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
 
         if obs["fires"] or "defend" in acts:

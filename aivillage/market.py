@@ -104,6 +104,8 @@ def buy_sale(ctx: Ctx, a: Agent, args: SaleIdArgs) -> None:
     ops.move_coins(a, seller, s.price)
     for k, v in s.items.items():
         ops.mint(w, a.inventory, k, v)
+    from . import places  # places imports labor, which the actions use
+    places.note_supply(w, a, s.items)
     del w.sales[s.id]
     ctx.emit("trade", f"{seller.name} and {a.name} traded: {fmt_items(s.items)} for {s.price} coins.",
              actor=a.name, visibility="public", to=[seller.name], sale=s.id, partner=seller.name)
