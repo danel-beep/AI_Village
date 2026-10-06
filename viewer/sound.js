@@ -205,5 +205,13 @@
   ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, unlock, { capture: true }));
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', controls); else controls();
 
-  window.Sound = { update, cues, mood, play: n => { init(); resume(); play(n); }, prefs };
+  // The mixed output as a MediaStream, for recording (viewer/clip.js); follows the sound button and volume.
+  let tap = null;
+  function captureStream() {
+    init(); resume();
+    if (!ctx || !ctx.createMediaStreamDestination) return null;
+    if (!tap) { tap = ctx.createMediaStreamDestination(); comp.connect(tap); }
+    return tap.stream;
+  }
+  window.Sound = { update, cues, mood, play: n => { init(); resume(); play(n); }, prefs, captureStream };
 })();
