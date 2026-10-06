@@ -562,9 +562,9 @@ class BuilderBot(WorkerBot):
     FOOD = {"fish_soup": 45, "bread": 40, "smoked_meat": 35, "meat": 40, "honey": 25, "milk": 20, "fish": 15,
             "berries": 10, "egg": 10}
     TEAM_HOUR = 13             # from this hour the village's team site is worked together
-    SPOT = {"wood": "forest", "stone": "mine", "ore": "mine", "clay": "mine", "fish": "river", "berries": "forest"}
+    SPOT = {"wood": "forest", "stone": "mine", "ore": "mine", "fish": "river", "berries": "forest"}
     TOOL = {"wood": "stone_axe", "stone": "stone_pick", "ore": "stone_pick", "clay": "stone_pick"}
-    YARD_RANK = {"workbench": 0, "smithy": 1}  # which villager (by name) raises a yard workshop
+    YARD_RANK = {"workbench": 0, "smithy": 1, "kiln": 2}  # which villager (by name) raises a yard workshop
     VILLAGE_AT = {"market_square": "square", "town_hall": "square", "tavern": "square", "palisade": "square"}
     STOCK = {"wood": 6, "stone": 4}  # carried ahead when no site needs anything
 
@@ -783,6 +783,11 @@ class BuilderBot(WorkerBot):
                     wants.append((kind, me["home"]))
             elif kind in self.VILLAGE_AT and not site_of(kind) and not team_open:
                 wants.append((kind, self.VILLAGE_AT[kind]))
+        kiln = any(b.get("kind") == "kiln" for b in plot.get("buildings", []))
+        bricks = any(s["still_needs"].get("brick") for s in sites) or "town_hall" in missing
+        if bricks and not kiln and not site_of("kiln", at=me["home"]) and house >= 1 \
+                and rank == self.YARD_RANK["kiln"] % len(living):
+            wants.append(("kiln", me["home"]))
         for kind, place in wants:
             if loc == place and kind in startable:
                 return decision("start_building", {"kind": kind}, f"start a {kind}")
@@ -790,8 +795,9 @@ class BuilderBot(WorkerBot):
 
         # Sites I work on: my own, the team sites; materials still needed there.
         mine = [s for s in sites if s["for"] == name]
-        team = sorted(team_open, key=lambda s: -sum(s["work_done_by"].values()))
-        focus = mine + [s for s in sites if s["people_needed_within_an_hour"] > 1 and s not in mine]
+        team = sorted(team_open, key=lambda s: (len(s["id"]), s["id"]))  # oldest first: everyone picks the same
+        focus = mine + [s for s in sites if s not in mine and (s["people_needed_within_an_hour"] > 1
+                                                             or bricks and s["building"] == "kiln")]
         if house == 0 and any(s["building"] == "house" for s in mine):  # a roof of my own comes first
             focus, team = [s for s in mine if s["building"] == "house"], []
         firewood = self._firewood(obs)
@@ -809,19 +815,35 @@ class BuilderBot(WorkerBot):
             return go(start_trip, "start building")
 
         need: Counter = Counter()
-        for s in focus:
+        for s in [s for s in mine if s["still_needs"]] or focus:  # my own sites' materials first
             need.update(s["still_needs"])
         if not focus:
             need.update(self.STOCK)
         need["wood"] += firewood
+        # Crafted materials: planks from wood by hand; bricks only at my own kiln, from clay and wood.
+        if (short := need.pop("plank", 0) - inv.get("plank", 0)) > 0:
+            if spare.get("wood", 0) >= 2:
+                return decision("craft", {"recipe": "plank", "times": min(short, spare["wood"] // 2, 10)}, "planks")
+            need["wood"] += 2 * short
+        if (short := need.pop("brick", 0) - inv.get("brick", 0)) > 0 and kiln:
+            batches = -(-short // 2)
+            if loc == me["home"] and inv.get("clay", 0) >= 2 and spare.get("wood", 0) >= 1:
+                return decision("craft", {"recipe": "brick", "times": min(batches, inv["clay"] // 2, spare["wood"])},
+                                "bricks at my kiln")
+            need["clay"] += 2 * batches
+            need["wood"] += batches
+        need.pop("iron", None)
         deficit = {k: n - inv.get(k, 0) for k, n in need.items() if n > inv.get(k, 0)}
         carrying = any(spare.get(k, 0) > 0 for s in focus for k in s["still_needs"])
 
         # Stone tools first: they make every hour of gathering count more.
-        for res in ("wood", "stone"):
+        for res in ("wood", "stone", "clay"):
             kit = self.TOOL[res]
-            if res in deficit and not inv.get(kit) and inv.get("wood", 0) >= 1 and inv.get("stone", 0) >= 2:
-                return decision("craft", {"recipe": kit}, "make a tool")
+            if res in deficit and not inv.get(kit):
+                if inv.get("wood", 0) >= 1 and inv.get("stone", 0) >= 2:
+                    return decision("craft", {"recipe": kit}, "make a tool")
+                if res != "wood" and not inv.get("wood"):
+                    deficit["wood"] = max(deficit.get("wood", 0), 1)
         if "ore" in deficit and not inv.get("stone_pick") and not inv.get("iron_pick"):
             if inv.get("wood", 0) >= 1 and inv.get("stone", 0) >= 2:
                 return decision("craft", {"recipe": "stone_pick"}, "a pick for ore")
@@ -833,6 +855,10 @@ class BuilderBot(WorkerBot):
             res = max(deficit, key=lambda k: (deficit[k], k))
             if here["resources"].get(res):
                 return decision("work", {"resource": res, "hours": 4}, f"{res} for building")
+            if res not in self.SPOT and not any(r.get(res) for r in self.seen.values()):
+                unseen = sorted(p for p in self.places if p not in self.seen and p not in ("market", "smithy"))
+                if unseen:
+                    return go(unseen[0], f"look for {res}")
             return go(self._place_of(res), f"fetch {res}")
         if carrying:
             s = next(s for s in focus if any(spare.get(k, 0) > 0 for k in s["still_needs"]))
