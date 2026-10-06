@@ -176,3 +176,13 @@ def test_openai_429s_do_not_use_up_retries(monkeypatch):
     text, _ = llm.OpenAIClient("openai/gpt-6-luna", api_key=OA, retries=2).complete([{"role": "user", "content": "x"}])
     assert len(calls) == 10 and "wait" in text
     llm._GATES.clear()
+
+
+def test_villagers_sample_alike_on_every_route(monkeypatch):
+    """Fairness audit: no route sets its own temperature for villagers; helpers still pass theirs."""
+    seen = fake_openai(monkeypatch, lambda req, body: ok("anthropic/claude-x"))
+    llm.OpenRouterClient("anthropic/claude-x", api_key="or-key").complete([{"role": "user", "content": "hi"}])
+    llm.OpenAIClient("openai/gpt-6-luna", api_key=OA).complete([{"role": "user", "content": "hi"}])
+    assert all("temperature" not in body for _, _, body in seen)
+    llm.OpenRouterClient("google/x", api_key="or-key", temperature=0.2).complete([{"role": "user", "content": "hi"}])
+    assert seen[-1][2]["temperature"] == 0.2

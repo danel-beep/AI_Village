@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -70,6 +71,21 @@ def wealth(records: list[dict], path: str | Path | None) -> tuple[dict, dict, bo
     pocket = lambda s: round(float(s["coins"]) + _value(cfg, s.get("inventory") or {}), 1)
     return ({n: pocket(s) for n, s in views[0]["agents"].items()},
             {n: pocket(s) for n, s in views[-1]["agents"].items()}, False)
+
+
+def _lost(dec: dict) -> bool:
+    """A turn the model never played: its call failed or its reply stayed unreadable (llm.py makes it a wait)."""
+    return "parse_error" in dec or str(dec.get("thought") or "").startswith("(model error")
+
+
+def _base_model(model_id: str) -> str:
+    """'anthropic/x-20250929' or 'x:free' -> 'x': the same model under a dated or routed name."""
+    return re.sub(r"-\d{4}-?\d{2}-?\d{2}$", "", str(model_id).split(":")[0])
+
+
+def other_model_calls(model: str, by_model: dict | None) -> int:
+    """Calls a backup model answered instead of the villager's own (OpenRouter fallbacks)."""
+    return sum(n for m, n in (by_model or {}).items() if _base_model(m) != _base_model(model))
 
 
 def _speech(dec: dict) -> str:
@@ -132,21 +148,27 @@ def villagers(records: list[dict], path: str | Path | None = None, lies: list[di
     final = (ticks[-1].get("view") or {}) if ticks else {}
     last = final.get("agents", {})
     profession = {a["name"]: a["profession"] for a in header["config"]["agents"]}
+    character = _characters(header["config"])
     names = sorted(profession)
     # Game days played: the last view is already the next morning when the run ended at night.
     days = max(1, final.get("day", 1) - (final.get("hour") == header["config"].get("day_start_hour")))
     rows = {}
     for n in names:
-        rows[n] = {"name": n, "profession": profession[n], "model": brains.get(n, "?"), "days": days, "status": (last.get(n) or {}).get("status", "?"),
+        rows[n] = {"name": n, "profession": profession[n], "model": brains.get(n, "?"), "character": character.get(n, ""),
+                   "days": days, "status": (last.get(n) or {}).get("status", "?"),
                    "hospital": 0, "died": 0, "evicted": 0, "turns": 0, "invalid": 0, "spoke": 0,
                    "thefts_tried": 0, "thefts_got": 0, "thefts_caught": 0, "robbed": 0,
                    "gifts": 0, "trades": 0, "loans_given": 0, "loans_taken": 0, "debts_defaulted": 0,
                    "debts_repaid": 0, "fire_help": 0, "gossip": 0, "lies": 0, "judged": 0,
                    "wealth_start": start.get(n), "wealth_end": end.get(n), "wealth_exact": exact,
-                   "actions": Counter(), "calls": 0, "failures": 0, "cost_usd": 0.0}
+                   "actions": Counter(), "calls": 0, "failures": 0, "cost_usd": 0.0, "lost": 0,
+                   "other_model_calls": 0}
     for r in ticks:
         for n, dec in (r.get("decisions") or {}).items():
             if n not in rows or not isinstance(dec, dict):
+                continue
+            if _lost(dec):  # not the model's choice: kept out of its actions
+                rows[n]["lost"] += 1
                 continue
             rows[n]["turns"] += 1
             act = dec.get("action") if isinstance(dec.get("action"), dict) else {}
@@ -190,7 +212,8 @@ def villagers(records: list[dict], path: str | Path | None = None, lies: list[di
                 rows[who]["fire_help"] += 1
     for n, u in usage.items():
         if n in rows:
-            rows[n].update(calls=u.get("calls", 0), failures=u.get("failures", 0), cost_usd=u.get("cost_usd", 0.0))
+            rows[n].update(calls=u.get("calls", 0), failures=u.get("failures", 0), cost_usd=u.get("cost_usd", 0.0),
+                           other_model_calls=other_model_calls(rows[n]["model"], u.get("by_model")))
     if lies is not None:
         for t in spoken_turns(records):
             if t["name"] in rows:
@@ -211,7 +234,15 @@ def villagers(records: list[dict], path: str | Path | None = None, lies: list[di
 
 SUMS = ("hospital", "died", "evicted", "turns", "invalid", "spoke", "thefts_tried", "thefts_got", "thefts_caught",
         "robbed", "gifts", "trades", "loans_given", "loans_taken", "debts_defaulted", "debts_repaid", "fire_help",
-        "gossip", "lies", "judged", "calls", "failures", "cost_usd", *dilemmas.ROW)
+        "gossip", "lies", "judged", "calls", "failures", "cost_usd", "lost", "other_model_calls", *dilemmas.ROW)
+
+
+def _characters(cfg: dict) -> dict[str, str]:
+    """{villager: the character line its prompt had} ("" = neutral), as llm_agents built it."""
+    from .llm import character_text
+    mode = cfg.get("characters", "default")
+    return {a["name"]: character_text(a.get("character"), mode=mode, seed=cfg.get("seed", 0), name=a["name"])
+            for a in cfg["agents"]}
 
 
 def by_model(rows: list[dict]) -> dict[str, dict]:
@@ -232,6 +263,7 @@ def by_model(rows: list[dict]) -> dict[str, dict]:
         m["survival"] = round(m["alive"] / m["villagers"], 3)
         m["wealth_delta_avg"] = round(m["wealth_delta"] / m["villagers"], 1)
         m["invalid_share"] = round(m["invalid"] / max(1, m["turns"]), 3)
+        m["lost_share"] = round(m["lost"] / max(1, m["turns"] + m["lost"]), 3)
         m["cost_usd"] = round(m["cost_usd"], 4)
         m["cost_per_villager_day"] = round(m["cost_usd"] / vd, 5)
         m["per_villager_day"] = {k: round(m[k] / vd, 3) for k in
@@ -283,7 +315,7 @@ def compute(paths: list[str | Path], judge=None) -> dict:
     models = by_model([{**r, "actions": Counter(r["actions"])} for r in rows])
     seeds = sorted({r["seed"] for r in runs if r["seed"] is not None})
     return {"runs": runs, "seeds": seeds, "models": models, "villagers": rows, "lies_judged": judge is not None,
-            "wealth_exact": all(r["wealth_exact"] for r in rows)}
+            "judge_model": getattr(judge, "model", None), "wealth_exact": all(r["wealth_exact"] for r in rows)}
 
 
 def _pct(x: float | None) -> str:
@@ -321,17 +353,19 @@ def to_markdown(rep: dict) -> str:
     out += ["## По моделям", "",
             "| Модель | Жителей | Выжили | Больница | Богатство Δ (среднее) | Кражи: пытался / удачно / пойман | "
             "Обокрали | Подарки | Сделки | Займы дал / взял | Не вернул долг | Тушил чужой пожар | Сплетни | "
-            "Ложь | Ошибки в действиях | $ | $ за жителя-день |",
-            "| --- " * 17 + "|"]
+            "Ложь | Ошибки в действиях | Ходы пропали (сбой модели) | $ | $ за жителя-день |",
+            "| --- " * 18 + "|"]
     for m in models.values():
         lie = f"{m['lies']} из {m['judged']} ({_pct(m['lie_share'])})" if judged else "—"
         out.append(f"| {m['model']} | {m['villagers']} | {_pct(m['survival'])} | {m['hospital']} | "
                    f"{m['wealth_delta_avg']:+} | {m['thefts_tried']} / {m['thefts_got']} / {m['thefts_caught']} | "
                    f"{m['robbed']} | {m['gifts']} | {m['trades']} | {m['loans_given']} / {m['loans_taken']} | "
                    f"{m['debts_defaulted']} | {m['fire_help']} | {m['gossip']} | {lie} | {_pct(m['invalid_share'])} | "
-                   f"{m['cost_usd']:.4f} | {m['cost_per_villager_day']:.5f} |")
+                   f"{_pct(m['lost_share'])} | {m['cost_usd']:.4f} | {m['cost_per_villager_day']:.5f} |")
     if len(models) == 1:
         out += ["", "Пока все жители на одной модели; когда модели будут разные, эта таблица их сравнит."]
+    else:
+        out += _fairness_md(rep)
     out += _growth_md(rep)
     if any(v.get("wants") for v in rep["villagers"]):
         out += ["", "## Чего хотят жители", "",
@@ -346,6 +380,41 @@ def to_markdown(rep: dict) -> str:
         out += [f"{i + 1}. `{r['log']}`: seed {r['seed']}, режим {r['mode']}, {r['villagers']} жителей, "
                 f"{r['days']} дн., ${r['cost_usd']:.4f}" for i, r in enumerate(runs)]
     return "\n".join(out) + "\n"
+
+
+# Identical bots, survival, 30 seeds: a random 2-of-6 group differed from the rest by more than 20% in wealth in
+# 65% of cases and in building hours in 48% (fairness audit, docs/STATUS.md). Below this many seeds, say so.
+FEW_SEEDS = 5
+
+
+def _fairness_md(rep: dict) -> list[str]:
+    """What can make the per-model table unfair: few seeds, fixed seats, characters, backups, a judge in the race."""
+    vs, models = rep["villagers"], rep["models"]
+    out = ["", "**Можно ли верить сравнению моделей.** "
+           "«Ходы пропали» = вызов модели упал или ответ не прочитался, житель простоял ход; в действия модели "
+           "такие ходы не идут."]
+    if len(rep["seeds"]) < FEW_SEEDS:
+        out.append(f"- Мало прогонов ({len(rep['runs'])}, seed: {', '.join(map(str, rep['seeds'])) or '?'}). Даже "
+                   "у одинаковых ботов случайная пара жителей часто отличается от остальных больше чем на 20% по "
+                   f"богатству и стройке: разница между моделями без {FEW_SEEDS}+ seed может быть случайной.")
+    seats: dict[str, dict[str, set]] = {}  # model -> log -> villagers it played there
+    for v in vs:
+        seats.setdefault(v["model"], {}).setdefault(v["log"], set()).add(v["name"])
+    if all(len({frozenset(names) for names in logs.values()}) == 1 for logs in seats.values()):
+        out.append("- Каждая модель во всех прогонах играла одних и тех же жителей ("
+                   + "; ".join(f"{m}: {', '.join(sorted(next(iter(logs.values()))))}" for m, logs in sorted(seats.items()))
+                   + "). Место (дом, соседи, имя, порядок в списках) смешано с моделью; меняйте модели местами.")
+    if any(v.get("character") and not str(v["model"]).startswith("bot:") for v in vs):
+        out.append("- У части жителей задан характер: он тоже влияет на поведение. Для сравнения моделей "
+                   "ставьте `characters: off`.")
+    for m in models.values():
+        if m["other_model_calls"]:
+            out.append(f"- За {m['model']} {m['other_model_calls']} из {m['calls']} вызовов ответила запасная модель: "
+                       "эти ходы не её.")
+    if rep.get("lies_judged") and rep.get("judge_model") in models:
+        out.append(f"- Ложь оценивала {rep['judge_model']}, а она сама участвует в сравнении; судья из другой "
+                   "компании надёжнее.")
+    return out
 
 
 def _growth_md(rep: dict) -> list[str]:

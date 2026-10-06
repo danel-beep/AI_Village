@@ -304,8 +304,10 @@ class OpenRouterClient(Client):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
     def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 6,
-                 max_tokens: int = 1500, temperature: float = 0.8, reasoning: dict | None = None,
+                 max_tokens: int = 1500, temperature: float | None = None, reasoning: dict | None = None,
                  fallbacks: list[str] | None = None, parallel: int | None = None):
+        # None = the provider's default, as on the OpenAI route: villagers on different models and routes
+        # sample alike (a fair comparison); helpers (summaries, translation) pass their own value.
         self.model, self.temperature = model, temperature
         self.api_key = api_key  # None: read from settings/env on every call, so a changed key applies at once
         if not self.key:
@@ -323,9 +325,10 @@ class OpenRouterClient(Client):
         return self.api_key or keys.get("openrouter_key")
 
     def _post(self, models: list[str], messages: list[dict]) -> tuple[str, dict]:
-        body = {"model": models[0], "messages": messages, "max_tokens": self.max_tokens,
-                "temperature": self.temperature, "usage": {"include": True},
+        body = {"model": models[0], "messages": messages, "max_tokens": self.max_tokens, "usage": {"include": True},
                 "response_format": {"type": "json_object"}, "reasoning": self.reasoning}
+        if self.temperature is not None:
+            body["temperature"] = self.temperature
         if len(models) > 1:
             body["models"] = models
         req = urllib.request.Request(self.URL, json.dumps(body).encode(),

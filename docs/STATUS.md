@@ -98,6 +98,8 @@ Updated: 2026-10-06. Each backlog item is independent and sized for one thread /
 
 - Аудит сотрудничества (branch `claude/project-thread-j6q6rp`, отчёт `/mnt/project-files/reports/audits/cooperation.md`). Починки по его итогам: в «С нуля» до ратуши жителю больше не предлагают колодец/мост/башню/стену (`works.observe` пусто, правило мира с «(once a town_hall stands in the village)»); строки каталога `opens` (рыночная площадь, ратуша, таверна, кузница) говорят, что открывает постройка, только при включённых стадиях (`construction.effect_text`); помощь на чужой или общей площадке (`site_supplied`, `construct`, в событиях теперь `owner`) поднимает репутацию помощника (`reputation.deltas`) и чувства хозяина двора (`family.on_event`, правило `owner`), своя стройка не считается; правило «торговать только рядом» в `llm.SYSTEM` больше не спорит с «Trades are carried».
 
+- Аудит честности сравнения моделей (branch `claude/project-thread-fu5ux3`, отчёт `/mnt/project-files/reports/audits/fairness.md`). Мир для моделей одинаковый (промпт, порядок ходов, память, ошибки); главная беда в постановке: один seed и модели на одних и тех же жителях (A/A на одинаковых ботах, 30 карт «С нуля»: случайная пара из 6 отличается от остальных >20% по богатству в 65% случаев, по стройке в 48%). Исправлено: `OpenRouterClient` больше не шлёт свою temperature 0.8 жителям (как и прямой OpenAI: значение провайдера; summary/translate передают свою); `scorecard.py` не считает ходы, пропавшие из-за сбоя модели (`(model error`/`parse_error`), её действиями (колонка «Ходы пропали», `lost`, `lost_share`), считает ответы запасных моделей (`other_model_calls`), пишет блок «Можно ли верить сравнению моделей» (мало seed < `FEW_SEEDS`, одни и те же места, характеры, запасные модели, судья лжи в сравнении); `test_neutrality` проверяет события «С нуля». Для сравнения: `unfairness: 0`, `characters: off`, ≥5 seed, модели меняются местами (бэклог 13).
+
 ## In progress: план «С нуля»
 
 Владельцы зон, чтобы треды не мешали друг другу (план: `/mnt/project-files/reports/survival-plan/plan.md`, спека `docs/specs/survival.md`):
@@ -115,7 +117,7 @@ Updated: 2026-10-06. Each backlog item is independent and sized for one thread /
 
 1. ~~First LLM run + report~~ — done (see above).
 12. ~~**Request queue for 20 agents.**~~ Done, see "Population scaling" above.
-13. **Model comparison run.** Later, once the game is finished (Danel). The scorecard already groups villagers by model; missing: picking a model per villager (seeded seating, models swapping seats between runs).
+13. **Model comparison run.** Later, once the game is finished (Danel). The scorecard already groups villagers by model; missing: picking a model per villager (seeded seating, models swapping seats between runs). Fairness audit (`/mnt/project-files/reports/audits/fairness.md`): best design is one-model villages on the same seeds, mixed villages 3/3 with mirrored seating; ≥5 seeds for large effects; raise `max_tokens` (~4000) for companies with hidden reasoning; a lie judge from a third company.
 2. ~~Night reflection / diary~~ — done (see above). Viewer shows diaries on villager click.
 5. ~~Metrics script~~ — done (`aivillage/metrics.py`).
 6. ~~Live viewer~~ — done (see above).
