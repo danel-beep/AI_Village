@@ -16,7 +16,9 @@ The finish event names everyone who brought or worked (and, for a village buildi
 
 Effects (per level row of the catalog): `roof` (has_roof), `food_keeps_x` (spoilage.STORAGE_SOURCES),
 `sell_bonus` and `defense` (works.SELL_BONUS_SOURCES / DEFENSE_SOURCES), `workshop` (crafting asks
-has_building). Which kinds may be started at which stage: progress.DEFAULT_UNLOCKS "building:<kind>[@<level>]".
+has_building), `extra_per_batch` (a higher-level workshop adds to every batch made there; a `craft` event
+hook), `makes` + `feed` + `cap` (a pen: fed from the owner's chest at night, its stock is collected like
+a coop's). Without crafting chains, crafted materials are asked raw (`raw_instead`). Which kinds may be started at which stage: progress.DEFAULT_UNLOCKS "building:<kind>[@<level>]".
 
 State: `world.construction` = {"sites": {id: site}, "buildings": [common buildings]}; reads never create it,
 so observing does not change the world. Log: tick `view.sites` (docs/specs/survival.md) and `view.buildings`.
@@ -48,6 +50,20 @@ progress.DEFAULT_UNLOCKS.update({
     "building:tavern": {"stage": "village"},
     "building:market_square@2": {"stage": "village"},
     "building:palisade@2": {"stage": "town"},
+    # task 10: more workshops, livestock, the stone wall and second levels
+    "building:kiln": {"stage": "hamlet"},
+    "building:mill": {"stage": "hamlet"},
+    "building:tannery": {"stage": "hamlet"},
+    "building:pen": {"stage": "hamlet"},
+    "building:workbench@2": {"stage": "hamlet"},
+    "building:weaving_shed": {"stage": "village"},
+    "building:pen@2": {"stage": "village"},
+    "building:kiln@2": {"stage": "village"},
+    "building:mill@2": {"stage": "village"},
+    "building:tannery@2": {"stage": "village"},
+    "building:smokehouse@2": {"stage": "village"},
+    "building:smithy@2": {"stage": "town"},
+    "building:wall": {"stage": "town", "building": "palisade@2"},
 })
 
 
@@ -73,6 +89,19 @@ def _row(cfg: dict, kind: str, lvl: int) -> dict:
     """The catalog row of a level (its effects); {} for level 0 or an unknown kind."""
     spec = catalog(cfg).get(kind)
     return spec["levels"][min(lvl, len(spec["levels"])) - 1] if spec and lvl >= 1 else {}
+
+
+def level_items(cfg: dict, row: dict) -> dict[str, int]:
+    """Materials of a level. Without crafting chains, crafted materials (plank, brick, iron, clay) are asked as
+    the raw ones they come from (`raw_instead`), so the catalog works in any mode."""
+    items = dict(row.get("items", {}))
+    if (cfg.get("crafting") or {}).get("enabled"):
+        return items
+    out: dict[str, int] = {}
+    for k, n in items.items():
+        for raw, m in (_c(cfg).get("raw_instead", {}).get(k) or {k: 1}).items():
+            out[raw] = out.get(raw, 0) + n * m
+    return out
 
 
 def _name(cfg: dict, kind: str) -> str:
@@ -188,7 +217,64 @@ def sell_bonus(world: World) -> float:
     return float(_common_sum(world, "sell_bonus"))
 
 
+def _workshop_bonus(ctx: Ctx, ev: ops.Event, names: list[str]) -> None:
+    """ops.EVENT_HOOKS: a workshop of a higher level (`extra_per_batch`) adds that many to every batch made there."""
+    w, cfg = ctx.world, ctx.cfg
+    if ev.kind != "craft" or not enabled(cfg) or not (cfg.get("crafting") or {}).get("enabled"):
+        return
+    a, r = w.agents.get(ev.actor or ""), cfg["recipes"].get(ev.data.get("recipe"))
+    if a is None or r is None or not ev.data.get("amount"):
+        return
+    from . import crafting
+    fits = {r.get("building")} | set(r.get("more_at", {}))
+    here = [x for x in crafting.workshops_at(w, a.location) if x["kind"] in fits
+            and (x.get("users") is None or a.name in x["users"])]
+    best = max(((int(_row(cfg, x["kind"], x["level"]).get("extra_per_batch", 0)), x) for x in here),
+               default=(0, None), key=lambda t: t[0])
+    if best[0] <= 0:
+        return
+    kinds = {x["kind"] for x in here}
+    base = max([r["output"], *[n for k, n in r.get("more_at", {}).items() if k in kinds]])
+    extra = best[0] * (ev.data["amount"] // max(1, base))
+    if extra <= 0:
+        return
+    rid, ws = ev.data["recipe"], best[1]
+    ops.mint(w, a.inventory, rid, extra)
+    ctx.emit("workshop_bonus", f"The {_level_text(cfg, ws['kind'], ws['level'])} gave {a.name} {extra} more {rid}.",
+             actor=a.name, location=a.location, visibility="location", recipe=rid, amount=extra,
+             building=ws["kind"], level=ws["level"])
+
+
+def after_night(ctx: Ctx) -> None:
+    """New day: yard buildings with `makes` (a pen) produce into their stock if fed from the owner's chest."""
+    w, cfg = ctx.world, ctx.cfg
+    if not enabled(cfg):
+        return
+    for plot in w.plots.values():
+        if not plot.owner:
+            continue
+        chest = w.chests.get(f"chest_{plot.owner}")
+        for b in plot.buildings:
+            row = _row(cfg, b["kind"], int(b.get("level", 1)))
+            if not row.get("makes"):
+                continue
+            feed = row.get("feed") or {}
+            if any(chest is None or ops.count(chest.items, k) < n for k, n in feed.items()):
+                ctx.emit("hungry_animals", f"Your {_name(cfg, b['kind'])} had no {fmt_items(feed)} in your chest "
+                         f"last night and made nothing.", to=plots.household(w, plot), home=plot.home,
+                         animals=[b["kind"]])
+                continue
+            for k, n in feed.items():
+                ops.burn(w, chest.items, k, n)
+            b.setdefault("items", {})
+            for item, n in row["makes"].items():
+                room = int(row.get("cap", 9)) - ops.count(b["items"], item)
+                if room > 0:
+                    ops.mint(w, b["items"], item, min(room, n))
+
+
 spoilage.STORAGE_SOURCES.append(food_keeps_x)
+ops.EVENT_HOOKS.append(_workshop_bonus)
 works.DEFENSE_SOURCES.append(defense)
 works.SELL_BONUS_SOURCES.append(sell_bonus)
 
@@ -270,6 +356,11 @@ def effect_text(cfg: dict, kind: str, lvl: int) -> str:
         parts.append(f"village defense +{row['defense']}")
     if row.get("workshop"):
         parts.append("a workshop for recipes that need it")
+    if row.get("extra_per_batch"):
+        parts.append(f"+{row['extra_per_batch']} to every batch made here")
+    if row.get("makes"):
+        feed = f" if fed {fmt_items(row['feed'])} from the owner's chest" if row.get("feed") else ""
+        parts.append(f"makes {fmt_items(row['makes'])} a day{feed} (collect)")
     return ", ".join(parts)
 
 
@@ -316,7 +407,7 @@ def start_building(ctx: Ctx, a: Agent, args: StartArgs) -> None:
     home = catalog(cfg)[kind].get("place") == "home"
     site = {"id": w.new_id("site"), "kind": kind, "level": lvl, "location": a.location,
             "owner": w.plots[a.location].owner if home else None, "started_by": a.name, "started_day": w.day,
-            "needs": dict(row.get("items", {})), "given": {}, "hours": row["hours"], "work": 0.0,
+            "needs": level_items(cfg, row), "given": {}, "hours": row["hours"], "work": 0.0,
             "min_workers": int(row.get("min_workers", 1)), "workers": {}, "givers": {}, "recent": [], "pending": []}
     _mut(w)["sites"][site["id"]] = site
     together = (f"; work counts while at least {site['min_workers']} people work on it within the same hour"
@@ -498,7 +589,7 @@ def observe(world: World, name: str) -> dict:
     here = startable(world, a)
     if here:
         out["can_start_building_here"] = {
-            k: {"level": lvl, "items": _levels(cfg, k)[lvl - 1].get("items", {}),
+            k: {"level": lvl, "items": level_items(cfg, _levels(cfg, k)[lvl - 1]),
                 "hours": _levels(cfg, k)[lvl - 1]["hours"],
                 "people_needed_within_an_hour": _levels(cfg, k)[lvl - 1].get("min_workers", 1),
                 "gives": effect_text(cfg, k, lvl)} for k, lvl in here.items()}
@@ -521,7 +612,7 @@ def facts(cfg: dict) -> str:
             when = f", from stage {opens['stage']}" if opens.get("stage") else ""
             ppl = f", {row['min_workers']} people" if row.get("min_workers", 1) > 1 else ""
             eff = effect_text(cfg, kind, i)
-            lv.append(f"L{i}: {fmt_items(row.get('items', {}))}, {row['hours']}h{ppl}{when}" + (f" -> {eff}" if eff else ""))
+            lv.append(f"L{i}: {fmt_items(level_items(cfg, row))}, {row['hours']}h{ppl}{when}" + (f" -> {eff}" if eff else ""))
         rows.append(f"{kind} ({where}; " + "; ".join(lv) + ")")
     c = _c(cfg)
     return ("- Building: start_building opens a site where you stand, anyone can bring_materials and construct "

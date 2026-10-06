@@ -518,6 +518,7 @@ def night(ctx: Ctx) -> None:
             ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
                      f"until day {o.expires_day}.", visibility="public")
     plots.after_night(ctx)
+    construction.after_night(ctx)
     family.after_night(ctx)
     works.after_night(ctx)
     taxes.after_night(ctx)
