@@ -26,7 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip", "buy_land", "sell_land", "attack", "set_fire")},
+            "propose_law", "vote_law", "report_theft", "gossip", "buy_land", "sell_land", "attack", "set_fire", "dice")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -344,6 +344,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Random fires (engine night): each dawn a random house catches fire with this chance
     # (0 = only the god or an arsonist starts fires). Shown as a setting in the app.
     "random_fires": {"per_day": 0.0},
+    # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with
+    # the same stake. Each rolls `dice`d`sides`, higher takes the stake; ties rerolled `rerolls` times.
+    # A player may stake up to coins + `credit`; a loser short of coins owes the rest, due in `debt_days`.
+    "dice": {"enabled": True, "places": ["square"], "dice": 2, "sides": 6, "rerolls": 2, "max_stake": 30,
+             "credit": 15, "debt_days": 2, "offer_hours": 2},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
