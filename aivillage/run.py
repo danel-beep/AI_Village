@@ -144,7 +144,7 @@ def view(world: World) -> dict:
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
                                 "profession": a.profession, "inventory": a.inventory,
                                 "busy": max(0, a.busy_until - world.tick) * tm,
-                                "task": (a.task or {}).get("kind")}
+                                "task": (a.task or {}).get("kind"), "hospital_stays": a.hospital_stays}
                        for a in world.agents.values()},
             # chests for the hero page's property list (viewer/hero.js)
             "chests": {c.owner: {"coins": c.coins, "items": c.items, "locked": c.locked} for c in world.chests.values()},
