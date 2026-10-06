@@ -65,6 +65,8 @@ MODES: dict[str, dict[str, Any]] = {
             "places": {"enabled": True},
             # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
             "chronicle": {"enabled": True},
+            # a public honor board: notes of praise by villagers, titles by law (honors.py)
+            "honors": {"enabled": True},
             # feasts and goods on view: things worth having beyond food (luxury.py, wants research idea 3)
             "luxury": {"enabled": True},
         },
