@@ -136,6 +136,8 @@ def view(world: World) -> dict:
                                 "busy": max(0, a.busy_until - world.tick) * tm,
                                 "task": (a.task or {}).get("kind")}
                        for a in world.agents.values()},
+            # chests for the hero page's property list (viewer/hero.js)
+            "chests": {c.owner: {"coins": c.coins, "items": c.items, "locked": c.locked} for c in world.chests.values()},
             "kin": {"feelings": world.kin.feelings, "couples": [m.spouses for m in world.kin.marriages.values()]},
             # reputation.py: each villager's own tally of others and the rumors they heard (non-empty only)
             "social": {a.name: {"reputation": a.reputation, "rumors": a.rumors}
