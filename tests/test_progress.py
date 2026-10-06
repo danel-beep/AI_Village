@@ -85,8 +85,11 @@ def test_start_stage_and_save_roundtrip():
     assert progress.stage(w) == "town"
     assert set(w.progress["reached"]) == {"camp", "hamlet", "village", "town"}
     assert progress.unlocked(w, "feature:raids")
-    # a stage alone opens stage rules, not building rules
-    assert not progress.unlocked(w, "action:buy")
+    # a later start: the buildings its stages need count as standing, so a town has its market and town hall
+    assert progress.unlocked(w, "action:buy") and progress.unlocked(w, "action:run_for_mayor")
+    assert not progress.unlocked(w, "action:dice")  # no stage needs a tavern
+    v = engine.new_world({**ON, "progress": {"enabled": True, "start_stage": "village"}})
+    assert progress.unlocked(v, "action:buy") and "run_for_mayor" in progress.locked_actions(v)
     w2 = state.World.from_dict(w.to_dict())
     assert w2.progress == w.progress
 
