@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, graves, labor, mapgen, modes, plots, threats, tiles, works
+from . import animals, clock, construction, crises, engine, graves, labor, mapgen, modes, plots, pricing, threats, tiles, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -166,7 +166,17 @@ def view(world: World) -> dict:
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
-                    for l in world.locations.values() if l.slots}}
+                    for l in world.locations.values() if l.slots},
+            # for the viewer's object panels (viewer/inspect.js): the square's order board, trader prices
+            "orders": [{"id": o.id, "needs": o.needs, "reward": o.reward, "until": o.expires_day}
+                       for o in world.orders.values() if o.status == "open"],
+            "market": market_prices(world)}
+
+
+def market_prices(world: World) -> dict:
+    """What the NPC trader charges ("buy") and pays ("sell") now, same as actions._price (pricing.py)."""
+    return {item: [pricing.price(world, item, "buy"), pricing.price(world, item, "sell")]
+            for item, info in world.config["items"].items() if info.get("tradable", True)}
 
 
 def read_log(path: str | Path) -> Iterable[dict]:

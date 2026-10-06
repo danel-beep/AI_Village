@@ -70,6 +70,7 @@
 <script src="digest.js"></script>
 <script src="replay.js"></script>
 <script src="dossier.js"></script>
+<script src="inspect.js"></script>
 <script src="hero.js"></script>
 <script src="highlights.js"></script>
 <script src="mp4_muxer.js"></script>
@@ -178,17 +179,19 @@ document.getElementById('scrub').oninput = e => go(+e.target.value, true);
 function go(n, jump) { if (!ticks.length) return; i = Math.max(0, Math.min(ticks.length - 1, n)); frac = jump ? 1 : 0; render(); }
 // Selecting a villager (map click via PixelMap.pick, a card, or Dossier's close button) opens their dossier.
 function select(n) { selected = selected === n ? null : n; lastPanel = -1; }
-// Click a villager on the map to follow them (canvas uses object-fit: contain, so undo the letterboxing).
+// Click a villager on the map to follow them, anything else to inspect it (viewer/inspect.js).
+// The canvas uses object-fit: contain, so undo the letterboxing.
 cv.onclick = e => {
   const r = cv.getBoundingClientRect(), k = Math.min(r.width / cv.width, r.height / cv.height);
   const x = (e.clientX - r.left - (r.width - cv.width * k) / 2) / k, y = (e.clientY - r.top - (r.height - cv.height * k) / 2) / k;
-  const n = PixelMap.pick(x, y); if (n) select(n);
+  const n = PixelMap.pick(x, y); if (n) select(n); else if (window.Inspect) Inspect.click(x, y);   // else a building or object
 };
 
 function render() {
   if (!ticks.length) return;
   const t = ticks[i], prev = ticks[Math.max(0, i - 1)];
   PixelMap.draw(g, { t, prev, frac, selected, time: performance.now(), tr, hourSec });
+  if (window.Inspect) Inspect.mark(g);
   if (window.Sound) Sound.update(header, ticks, i, playing);   // music, ambience, event sounds (viewer/sound.js)
   document.getElementById('scrub').value = i;
   // Minutes run with the animation, so the clock keeps ticking while the next hour is being computed.
@@ -213,6 +216,7 @@ function panel() {
   }).join('');
   document.querySelectorAll('.card').forEach(el => el.onclick = () => select(el.dataset.n));
   Dossier.render(selected);
+  if (window.Inspect) Inspect.render();
   const feed = [];
   for (let k = i; k >= 0 && feed.length < 40; k--) for (const e of ticks[k].events.slice().reverse()) {
     const mine = selected && (e.actor === selected || e.to.includes(selected));

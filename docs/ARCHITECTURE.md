@@ -86,6 +86,7 @@ god events ─┐
 | `viewer/camera.js` | Zoom (wheel, +/- buttons, keys `+ - 0`), drag to pan, follows the selected villager. `PixelMap.pick(x, y)` takes canvas pixels and converts through the camera |
 | `viewer/mapgen.js` | `GenMap`: turns `config.map.layout` into pixelmap's layout (landmark art shifted by `off`), paints river/plots/patches/hamlets/signposts, gives maplayer the resource spots of patches and the river |
 | `viewer/plotlayer.js` | Yards from `view.plots`: buildings packed into cells in build order (beds, coop with hens, cow pen, hives with bees), what is ready, bought land, house level on the roof. Yard = `layout.plots[home]` / the house's generated `plot`, else 3x3 tiles behind the house. Hooked via `PlotLayer.init/draw` |
+| `viewer/inspect.js` | Object panels: a map click that hits no villager opens what is under it (`MapLayer.objectAt` for trees/beds/bushes/shoals/rocks, else the smallest `layout.box` or yard, water = river). Reads `view.map/plots/chests/orders/works/market/fire_info` and the events of ticks 0..i. Hooks in index.html: `Inspect.click`, `Inspect.render` (from `panel()`), `Inspect.mark` (frame after the map) |
 | `viewer/threatlayer.js` | `ThreatLayer.draw` from `view.threats`: bandits (fewer as they weaken, a torch), the beast beside the house, the traveler at the square, a red pennant on a warned target, hp bars. Pixel art drawn in code |
 | `viewer/maplayer.js` | Map objects layer, drawn from `view.map` / `view.fire_info` / events: trees and stumps, beds by growth stage, bushes, fish, rocks, fire size, water splashes. Hooked into pixelmap via `MapLayer.init/claimTrees/draw/drawTop` |
 
@@ -102,6 +103,7 @@ Every tick's `view` carries:
 
 - `map`: `{loc: {"slots": {resource: [units per object]}, "cap": {resource: units when full}, "planted": {slot: {"resource", "by", "ripe_day"}}}}`.
   Object i keeps its index forever, so the viewer can give it a fixed place. 0 units = stump / bare soil / empty bush.
+- `orders` (open board orders: needs, reward, until day), `market` ({item: [trader sells at, trader buys at]}): for `viewer/inspect.js`.
 - `fire_info`: `{house: {"water_needed", "hours_left", "hours"}}` (`fires` stays a plain list of houses).
 
 Events for animation (all have `actor`, `location` and `data`):
