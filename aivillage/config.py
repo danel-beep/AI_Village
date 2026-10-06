@@ -519,6 +519,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # ceil(spare x villagers x its share of population.profession_weights) places; no work at one's trade
     # for `idle_days` days loses the place at dawn (the villager becomes a laborer).
     "places": {"enabled": False, "spare": 1.25, "idle_days": 3, "change_cooldown_days": 2},
+    # Visible wealth and the village chronicle (aivillage/chronicle.py). Off here; on in the crafts mode.
+    # Wealth levels poor / modest / well-off / rich start at these coins (goods at base value included).
+    "chronicle": {"enabled": False, "every_days": 7, "tiers": [50, 150, 400]},
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with

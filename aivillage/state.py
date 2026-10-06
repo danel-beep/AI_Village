@@ -285,6 +285,7 @@ class World:
     trader_stock: dict[str, int] = field(default_factory=dict)  # pricing.py: what villagers sold the trader lately
     graves: list[dict] = field(default_factory=list)  # graves.py: one per dead villager
     works: Works = field(default_factory=Works)  # village structures (works.py)
+    chronicle: dict[str, Any] = field(default_factory=dict)  # chronicle.py: what happened since the last report
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -326,6 +327,7 @@ class World:
             trader_stock=d.get("trader_stock", {}),
             graves=d.get("graves", []),
             works=Works(**d.get("works", {})),
+            chronicle=d.get("chronicle", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

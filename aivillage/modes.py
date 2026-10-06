@@ -63,6 +63,8 @@ MODES: dict[str, dict[str, Any]] = {
             "council_orders": {"enabled": True},
             # limited places per trade: no work at your trade for 3 days frees your place (places.py)
             "places": {"enabled": True},
+            # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
+            "chronicle": {"enabled": True},
         },
     },
     "peaceful": {

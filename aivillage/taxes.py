@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import governance, ops, works
+from . import chronicle, governance, ops, works
 from .actions import ItemMap, _items_known
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
@@ -66,6 +66,7 @@ def bill(world: World, a: Agent) -> dict:
 
 def record_income(world: World, a: Agent, n: int) -> None:
     """Coins `a` got from outside the village (the trader, council orders): the base of the sales tax."""
+    chronicle.earned(world, a, n)
     if enabled(world.config):
         a.earned_since_tax += n
 
