@@ -114,7 +114,7 @@ takes: `workbench` carpenter, `smithy` smith, `kiln` potter, `mill` miller, `tan
 workshop where the crafter stands; `more_at` makes more there. Workshops are found by
 `crafting.workshops_at(world, location) -> [{"kind", "owner", "level", "users"}]`: private yard buildings
 (`Plot.buildings`, used by the owner's household), map locations whose id is a workshop kind (owner None,
-everyone), finished buildings in `world.construction["buildings"]` (`{kind, level, location, owner}`, owner None =
+everyone; not in an empty start: `crafting.map_workshops` off), finished buildings in `world.construction["buildings"]` (`{kind, level, location, owner}`, owner None =
 everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(world, location) -> list`) for buildings kept elsewhere.
 `crafting.makes(cfg, kind)` lists what a workshop kind makes. Workshop recipes register
 `recipe:<id>: {"building": kind}` in `progress.DEFAULT_UNLOCKS`. Log: `craft` events carry `recipe` and
