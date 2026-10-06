@@ -78,3 +78,11 @@ def test_start_stage_knob_only_in_survival():
     r = knobs.to_run({"mode": "survival", "start_stage": "village"})
     assert r["override"]["progress"] == {"enabled": True, "start_stage": "village"}
     assert progress.stage(engine.new_world(r["override"])) == "village"
+
+
+def test_camp_has_clay_near_and_no_village_projects():
+    w = world()
+    assert "clay" in w.locations["mine"].resources and not w.projects
+    assert {"contribute", "build_work"} <= set(progress.locked_actions(w))
+    t = world("town")
+    assert t.projects and "contribute" not in progress.locked_actions(t)
