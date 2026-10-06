@@ -353,6 +353,8 @@ class WorkerBot(Bot):
             spot = "mine"
         if loc == spot:
             want = "ore" if spot == "mine" and me["profession"] == "smith" else None
+            if me["profession"] == "laborer" and obs["here"]["resources"].get("berries"):
+                want = "berries"  # no trade place: food first (crafts: labor.laborer_goods)
             return decision("work", {"hours": 4, **({"resource": want} if want else {})}, "work")
         return go(spot, "go to work")
 
