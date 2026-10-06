@@ -23,4 +23,5 @@ def test_prompt_has_facts_and_recent_actions():
     for _ in range(4):
         ag.decide(engine.observe(w, name))
     assert 1 <= len(ag.recent) <= 3
+    ag.memory = "fresh"
     assert "your_last_actions" in ag.messages(engine.observe(w, name))[1]["content"]

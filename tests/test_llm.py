@@ -58,7 +58,7 @@ def test_notes_persist_between_turns():
     agent = LLMAgent("Anna", "farmer", Noter())
     agent.decide(engine.observe(w, "Anna"))
     assert agent.notes == "Boris owes me"
-    assert "Boris owes me" in agent.messages(engine.observe(w, "Anna"))[1]["content"]
+    assert "Boris owes me" in agent.messages(engine.observe(w, "Anna"))[-1]["content"]
 
 
 class Diarist:
@@ -86,7 +86,7 @@ def test_reflect_writes_short_diary_and_people_memory():
     assert entry["day"] == 1 and len(entry["text"].split()) <= DIARY_WORDS
     assert agent.people == {"Boris": "Owes me 3 coins."}  # unknown names and self are dropped
     assert agent.day_log == []
-    prompt = agent.messages(engine.observe(w, "Anna"))[1]["content"]
+    prompt = "".join(m["content"] for m in agent.messages(engine.observe(w, "Anna")))
     assert "Owes me 3 coins." in prompt and "I trust nobody." in prompt
 
 
