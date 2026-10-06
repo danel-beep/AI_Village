@@ -78,7 +78,7 @@ def test_gini_edges():
 
 def test_real_run_consistent(tmp_path):
     log = tmp_path / "run.jsonl"
-    w = engine.new_world({"seed": 3})
+    w = engine.new_world({"seed": 3, "fire_spread_hours": 0})  # exactly the two god fires
     god = {20: [{"name": "fire", "args": {"person": "Anna"}}], 60: [{"name": "fire", "args": {"person": "Boris"}}]}
     stats = run(w, bots_decider(w, ["worker", "thief", "random", "worker"], 3), days=8, god_script=god,
                 log_path=log)

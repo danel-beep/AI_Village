@@ -14,6 +14,8 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
 - `only`: "llm" or "bots" shows the knob for that kind of village only.
 - `roster` (not a knob): optional list of {name, profession, character} from "Жители по одному".
 - `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
+- `sets` (on a choice): {option: {knob key: slider value}}, a preset. Picking the option moves those sliders;
+  missing answers take the preset value before the mode default (the "Сколько случайностей" knob).
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from . import modes
+from . import modes, seasons
 from .config import DEFAULT_CONFIG, make_config
 
 BOT_MIXES = {
@@ -77,7 +79,36 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "hospital_days", "path": "hospital_days", "group": "Правила", "type": "range",
      "label": "Дней в больнице", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "seasons", "path": "seasons.enabled", "group": "Правила", "type": "toggle", "label": "Времена года",
-     "hint": "Зимой поле не растёт, ягод нет, рыбы меньше."},
+     "hint": "Зимой грядки не засеять, что не дозрело, замерзает, ягод нет, рыбы меньше."},
+    {"key": "season_days", "group": "Правила", "type": "choice", "label": "Длина сезона", "default": 0,
+     "options": [[0, "Авто"], [1, "1 день"], [2, "2 дня"], [3, "3 дня"], [7, "Неделя"], [14, "2 недели"]],
+     "hint": "Авто: весь год укладывается в прогон и последним идёт зима (3 дня = лето, осень, зима)."},
+    {"key": "season_start", "group": "Правила", "type": "choice", "label": "С какого сезона начать", "default": "auto",
+     "options": [["auto", "Авто"], ["spring", "🌱 Весна"], ["summer", "☀️ Лето"], ["autumn", "🍂 Осень"],
+                 ["winter", "❄️ Зима"]],
+     "hint": "Авто: так, чтобы к концу прогона наступила зима."},
+
+    # --- division of labour (aivillage/labor.py) ---
+    {"key": "labor", "path": "labor.enabled", "group": "Ремёсла", "type": "toggle", "label": "Каждый добывает только своё",
+     "hint": "Рыбу ловит только рыбак, лес рубит лесоруб, зерно сеет фермер, камень, руду и золото копает шахтёр "
+             "(в режиме «Ремёсла» и ягоды собирает только фермер). Остальное жители берут друг у друга."},
+    {"key": "trade_anywhere", "path": "labor.trade_anywhere", "group": "Ремёсла", "type": "toggle",
+     "label": "Сделки на расстоянии",
+     "hint": "Предложение обмена можно принять, не стоя рядом: товар доставят. Выключено: оба должны быть в одном месте."},
+    {"key": "work_hours", "path": "labor.work_hours_per_day", "group": "Ремёсла", "type": "range",
+     "label": "Часов работы в день", "min": 0, "max": 12, "step": 1, "unit": " ч",
+     "hint": "0: без ограничения. Работает, только когда включено «Каждый добывает только своё»."},
+    {"key": "skill_bonus", "path": "labor.skill_bonus", "group": "Ремёсла", "type": "range",
+     "label": "Прибавка за уровень мастерства", "min": 0, "max": 3, "step": 1, "unit": " в час",
+     "hint": "Мастерство растёт от часов работы по своей профессии (3 уровня)."},
+    {"key": "trader_buys", "path": "labor.trader_buys_per_day.default", "group": "Ремёсла", "type": "range",
+     "label": "Торговец скупает в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
+     "hint": "Сколько штук каждого товара торговец покупает за день у всей деревни (на 5 жителей). Кто первый, тот и продал."},
+    {"key": "trader_buys_gold", "path": "labor.trader_buys_per_day.gold", "group": "Ремёсла", "type": "range",
+     "label": "Из них золота", "min": 0, "max": 40, "step": 1, "unit": " шт."},
+    {"key": "trader_sells", "path": "labor.trader_sells_per_day.default", "group": "Ремёсла", "type": "range",
+     "label": "Торговец продаёт в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
+     "hint": "Сколько штук каждого товара у торговца есть на продажу за день (на 5 жителей)."},
 
     # --- theft ---
     {"key": "steal_notice_chance", "path": "steal_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
@@ -146,11 +177,68 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "crisis_w_caravan", "path": "crises.kinds.caravan.weight", "group": "Кризисы", "type": "range",
      "label": "Как часто караван", "min": 0, "max": 5, "step": 1},
 
+    # --- random events: the world's dice (threats.py, illness.py, conflict.random_fire, crises.py) ---
+    {"key": "chaos", "group": "Случайные события", "type": "choice", "label": "Сколько случайностей",
+     "default": "normal",
+     "options": [["fair", "⚖️ Честно (всё 0)"], ["normal", "🎲 Обычно"], ["chaos", "🌪 Хаос"]],
+     "about": {"fair": "Ничего не случается само: ни пожаров, ни болезней, ни набегов, ни кризисов. Только то, "
+                       "что сделают жители и вы в режиме бога.",
+               "normal": "Рекомендуемые шансы: иногда путник, редко набег или зверь, кризисы по режиму экономики.",
+               "chaos": "Беды почти каждый день: пожары, болезни, набеги, звери, кризисы."},
+     "hint": "Кнопка выставляет ползунки ниже; любой можно потом подвинуть вручную.",
+     "sets": {"fair": {"random_fire": 0, "sickness_chance": 0, "raid_chance": 0, "beast_chance": 0,
+                       "traveler_chance": 0, "crises": False},
+              "normal": {"random_fire": 3, "sickness_chance": 5, "raid_chance": 5, "beast_chance": 4,
+                         "traveler_chance": 15},
+              "chaos": {"random_fire": 20, "sickness_chance": 20, "raid_chance": 25, "beast_chance": 20,
+                        "traveler_chance": 30, "crises": True, "crisis_chance": 90}}},
+    {"key": "random_fire", "path": "random_fires.per_day", "group": "Случайные события", "type": "range",
+     "scale": 0.01, "label": "Дом загорается сам", "min": 0, "max": 50, "step": 1, "unit": "% в день",
+     "hint": "Рекомендуем 3%."},
+    {"key": "sickness_chance", "path": "illness.per_day", "group": "Случайные события", "type": "range",
+     "scale": 0.01, "label": "Кто-то заболевает", "min": 0, "max": 50, "step": 1, "unit": "% в день",
+     "hint": "Рекомендуем 5%. Больной не работает, теряет здоровье по ночам и заражает тех, кто рядом."},
+    {"key": "raid_chance", "path": "threats.kinds.raid.per_day", "group": "Случайные события", "type": "range",
+     "scale": 0.01, "label": "Набег бандитов", "min": 0, "max": 50, "step": 1, "unit": "% в день",
+     "hint": "Рекомендуем 5%. Грабят сундуки дом за домом, уходя поджигают дом. Если отбиться, бросают добычу."},
+    {"key": "beast_chance", "path": "threats.kinds.beast.per_day", "group": "Случайные события", "type": "range",
+     "scale": 0.01, "label": "Зверь из леса", "min": 0, "max": 50, "step": 1, "unit": "% в день",
+     "hint": "Рекомендуем 4%. Ест запасы и ранит жителей, пока его не прогонят."},
+    {"key": "traveler_chance", "path": "threats.kinds.traveler.per_day", "group": "Случайные события",
+     "type": "range", "scale": 0.01, "label": "Приходит путник", "min": 0, "max": 50, "step": 1,
+     "unit": "% в день", "hint": "Рекомендуем 15%. Просит еды; добрый благодарит, а разведчик наводит бандитов."},
+    {"key": "scout_chance", "path": "threats.kinds.traveler.scout_chance", "group": "Случайные события",
+     "type": "range", "scale": 0.01, "label": "Путник оказывается разведчиком", "min": 0, "max": 100, "step": 5,
+     "unit": "%", "hint": "Рекомендуем 30%. Если его не прогнать, через день-два без предупреждения придут бандиты."},
+    {"key": "threat_warn", "path": "threats.warn_chance", "group": "Случайные события", "type": "range",
+     "scale": 0.01, "label": "Набег или зверь объявлены заранее", "min": 0, "max": 100, "step": 10, "unit": "%",
+     "hint": "Рекомендуем 50%. Остальные приходят внезапно."},
+    {"key": "threat_warn_days", "path": "threats.warn_days", "group": "Случайные события", "type": "range",
+     "label": "За сколько дней предупреждают", "min": 1, "max": 7, "step": 1, "unit": " дн."},
+    {"key": "illness_spread", "path": "illness.spread_chance", "group": "Случайные события", "type": "range",
+     "scale": 0.01, "label": "Заразность болезни", "min": 0, "max": 50, "step": 5, "unit": "% в час",
+     "hint": "Шанс заразиться за час рядом с больным. Рекомендуем 10%."},
+    # --- village works and treasury (aivillage/works.py, governance.py) ---
+    {"key": "works", "path": "works.enabled", "group": "Стройки и казна", "type": "toggle", "label": "Общие стройки",
+     "hint": "Колодец, мост, вышка, стена (по 3 уровня). Начинает мэр (без мэра любой), строят все вместе; "
+             "видно, кто помог, а кто нет."},
+    {"key": "works_council", "path": "works.council_idle_days", "group": "Стройки и казна", "type": "range",
+     "label": "Совет сам предлагает стройку после простоя", "min": 0, "max": 10, "step": 1, "unit": " дн.",
+     "hint": "0: никогда, стройки начинают только жители. Рекомендуем 3."},
+    {"key": "embezzle", "path": "treasury.embezzle", "group": "Стройки и казна", "type": "toggle",
+     "label": "Мэр может украсть из казны",
+     "hint": "Казна у мэра. Пропажу видно при проверке казны на площади или при смене мэра."},
+    {"key": "audit_on_handover", "path": "treasury.audit_on_handover", "group": "Стройки и казна", "type": "toggle",
+     "label": "Пересчёт казны при смене мэра"},
+
     # --- fires ---
     {"key": "fire_ticks", "path": "fire_ticks", "group": "Пожары и заказы", "type": "range",
      "label": "Сколько часов горит дом до потери", "min": 2, "max": 24, "step": 1, "unit": " ч"},
     {"key": "fire_water_needed", "path": "fire_water_needed", "group": "Пожары и заказы", "type": "range",
      "label": "Вёдер, чтобы потушить", "min": 1, "max": 8, "step": 1},
+    {"key": "fire_spread_hours", "path": "fire_spread_hours", "group": "Пожары и заказы", "type": "range",
+     "label": "Огонь перекидывается на соседний дом через", "min": 0, "max": 12, "step": 1, "unit": " ч",
+     "hint": "Если пожар не тушат столько часов, загорается соседний дом. 0: никогда. Рекомендуем 6."},
     {"key": "order_every_days", "path": "order_every_days", "group": "Пожары и заказы", "type": "range",
      "label": "Заказы на доске раз в", "min": 1, "max": 10, "step": 1, "unit": " дн."},
 
@@ -285,6 +373,15 @@ def _clean(knob: dict, value: Any) -> Any:
     return v
 
 
+def _preset(knobs: dict, opts: dict) -> dict:
+    """Slider values of the chosen "sets" knob (the random-events preset); they sit between mode and hand."""
+    out: dict = {}
+    for key, k in knobs.items():
+        if k.get("sets"):
+            out.update(k["sets"].get(_clean(k, opts.get(key, k.get("default"))), {}))
+    return out
+
+
 def to_run(opts: dict) -> dict:
     """Start-screen answers -> what the server needs: world `override`, `decide` kind, days, pace, seed.
 
@@ -296,7 +393,7 @@ def to_run(opts: dict) -> dict:
     if unknown:
         raise ValueError(f"неизвестные настройки: {', '.join(sorted(unknown))}")
     mode = _clean(knobs["mode"], opts.get("mode", modes.DEFAULT_MODE))
-    by_mode = mode_defaults(mode)
+    by_mode = {**mode_defaults(mode), **_preset(knobs, opts)}
     val = {}
     for key, k in knobs.items():
         raw = opts.get(key, by_mode.get(key, k.get("default")))
@@ -316,6 +413,12 @@ def to_run(opts: dict) -> dict:
     if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter
         override["agents"] = clean_roster(rows, val["villagers"])
     override.setdefault("map", {})["procedural"] = not val["fixed_map"]
+    if val["seasons"]:
+        cal = seasons.calendar(val["days"], val["season_days"])
+        if val["season_start"] != "auto":
+            cal.update(start=val["season_start"], offset_days=0)
+        for k, v in cal.items():
+            _set(override, f"seasons.{k}", v)
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
             "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"], "values": val}

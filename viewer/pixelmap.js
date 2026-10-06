@@ -35,7 +35,7 @@ const PixelMap = (() => {
             ['...k7777k...', '...k8888k...', '....kkkk....']],
   };
 
-  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null, pendingInit = null, looks = {};
+  let W, H, names, bg, buf, b, layout, color = {}, sheets = {}, lastPos = {}, lastTime = null, cols = COLS, genLay = null, pendingInit = null, looks = {}, hdr = null;
 
   function rnd(x, y, s = 0) {
     let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
@@ -529,7 +529,7 @@ const PixelMap = (() => {
       if (!pendingInit) Sprites.onReady(() => pendingInit && init(...pendingInit));
       pendingInit = [header, colors];
     } else pendingInit = null;
-    names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
+    hdr = header; names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
     if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
     if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence, houseSprite });
     paintBackground();
@@ -595,8 +595,8 @@ const PixelMap = (() => {
 
   // ---------- per-frame drawing ----------
   function draw(ctx, { t, prev, frac, selected, time, tr, hourSec }) {
-    const e = Math.min(1, frac), sec = time / 1000;
-    b.drawImage(bg, 0, 0);
+    const e = Math.min(1, frac), sec = time / 1000, SL = window.SeasonLayer;
+    b.drawImage(SL ? SL.ground(bg, hdr, t.view.day) : bg, 0, 0);   // autumn / winter colours (viewer/seasonlayer.js)
     // water shimmer
     for (const [x, y] of layout.shimmer) {
       const ph = (sec * .8 + rnd(x, y) * 6) % 6; if (ph > 1.2) continue;
@@ -604,6 +604,7 @@ const PixelMap = (() => {
     }
     if (window.MapLayer) MapLayer.draw(b, t, e, sec);
     if (window.PlotLayer) PlotLayer.draw(b, t, e, sec);
+    if (SL) SL.tint(b, hdr, t.view.day, W, H);
     const fires = new Set(t.view.fires || []);
     const homeNow = new Set(names.filter(n => t.view.agents[n].location === 'home_' + n && t.view.agents[n].status === 'active'));
     // chimney smoke
@@ -650,7 +651,9 @@ const PixelMap = (() => {
     shown.sort((p, q) => p.y - q.y);
     lastPos = {};
     for (const a of shown) { lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8]; Actors.paint(b, sheets[a.n], a, sec, a.n === selected); }
+    if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
+    if (SL) SL.weather(b, hdr, t.view.day, sec, W, H);   // snowflakes, falling leaves
     // night
     const h0 = prev.view.hour + (prev.view.minute || 0) / 60, h1 = t.view.hour + (t.view.minute || 0) / 60;
     const hour = h1 > h0 && h1 - h0 <= 1 ? h0 + e * (h1 - h0) : h0, dark = darkness(hour);

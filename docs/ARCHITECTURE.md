@@ -42,7 +42,12 @@ god events ─┐
 | `aivillage/debts.py` | the debt book: `promise` (IOU with optional pledge held by the book), `forgive_debt`, `transfer_debt`, `demand_debt` / `rule_debt` (mayor collects overdue debts), night defaults / pledge forfeits / late fees (`debts.night`), `board` / `observe` / `fact`, `write()` for other modules. `lend` / `repay` stay in actions.py |
 | `aivillage/land.py` | land for sale: locations with a `lot` spec become unowned plots (`kind: "lot"`); `buy_land` (on the spot, to the treasury; or an owner's `sell_land` offer from anywhere), observation `your_lots` / `land_for_sale` / `land_owners` / `land_offers`, prompt `facts`. Building, collecting and yard theft on a lot are plots.py's |
 | `aivillage/conflict.py` | `attack` (seeded D&D-like dice rounds, weapons from `combat.weapons`, loot), `set_fire` (arson with witnesses), `random_fire` (engine night, `random_fires.per_day`); an `ops.EVENT_HOOKS` hook lowers feelings and reputation toward the culprit; governance records `fight` / `arson_seen` as crimes |
+| `aivillage/works.py` | village structures (well, bridge, watchtower, wall; levels from config `works.catalog`): `propose_build` (mayor, anyone without one; council after idle days), `build_work`, `fund_project`, `contribute` goes through `works.contribute`/`maybe_finish`; effect helpers `defense`, `sell_factor`, `notice_bonus`, `fire_grow_bonus` (imports no game module but ops/registry/population/state, so anyone can call them); `after_night`, `observe` (`village_structures`), `board`, `view`. Treasury embezzlement and audits live in `governance.py` (`embezzle`, `audit_treasury`, `handover`) |
 | `aivillage/crises.py` | soft world crises (crop failure, drought, rats, trader shortage, caravan) started at dawn by `new_day` from config block `crises` (modes tune it); state in `world.crises`; engine hooks `blocks_regrowth` (regrowth loop) and `price_factor` (trader prices in `_price` and `observe`); `observe()["crises"]`, god event `crisis` |
+| `aivillage/threats.py` | threats from outside: `raid` (bandits plunder chests house by house, burn one when they leave, drop the loot when driven off), `beast` (eats stores, mauls), `traveler` (asks for food; an honest one rewards, a scout brings an unwarned raid unless chased off). God events `raid`/`beast` (`in_days`, `warn`, `target`) and `traveler` (`scout`); random at dawn by `threats.kinds.<kind>.per_day` (own rng stream). State `world.threats`; engine hooks `arrivals` (every tick), `end_of_hour`, `night`, `new_day`; actions `defend`, `help_stranger`, `chase_stranger`; `observe()["threats"]` (warned and present only); log `view.threats`. A finished project in `threats.defense_projects` (e.g. `wall`) weakens raids and beasts |
+| `aivillage/illness.py` | sickness with consequences: contagion in the same place (`illness.spread_chance` per hour), `health_loss_night`, `care(person, item)` cures someone else, random case at dawn (`illness.per_day`) |
+| `aivillage/labor.py` | division of labour (config block `labor`, on in the `crafts` mode): only the profession gathers/sows its goods (berries, water free), `work_hours_per_day`, skill levels from hours at one's own trade (`Agent.skill_hours`, +`skill_bonus` per hour), the trader's daily buy/sell limits per item (`World.trader_day`, reset at dawn, checked in `buy`/`sell`); observation `work_today` / `trader_today`, prompt `facts`, log `view.labor` |
+| `aivillage/graves.py` | a death (`death_mode: "death"`) buries the villager by their house: `World.graves`, public `death` event that wakes everyone, `graves` / `graves_here` in every observation, `pay_respects` at the grave, `view.graves` (drawn by `viewer/plotlayer.js`); cause = `Agent.harm` (god `lightning`) else hunger / wounds |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient`; `RateGate` per model (max parallel calls, shared cooldown after 429, env `AIVILLAGE_MAX_PARALLEL`), fallback models (`AIVILLAGE_FALLBACK_MODELS`, `--fallback`, YAML `fallback_models`); `OpenAIClient` + `FallbackClient`; build clients only with `make_client(model)` (provider from keys.py) |
@@ -69,6 +74,7 @@ god events ─┐
 | `viewer/camera.js` | Zoom (wheel, +/- buttons, keys `+ - 0`), drag to pan, follows the selected villager. `PixelMap.pick(x, y)` takes canvas pixels and converts through the camera |
 | `viewer/mapgen.js` | `GenMap`: turns `config.map.layout` into pixelmap's layout (landmark art shifted by `off`), paints river/plots/patches/hamlets/signposts, gives maplayer the resource spots of patches and the river |
 | `viewer/plotlayer.js` | Yards from `view.plots`: buildings packed into cells in build order (beds, coop with hens, cow pen, hives with bees), what is ready, bought land, house level on the roof. Yard = `layout.plots[home]` / the house's generated `plot`, else 3x3 tiles behind the house. Hooked via `PlotLayer.init/draw` |
+| `viewer/threatlayer.js` | `ThreatLayer.draw` from `view.threats`: bandits (fewer as they weaken, a torch), the beast beside the house, the traveler at the square, a red pennant on a warned target, hp bars. Pixel art drawn in code |
 | `viewer/maplayer.js` | Map objects layer, drawn from `view.map` / `view.fire_info` / events: trees and stumps, beds by growth stage, bushes, fish, rocks, fire size, water splashes. Hooked into pixelmap via `MapLayer.init/claimTrees/draw/drawTop` |
 
 ## Map objects and fire in the log
@@ -101,9 +107,17 @@ Events for animation (all have `actor`, `location` and `data`):
 | `fire_grows` | `house`, `water_needed`, `hours_left` | location |
 | `pour_water` / `fire_out` | `helper`, `house`, `buckets`, `water_needed` | location / public |
 | `house_burned` | `home` | public |
+| `fire` (spread) | `victim`, `house`, `cause: "spread"`, `spread_from` | public |
+| `threat_warning` / `threat_arrived` | `threat`, `threat_kind`, `target` / `location`, `victim`, `hp` | public |
+| `plundered` / `beast_attack` / `threat_moves` | `threat`, `home`, `items`, `coins` / `victim`, `damage` / `location` | public |
+| `defend` | `threat`, `roll`, `hit`, `damage`, `hurt`, `hp`, `weapon` | location |
+| `threat_defeated` / `threat_left` | `fighters`, `coins`, `loot` / `threat_kind` | public |
+| `help_stranger` / `stranger_thanks` / `chase_stranger` | `item` / `helpers`, `gifts` / — | location / location / public |
+| `sick` / `care` | `person`, `days`, `source` or `cause` / `person`, `item` | public / location |
 
 Fire: lasts `fire_ticks` hours, needs one more bucket every `fire_grow_hours` (up to `fire_water_max`), a night counts
-as `fire_night_hours`. `extinguish` pours all the water the agent carries (up to what the fire needs).
+as `fire_night_hours`. After `fire_spread_hours` it jumps once to a neighbouring house (same road first; the new fire
+does not jump again). `extinguish` pours all the water the agent carries (up to what the fire needs).
 
 ## How to add a mechanic
 

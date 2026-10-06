@@ -20,7 +20,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, conflict, crises, debts, dice, governance, keys, land, plots
+from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, seasons,
+               threats, works)
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -52,7 +53,7 @@ Rules of thumb:
 - buy/sell work only at the market. Talking to, giving to or trading with someone needs them in the same place ("here.people").
 - If "last_error" is set, your previous action failed: read why and do something different.
 - Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
-- Food comes from gathering (berries in the forest, fish at the river), crafting, the market or other people.
+- Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.
 - Plan a few hours ahead: travel takes hours, and work/craft only pay off if you finish them.
 
 Item maps look like {{"bread": 2, "coins": 5}}. A thought is optional: most turns need none."""
@@ -140,12 +141,24 @@ def world_facts(cfg: dict) -> str:
         lines.append(plots.facts(cfg))
     if crisis := crises.fact(cfg):
         lines.append(crisis)
+    if threat := threats.facts(cfg):
+        lines.append(threat)
+    if sick := illness.facts(cfg):
+        lines.append(sick)
+    if season := seasons.fact(cfg):
+        lines.append(season)
     if land.enabled(cfg):
         lines.append(land.facts(cfg))
+    if labor.enabled(cfg):
+        lines.append(labor.facts(cfg))
+    if death := graves.facts(cfg):
+        lines.append(death)
+    if works.enabled(cfg):
+        lines.append(works.facts(cfg))
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:
-        lines.append(f"- Slow digging: {', '.join(caps)}, whatever your profession and tools.")
+        lines.append(f"- Slow digging: {', '.join(caps)}, whatever your skill and tools.")
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
     if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []):

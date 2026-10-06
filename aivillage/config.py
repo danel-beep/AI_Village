@@ -26,7 +26,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice")},
+            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
+            "propose_build", "fund_project", "embezzle", "defend", "help_stranger", "chase_stranger", "care")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -61,6 +62,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "inbox_size": 30,
     "order_every_days": 3,
     "order_ttl_days": 3,
+    "max_own_orders": 3,  # open orders one villager may have on the board at once (post_order)
     "orders_per_post": 1,  # orders posted at once; scaled with the population (coins for tax)
     # Fire: burns fire_ticks hours, then the house and chest are lost. Every fire_grow_hours it needs
     # one more bucket (up to fire_water_max). Night counts as fire_night_hours of burning.
@@ -69,6 +71,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fire_grow_hours": 2,
     "fire_water_max": 8,
     "fire_night_hours": 4,
+    # A fire nobody puts out for fire_spread_hours jumps once to a neighbouring house (0 = never).
+    "fire_spread_hours": 6,
     # Items. value = base price; NPC buys at value*npc_buy_ratio, sells at value*npc_sell_ratio.
     "npc_buy_ratio": 0.5,
     "npc_sell_ratio": 1.5,
@@ -145,7 +149,49 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "projects": {
         "bridge": {"name": "Bridge over the river", "needs": {"wood": 40, "stone": 30},
-                   "reward_coins_each": 20},
+                   "reward_coins_each": 20, "structure": "bridge"},  # done = bridge level 1 (works.py)
+    },
+    # Village structures (aivillage/works.py). The mayor (anyone while there is no mayor) can start building
+    # or upgrading one at any time with propose_build; villagers bring items and coins (contribute) and
+    # hours of work (build_work) at the square; the mayor can pay from the treasury (fund_project). Who
+    # helped and who did not is public. Needs are for 5 villagers and grow with population.scale_projects.
+    # If no project is open for `council_idle_days`, the village council suggests the cheapest next one
+    # (0 = never). Effects per level: well = water at the square, fires spread `fire_grow_hours_per_level`
+    # hours slower from level 2; bridge = the trader pays `sell_bonus_per_level` more; watchtower = thefts
+    # are noticed `notice_bonus_per_level` more often; wall = `defense_per_level` against raids.
+    "works": {
+        "enabled": True,
+        "max_open": 2,
+        "council_idle_days": 3,
+        "catalog": {
+            "well": {"name": "Well", "levels": [
+                {"wood": 6, "stone": 10, "labor": 4, "coins": 20},
+                {"wood": 5, "stone": 15, "labor": 6, "coins": 40},
+                {"stone": 20, "ore": 5, "labor": 8, "coins": 60}],
+                "water_at": "square", "fire_grow_hours_per_level": 1},
+            "bridge": {"name": "Bridge", "levels": [
+                {"wood": 30, "stone": 20, "labor": 6, "coins": 30},
+                {"wood": 20, "stone": 20, "labor": 6, "coins": 40},
+                {"stone": 30, "ore": 5, "labor": 8, "coins": 60}],
+                "sell_bonus_per_level": 0.1},
+            "watchtower": {"name": "Watchtower", "levels": [
+                {"wood": 15, "stone": 5, "labor": 4, "coins": 15},
+                {"wood": 15, "stone": 10, "labor": 6, "coins": 30},
+                {"stone": 20, "labor": 8, "coins": 45}],
+                "notice_bonus_per_level": 0.1},
+            "wall": {"name": "Village wall", "levels": [
+                {"wood": 20, "labor": 6, "coins": 20},
+                {"wood": 15, "stone": 20, "labor": 8, "coins": 40},
+                {"stone": 35, "labor": 10, "coins": 60}],
+                "defense_per_level": 1},
+        },
+    },
+    # The treasury (governance.coins) is in the mayor's hands. With `embezzle` the mayor can quietly take
+    # coins; the official books still show them until someone runs audit_treasury at the square, or until
+    # the office changes hands (`audit_on_handover`). Found embezzlement can be reported like a theft.
+    "treasury": {
+        "embezzle": True,
+        "audit_on_handover": True,
     },
     # Order templates the NPC council posts on the board; one is picked at random.
     "order_templates": [
@@ -159,6 +205,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "length_days": 7,
         "order": ["spring", "summer", "autumn", "winter"],
+        "start": "spring",  # season of day 1 (the start screen fits the calendar to the run: seasons.calendar)
+        "offset_days": 0,  # day 1 is this many days into `start`
+        "frost": ["winter"],  # at the first dawn of these, garden beds still growing die
         "regen_multiplier": {
             "summer": {"berries": 1.5},
             "autumn": {"grain": 1.5},
@@ -167,8 +216,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "wither": {},  # {season: {location: [resources]}} emptied at the season's first dawn
         "announce": {
             "spring": "Gardens can be sown again.",
-            "winter": "The ground is frozen: garden beds cannot be sown until spring, berries are gone, "
-                      "fish are scarce.",
+            "winter": "The ground is frozen: garden beds cannot be sown until spring, crops still growing froze, "
+                      "berries are gone, fish are scarce.",
         },
     },
     # Soft world crises (aivillage/crises.py): at dawn, from `first_day`, with `chance_per_day`, a crisis of a
@@ -287,6 +336,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "lend": 1,
             "trade": 1,           # completed a trade with you
             "contribute": 1,      # gave to a village project (public)
+            "build_work": 1,      # worked on a village project (public)
+            "embezzlement_found": -5,  # the books show the mayor took treasury coins (public)
         },
     },
     # Private plots (aivillage/plots.py): each house has a yard of `cells` where its family builds.
@@ -363,6 +414,60 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Random fires (engine night): each dawn a random house catches fire with this chance
     # (0 = only the god or an arsonist starts fires). Shown as a setting in the app.
     "random_fires": {"per_day": 0.0},
+    # Sickness (aivillage/illness.py): a sick villager cannot work, may pass it to anyone in the same place
+    # (`spread_chance` per person per hour) and loses `health_loss_night` health every night until cured.
+    # `care` with one of `cure_items` cures someone else at once. `per_day`: chance at dawn that someone falls ill.
+    "illness": {"enabled": True, "days": 2, "spread_chance": 0.1, "health_loss_night": 8,
+                "cure_items": ["honey", "milk", "fish_soup"], "per_day": 0.0},
+    # Threats from outside (aivillage/threats.py): bandit raids, a beast, a traveler. The god sends them
+    # (warned days ahead or not); `per_day` = chance at dawn (from `first_day`) that one comes by itself,
+    # `warn_chance` of those are announced `warn_days` ahead. hp and bounty scale with village size / 5.
+    # A finished village project listed in `defense_projects` multiplies raid/beast strength (a wall: 0.6).
+    "threats": {
+        "enabled": True,
+        "first_day": 2,
+        "max_active": 1,
+        "warn_chance": 0.5,
+        "warn_days": 2,
+        "arrive_hour": 11,       # warned threats come around this hour
+        "defense_projects": {"wall": 0.6},
+        "wall_factor_per_level": 0.75,  # each level of the village wall (works.py) x0.75 to strength and loot
+        "kinds": {
+            # Bandits: start at the target's house; every hour nobody fights them they carry off `loot_share`
+            # of each chest there, and after `stay_hours` such hours move to the next of `houses` (nearest
+            # first); after `hours` they leave and set fire to the house they are at if nobody fought them that
+            # hour. Driven off, they drop the loot.
+            "raid": {"per_day": 0.0, "name": "bandits", "hp": 60, "attack": 2, "damage_die": 6,
+                     "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20},
+            # A beast: every hour unopposed it eats `eat_share` of the food in the chests of the house it is at
+            # and mauls someone there (d`damage_die` + `maul`); after `stay_hours` it prowls to another house;
+            # leaves after `hours`.
+            "beast": {"per_day": 0.0, "name": "beast", "hp": 80, "attack": 3, "damage_die": 8, "maul": 4,
+                      "hours": 6, "stay_hours": 2, "eat_share": 0.5, "bounty": 30},
+            # A traveler at the square asks for `need` food. Fed, an honest one rewards each helper
+            # (`reward_coins`, or a tool, or a tip about a treasure). With `scout_chance` he is a bandit scout:
+            # unless chased off, bandits come unwarned 1-2 days after he leaves.
+            "traveler": {"per_day": 0.0, "name": "traveler", "hours": 8, "need": 2, "reward_coins": 12,
+                         "scout_chance": 0.3},
+        },
+    },
+    # Division of labour (aivillage/labor.py). Off by default; the "crafts" economy mode turns it on.
+    "labor": {
+        "enabled": False,
+        # Only a villager of the right profession gathers (or sows) the goods in `professions`;
+        # anything no profession owns (berries, water) stays open to everyone.
+        "own_trade_only": True,
+        "trade_anywhere": True,       # accept an offer from anywhere (the goods are carried both ways)
+        "work_hours_per_day": 6,      # hours of work (gathering) a day; 0 = no limit
+        "skill_levels": [6, 18, 36],  # hours worked at your own trade to reach level 1, 2, 3
+        "skill_bonus": 1,             # extra units per hour of work for each level
+        # The trader deals in limited amounts each day, for the whole village, per 5 villagers
+        # (population scales them): how many of each item he buys from villagers / has for sale.
+        "trader_buys_per_day": {"default": 6, "gold": 2},
+        "trader_sells_per_day": {"default": 2},
+    },
+    # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
+    "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with
     # the same stake. Each rolls `dice`d`sides`, higher takes the stake; ties rerolled `rerolls` times.
     # A player may stake up to coins + `credit`; a loser short of coins owes the rest, due in `debt_days`.

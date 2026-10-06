@@ -44,6 +44,8 @@ DRAMA = {
     "debt_collected": 8, "pledge_forfeited": 7, "debt_claim": 6, "debt_rejected": 6, "debt_forgiven": 5,
     "promise": 4, "debt_transferred": 4,
     "dice": 4,
+    # village works and treasury (works.py, governance.py)
+    "embezzlement_found": 9, "embezzle": 7, "work_started": 4, "fund_project": 3, "audit_clean": 2, "build_work": 1,
 }
 DRAMATIC = 3  # a day's highlights are these first; lower scores only fill a quiet day
 TITLES = {
@@ -52,6 +54,8 @@ TITLES = {
     "debt_transferred": "Долг перепродан",
     "fight": "Драка", "arson_seen": "Поджог", "set_fire": "Поджог", "land_bought": "Купил землю",
     "land_sold": "Продал землю", "dice": "Игра в кости", "land_offer": "Продаёт землю",
+    "embezzlement_found": "Мэр украл из казны", "embezzle": "Тайно взял из казны", "work_started": "Новая стройка",
+    "fund_project": "Деньги казны на стройку", "audit_clean": "Казна в порядке", "build_work": "Работа на стройке",
     "death": "Смерть в деревне", "house_burned": "Сгорел дом", "steal": "Кража", "robbed": "Кража",
     "fire": "Пожар", "default": "Долг не вернули", "evicted": "Выселение", "steal_attempt": "Попытка кражи",
     "hospital": "В больнице", "extinguish": "Тушат пожар", "witness": "Свидетель кражи",

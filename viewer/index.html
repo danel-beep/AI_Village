@@ -59,6 +59,8 @@
 <script src="mapgen.js"></script>
 <script src="maplayer.js"></script>
 <script src="plotlayer.js"></script>
+<script src="threatlayer.js"></script>
+<script src="seasonlayer.js"></script>
 <script src="pixelmap.js"></script>
 <script src="actors.js"></script>
 <script src="camera.js"></script>
@@ -115,7 +117,7 @@ function push(row) {
     const mood = {}, keep = Math.round(120 / step), hurt = /^(robbed|steal_attempt|witness|default|theft)$/;
     for (const [n, m] of Object.entries(last && last._mood || {})) if (m.angry > 1) mood[n] = { angry: m.angry - 1 };
     for (const e of row.events || []) {
-      const fight = /fight|attack|duel|brawl|hit/.test(e.kind), who = [...(e.to || []), ...(fight && e.actor ? [e.actor] : [])];
+      const fight = /fight|attack|duel|brawl|hit|defend/.test(e.kind), who = [...(e.to || []), ...(fight && e.actor ? [e.actor] : [])];
       if (!fight && !hurt.test(e.kind)) continue;
       for (const n of who) if (row.view.agents[n] && (fight || n !== e.actor)) mood[n] = { ...mood[n], angry: keep, ...(fight ? { fight: 1 } : {}) };
     }
@@ -187,7 +189,8 @@ function render() {
   // A tick is view.tick_minutes (15, or 60 in old logs); view.minute is absent in old logs.
   const m0 = prev.view.hour * 60 + (prev.view.minute || 0), m1 = t.view.hour * 60 + (t.view.minute || 0);
   const now = Math.floor(m1 > m0 && m1 - m0 <= 60 ? m0 + Math.min(0.99, frac) * (m1 - m0) : m0);
-  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}`;
+  const season = window.SeasonLayer ? SeasonLayer.label(header, prev.view.day) : '';
+  document.getElementById('clock').textContent = `День ${prev.view.day}, ${String(Math.floor(now / 60)).padStart(2, '0')}:${String(now % 60).padStart(2, '0')}${season ? ' · ' + season : ''}`;
 }
 
 function panel() {
