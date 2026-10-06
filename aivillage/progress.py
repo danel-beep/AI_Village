@@ -16,9 +16,10 @@ burns down, so a run never loses a mechanic it already had.
   elections, raids) and `built(world)` / `count(world, kind)` for what stands.
 - What stands is counted from private plots (house levels, yard buildings), village works and any
   source a later module appends to `BUILT_SOURCES`. A leveled thing counts as `kind` (any level) and
-  `kind@2`, `kind@3` for the levels reached.
+  `kind@2`, `kind@3` for the levels reached. Starting at a later stage, the buildings its stages
+  require count as standing (`prebuilt`), so a "village" start opens what a village has.
 
-State: `world.progress` = {"stage": index, "reached": {stage id: day}, "unlocked": [keys]}.
+State: `world.progress` = {"stage": index, "reached": {stage id: day}, "unlocked": [keys], "prebuilt": {kind: n}}.
 Log: a public "village_stage" event with `stage` (id) and `index` when the village reaches a stage.
 Spec and the plan this belongs to: docs/specs/survival.md.
 """
@@ -131,6 +132,8 @@ def built(world: World) -> Counter:
         leveled(structure, lvl)
     for src in BUILT_SOURCES:
         c.update(src(world))
+    for kind, n in world.progress.get("prebuilt", {}).items():  # a later start stage: its buildings stand
+        c[kind] = max(c[kind], n)
     return c
 
 
@@ -222,8 +225,12 @@ def setup(world: World) -> None:
     ids = stage_ids(cfg)
     idx = ids.index(start) if isinstance(start, str) else int(start)
     st["stage"] = max(0, min(idx, len(ids) - 1))
+    pre: dict[str, int] = {}
     for i in range(st["stage"] + 1):
         st["reached"].setdefault(ids[i], world.day)
+        for kind, n in _needs(cfg, i).items():
+            pre[kind] = max(pre.get(kind, 0), n)
+    st["prebuilt"] = pre
     _refresh(world)
 
 
