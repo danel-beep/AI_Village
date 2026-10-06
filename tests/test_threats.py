@@ -67,8 +67,8 @@ def test_unopposed_raid_plunders_moves_on_and_burns():
             break
     t = w.threats[0]
     plunder = [e for e in ev if e.kind == "plundered"]
-    assert plunder[0].data["home"] == "home_Anna" and plunder[0].data["items"] == {"fish": 5}
-    assert plunder[0].data["coins"] == 10 and chest.items["fish"] == 5 and chest.coins == 10
+    assert plunder[0].data["home"] == "home_Anna" and plunder[0].data["items"] == {"fish": 4}  # 40%
+    assert plunder[0].data["coins"] == 8 and plunder[1].data["home"] == "home_Anna"  # two hours a house
     assert len({e.data["home"] for e in plunder}) == 3  # house after house
     assert t["state"] == "gone" and "threat_left" in kinds(ev)
     assert [e for e in ev if e.kind == "fire" and e.data.get("cause") == "bandits"]
@@ -117,7 +117,7 @@ def test_beast_eats_food_and_mauls():
     while not [e for e in ev if e.kind == "beast_attack"]:
         ev += step(w)
     hit = [e for e in ev if e.kind == "beast_attack"][0]
-    assert hit.data["items"] == {"fish": 6} and hit.data["victim"] == "Anna"
+    assert hit.data["items"] == {"fish": 5} and hit.data["victim"] == "Anna"
     assert w.agents["Anna"].health == 100 - hit.data["damage"] and hit.data["damage"] > 0
 
 
