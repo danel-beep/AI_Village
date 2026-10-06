@@ -62,10 +62,12 @@ const PlotLayer = (() => {
 
   const cellBox = (yd, c, r, w = 1, h = 1) => [yd.ox + c * yd.cw, yd.oy + r * yd.ch, w * yd.cw, h * yd.ch];
 
+  let lawnPat = {};   // mown lawn: the light SpriteCook grass texture as a fill pattern (one per canvas)
   function yardGround(g, yd, cells, fenced) {
     const { R, P, C } = K;
     const own = owned(yd, cells), lawn = yd.gen ? own.filter(([, r]) => r < 0) : own;
-    for (const [c, r] of lawn) R(g, ...cellBox(yd, c, r), (c + r) % 2 ? C.grassL : '#74b852');
+    const pat = window.Sprites && Sprites.has('tex_grass') && (lawnPat.g === g ? lawnPat.p : (lawnPat = { g, p: Sprites.pattern(g, 'tex_grass') }).p);
+    for (const [c, r] of lawn) R(g, ...cellBox(yd, c, r), pat || ((c + r) % 2 ? C.grassL : '#74b852'));
     if (lawn.length) {   // stakes at the corners of the lawn (land bought beyond a generated plot, or owned cells)
       const xs = lawn.map(([c]) => c), ys = lawn.map(([, r]) => r);
       const [x0, y0] = cellBox(yd, Math.min(...xs), Math.min(...ys)), [x1, y1, cw, ch] = cellBox(yd, Math.max(...xs), Math.max(...ys));
@@ -81,12 +83,14 @@ const PlotLayer = (() => {
     }
   }
 
+  const SP = (g, n, x, y, o) => window.Sprites && Sprites.draw(g, n, x, y, o);
   // ---------- buildings (each drawn in its cell box [x, y, w, h]; a cell is 8x11 or 8x16 px) ----------
   function bed(g, [x, y, w, h], b, day) {
     const { R, P, C } = K;
+    const ripe = (b.items || {}).grain, left = b.crop ? b.ripe_day - day : 0;
+    if (SP(g, ripe ? 'soil_ripe' : b.crop ? (left <= 1 ? 'soil_growing' : 'soil_sprout') : 'soil', x + w / 2, y + h - 1, { s: w / 16 })) return;
     R(g, x + 1, y + 1, w - 2, h - 2, C.soilD); R(g, x + 1, y + 1, w - 2, h - 3, C.soil);
     for (let yy = y + 3; yy < y + h - 2; yy += 3) R(g, x + 1, yy, w - 2, 1, C.soilD);
-    const ripe = (b.items || {}).grain, left = b.crop ? b.ripe_day - day : 0;
     for (let i = 0; i < 3; i++) {
       const sx = x + 2 + i * 2, base = y + h - 3;
       if (ripe) { R(g, sx, base - 6, 1, 6, C.wheatD); R(g, sx, base - 8, 1, 2, C.wheat); P(g, sx + (i % 2 ? -1 : 1), base - 7, C.wheat); }
@@ -94,7 +98,6 @@ const PlotLayer = (() => {
     }
   }
 
-  const SP = (g, n, x, y, o) => window.Sprites && Sprites.draw(g, n, x, y, o);
   function coop(g, [x, y, w, h], b, sec) {
     const { R, P, C } = K;
     if (!SP(g, 'coop', x + 6, y + 12, { s: .6 })) {   // code coop; hens and eggs below either way
@@ -147,8 +150,9 @@ const PlotLayer = (() => {
   // House level: a dormer on level 2+, a second (gilded) chimney on level 3.
   function houseLevel(g, h, level) {
     const { R, P, C } = K;
-    if (level < 2) return;
+    // sprite houses are redrawn at every level: they are taller than their lot, and the yard rows must not cover the roof
     if (K.houseSprite && K.houseSprite(g, h, Math.min(3, level))) return;
+    if (level < 2) return;
     const x = h.x, y = h.y;
     R(g, x + 19, y + 9, 11, 10, C.k); R(g, x + 20, y + 10, 9, 9, C.plaster);
     R(g, x + 22, y + 12, 5, 5, C.k); R(g, x + 23, y + 13, 3, 3, C.glass); R(g, x + 18, y + 8, 13, 2, C.woodD);
