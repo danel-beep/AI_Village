@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops, population
+from . import ops, population, progress
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Project, World
@@ -292,6 +292,8 @@ def after_night(ctx: Ctx) -> None:
         return
     w = ctx.world
     apply_level(w, "well")  # the well refills overnight
+    if not progress.unlocked(w, "feature:works"):  # «С нуля»: no village projects before a town hall
+        return
     if open_projects(w):
         w.works.quiet_since = w.day
         return
