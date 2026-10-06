@@ -771,7 +771,7 @@ class BuilderBot(WorkerBot):
         for s in obs["building_sites"]:
             give = {k: min(n, inv.get(k, 0) - (firewood if k == "wood" else 0)) for k, n in s["still_needs"].items()}
             give = {k: n for k, n in give.items() if n > 0}
-            if s["at"] == loc and give and (s["for"] in (me["name"], "the village") or s["people_needed_within_an_hour"] > 1):
+            if s["at"] == loc and give and (s["for"] in (me["name"], "the village") or s["people_needed_on_the_same_day"] > 1):
                 return decision("bring_materials", {"site_id": s["id"], "items": give}, "materials for the site")
 
         # A big catch is shared with the people here (the hunters), two portions each.
@@ -874,7 +874,7 @@ class BuilderBot(WorkerBot):
         house = plot.get("house_level", 0)
         if house == 0 and not site_of("house", at=me["home"]):
             wants.append(("house", me["home"]))
-        team_open = [s for s in sites if s["people_needed_within_an_hour"] > 1 and s["work_left_hours"] > 0]
+        team_open = [s for s in sites if s["people_needed_on_the_same_day"] > 1 and s["work_left_hours"] > 0]
         for key, n in missing.items():
             kind, _, lvl = key.partition("@")
             if kind == "house" and lvl == "2":
@@ -900,7 +900,7 @@ class BuilderBot(WorkerBot):
         # Sites I work on: my own, the team sites; materials still needed there.
         mine = [s for s in sites if s["for"] == name]
         team = sorted(team_open, key=lambda s: (len(s["id"]), s["id"]))  # oldest first: everyone picks the same
-        focus = mine + [s for s in sites if s not in mine and (s["people_needed_within_an_hour"] > 1
+        focus = mine + [s for s in sites if s not in mine and (s["people_needed_on_the_same_day"] > 1
                                                              or bricks and s["building"] == "kiln")]
         if house == 0 and any(s["building"] == "house" for s in mine):  # a roof of my own comes first
             focus, team = [s for s in mine if s["building"] == "house"], []
@@ -995,7 +995,7 @@ class BuilderBot(WorkerBot):
         for s in mine + team + [s for s in sites if s["work_left_hours"] > 0]:
             if late and s["at"] != loc and s not in mine:
                 continue
-            if s["work_left_hours"] > 0 and (s["people_needed_within_an_hour"] <= 1 or s is (team or [None])[0]
+            if s["work_left_hours"] > 0 and (s["people_needed_on_the_same_day"] <= 1 or s is (team or [None])[0]
                                              and t["hour"] >= self.TEAM_HOUR):
                 if loc != s["at"]:
                     return go(s["at"], f"work on the {s['building']}")

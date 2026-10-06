@@ -2,7 +2,7 @@
 
 import json
 
-from aivillage import construction, engine, knobs, modes, ops, progress
+from aivillage import construction, engine, knobs, modes, ops, places, progress
 from aivillage.invariants import check
 
 
@@ -22,7 +22,8 @@ def test_camp_start_is_empty():
         assert a.profession == "laborer" and a.coins == 0 and not any(a.inventory.values())
     homes = [p for p in w.plots.values() if p.kind == "home"]
     assert homes and all(p.house == 0 and not p.buildings for p in homes)
-    assert not w.config["places"]["enabled"] and not w.config["labor"]["own_trade_only"]
+    assert not w.config["labor"]["own_trade_only"]
+    assert w.config["places"]["enabled"] and not places.is_open(w) and places.observe(w, "Anna") == {}
 
 
 def test_hamlet_start_is_the_ready_village():
@@ -118,3 +119,33 @@ def test_map_smithy_is_no_free_forge_in_an_empty_start():
     assert crafting.workshops_at(w, "smithy") == []
     assert crafting.workshops_at(w, "home_Boris")[0]["owner"] == "Boris"
     assert crafting.workshops_at(world("village"), "smithy")[0]["kind"] == "smithy"  # a ready village keeps it
+
+
+def test_trade_places_open_with_the_market_square():
+    w = world()
+    w.agents["Anna"].location = "square"
+    step(w, {"Anna": ("change_trade", {"profession": "miner"})})
+    assert w.agents["Anna"].profession == "laborer"  # no market square yet
+    from aivillage import llm
+    assert "- Trade places (once a market_square stands in the village)" in llm.world_facts(w.config)
+    construction.place(w, "market_square", "square")
+    step(w, {})
+    assert places.is_open(w) and places.observe(w, "Anna")["your_place"] == "none (laborer)"
+    w.agents["Anna"].busy_until = w.tick
+    step(w, {"Anna": ("change_trade", {"profession": "miner"})})
+    assert w.agents["Anna"].profession == "miner"
+
+
+def test_a_workshop_owner_keeps_its_trade_with_places_open():
+    """The owner takes the workshop's trade back within the hour: losing it would only zero the skill."""
+    w = world()
+    construction.place(w, "market_square", "square")
+    while w.day < 6:  # days pass, then Boris's smithy stands
+        step(w, {})
+    construction.place(w, "smithy", "home_Boris")
+    step(w, {})
+    assert w.agents["Boris"].profession == "smith"
+    events = []
+    while w.day < 11:  # well past idle_days without work at the trade
+        events += engine.step(w, {})
+    assert w.agents["Boris"].profession == "smith" and not any(e.kind == "place_lost" for e in events)

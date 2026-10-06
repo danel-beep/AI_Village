@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
+from . import (addressed, animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, settle, spoilage,
                taxes, threats, tiles, transport, works)
 from .actions import step_move, work_hour
@@ -103,7 +103,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     loc = world.locations[a.location]
     cfg = world.config
     people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {}),
-               **conflict.seen_gear(cfg, o)}
+               **seen_hunger(cfg, o), **conflict.seen_gear(cfg, o)}
               for o in world.agents.values()
               if o.name != name and o.status == "active" and o.location == a.location]
     chest = world.chests[f"chest_{name}"]
@@ -120,6 +120,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
             "satiety": a.satiety, "health": a.health, "coins": a.coins, "inventory": dict(a.inventory),
             "tool_wear": a.tool_wear, "sick": world.day < a.sick_until_day,
+            **graves.lives_left(cfg, a),
             "evicted": world.day < a.evicted_until_day, "task": a.task,
             "your_chest": {"items": chest.items, "coins": chest.coins, "locked": chest.locked,
                            "shared_with": chest.shared_with},
@@ -176,12 +177,23 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(hire.observe(world, name))
     obs.update(explore.observe(world, name))
     obs.update(settle.observe(world, name))
+    obs.update(addressed.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
         a.inbox.clear()
         a.last_error = None
     return obs
+
+
+def seen_hunger(cfg: dict, o) -> dict:
+    """What others see of `o`'s hunger: {"starving": True} at 0 satiety, {"hungry": True} below the line."""
+    below = cfg.get("hungry_seen_below", 0)
+    if not below:
+        return {}
+    if o.satiety <= 0:
+        return {"starving": True}
+    return {"hungry": True} if o.satiety < below else {}
 
 
 def plant_info(world: World, loc) -> dict:
@@ -296,7 +308,7 @@ def deliver_mail(ctx: Ctx) -> None:
     due = [m for m in w.mail if m.deliver_tick <= w.tick]
     w.mail = [m for m in w.mail if m.deliver_tick > w.tick]
     for m in due:
-        ctx.emit("letter", f'Letter from {m.sender}: "{m.text}"', actor=m.sender, to=[m.to])
+        ctx.emit("letter", f'Letter from {m.sender}: "{m.text}"', actor=m.sender, to=[m.to], text_raw=m.text)
         interrupt(w, m.to)
 
 
@@ -440,7 +452,7 @@ def check_health(ctx: Ctx) -> None:
         if a.status != "active" or a.health > 0:
             continue
         a.task, a.asleep = None, False
-        if cfg["death_mode"] == "death":
+        if cfg["death_mode"] == "death" or 0 < cfg.get("lives", 0) <= a.hospital_stays + 1:
             a.status = "dead"
             graves.bury(ctx, a)
             for n in wake_targets(w, ctx.events[-1]):  # the hour's wake-up pass is over: wake them here
@@ -450,8 +462,9 @@ def check_health(ctx: Ctx) -> None:
         for k, v in list(a.inventory.items()):
             ops.burn(w, a.inventory, k, v - v // 2)
         a.status, a.status_until_day = "hospital", w.day + cfg["hospital_days"]
+        a.hospital_stays += 1
         ctx.emit("hospital", f"{a.name} collapsed and was taken to the hospital for {cfg['hospital_days']} days.",
-                 visibility="public")
+                 visibility="public", stays=a.hospital_stays)
 
 
 def night(ctx: Ctx) -> None:

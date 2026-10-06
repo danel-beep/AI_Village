@@ -36,6 +36,7 @@ class Agent:
     lesson_offers: list[dict] = field(default_factory=list)
     status: str = "active"  # active | hospital | dead
     status_until_day: int = 0
+    hospital_stays: int = 0  # times taken to the hospital (config "lives" caps them; the next collapse is death)
     sick_until_day: int = 0
     evicted_until_day: int = 0
     last_error: str | None = None
@@ -306,6 +307,7 @@ class World:
     # settle.py (camp start): {"camp": [villagers without a house site yet], "homes": {name: site id},
     # "trails": {"a|b": times walked}}
     settle: dict[str, Any] = field(default_factory=dict)
+    addressed: dict[str, list] = field(default_factory=dict)  # addressed.py: name -> messages said to them
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -329,6 +331,8 @@ class World:
             del d["hire"]
         if not d["settle"]:  # no camp start: same dict and hash as before the field existed
             del d["settle"]
+        if not d["addressed"]:  # nothing said to anyone yet: same dict and hash as before the field existed
+            del d["addressed"]
         return d
 
     @classmethod
@@ -368,6 +372,7 @@ class World:
             transport=d.get("transport", {}),
             hire=d.get("hire", {}),
             settle=d.get("settle", {}),
+            addressed=d.get("addressed", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

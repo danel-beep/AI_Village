@@ -188,6 +188,10 @@ MODES["survival"] = {
 
 DEFAULT_MODE = "crafts"
 
+# Rules every run starts with (under the mode's own settings), while the bare engine default stays off so
+# engine tests can leave villagers idle for days: one hospital stay, the second collapse is death.
+RUN_DEFAULTS: dict[str, Any] = {"lives": 2}
+
 
 def camp_start(cfg: dict) -> bool:
     """True when the run starts as an empty camp: bare_start on, progress on, start stage before `until_stage`."""
@@ -207,9 +211,9 @@ def bare_start(cfg: dict) -> None:
 
     Does nothing unless `bare_start.enabled`, progress is on and the start stage is before
     `bare_start.until_stage`. Then: houses at level 0, no coins, empty pockets and yards, everyone a
-    laborer who may gather anything by hand, no trade places, no ready workshop at the map's Smithy. A start
-    before `coins_from_stage` (the stage whose buildings bring the trader) has no coins either, even when it is
-    the ready village."""
+    laborer who may gather anything by hand (trade places open with the market square), no ready workshop at
+    the map's Smithy. A start before `coins_from_stage` (the stage whose buildings bring the trader) has no
+    coins either, even when it is the ready village."""
     from . import progress
     b = cfg.get("bare_start") or {}
     if not b.get("enabled") or b.get("applied") or not progress.enabled(cfg):
@@ -232,8 +236,7 @@ def bare_start(cfg: dict) -> None:
         st["coins"], st["items"] = 0, {}
     for a in cfg["agents"]:
         a.update(profession="laborer", house_level=0, buildings=[])
-    cfg["labor"]["own_trade_only"] = False
-    cfg["places"]["enabled"] = False
+    cfg["labor"]["own_trade_only"] = False  # trade places stay: they open with the market square (places.py)
     # the map's Smithy is only a place name here: a forge is a smithy someone builds (else, once the first smithy
     # opens the smith's recipes, that place would serve everyone for free)
     cfg.setdefault("crafting", {})["map_workshops"] = False
@@ -248,7 +251,7 @@ def check(mode: str) -> None:
 def world_override(mode: str, world: dict | None = None) -> dict:
     """The mode's world settings with `world` (the run config's own overrides) on top."""
     check(mode)
-    out = _merge(MODES[mode]["world"], world or {})
+    out = _merge(_merge(RUN_DEFAULTS, MODES[mode]["world"]), world or {})
     out["economy_mode"] = mode
     return out
 
