@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
+from . import (addressed, animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
                taxes, threats, tiles, transport, works)
 from .actions import step_move, work_hour
@@ -102,7 +102,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     loc = world.locations[a.location]
     cfg = world.config
     people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {}),
-               **conflict.seen_gear(cfg, o)}
+               **seen_hunger(cfg, o), **conflict.seen_gear(cfg, o)}
               for o in world.agents.values()
               if o.name != name and o.status == "active" and o.location == a.location]
     chest = world.chests[f"chest_{name}"]
@@ -174,12 +174,23 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(transport.observe(world, name))
     obs.update(hire.observe(world, name))
     obs.update(explore.observe(world, name))
+    obs.update(addressed.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
         a.inbox.clear()
         a.last_error = None
     return obs
+
+
+def seen_hunger(cfg: dict, o) -> dict:
+    """What others see of `o`'s hunger: {"starving": True} at 0 satiety, {"hungry": True} below the line."""
+    below = cfg.get("hungry_seen_below", 0)
+    if not below:
+        return {}
+    if o.satiety <= 0:
+        return {"starving": True}
+    return {"hungry": True} if o.satiety < below else {}
 
 
 def plant_info(world: World, loc) -> dict:
@@ -294,7 +305,7 @@ def deliver_mail(ctx: Ctx) -> None:
     due = [m for m in w.mail if m.deliver_tick <= w.tick]
     w.mail = [m for m in w.mail if m.deliver_tick > w.tick]
     for m in due:
-        ctx.emit("letter", f'Letter from {m.sender}: "{m.text}"', actor=m.sender, to=[m.to])
+        ctx.emit("letter", f'Letter from {m.sender}: "{m.text}"', actor=m.sender, to=[m.to], text_raw=m.text)
         interrupt(w, m.to)
 
 

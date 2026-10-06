@@ -83,7 +83,7 @@ def free_goods(cfg: dict, a: Agent, here: list[str]) -> list[str]:
 
 
 def trade_anywhere(cfg: dict) -> bool:
-    """`accept` works from anywhere: the goods of a trade are carried both ways, like a delivered order."""
+    """`accept` and `give` work from anywhere: the goods are carried, like a delivered order."""
     return enabled(cfg) and bool(cfg["labor"].get("trade_anywhere"))
 
 
@@ -256,7 +256,8 @@ def facts(cfg: dict) -> str:
         lines.append(f"- Trades: only a villager of that profession can gather (or sow) these goods: {owned}. "
                      f"Free for everyone: {', '.join(free)}.")
     if lab.get("trade_anywhere"):
-        lines.append("- Trades are carried: an offer can be accepted from anywhere and the goods change hands at once.")
+        lines.append("- Trades and gifts are carried: an offer can be accepted from anywhere, a gift (give) reaches the "
+                     "receiver wherever they are, and the goods change hands at once.")
     if lab.get("work_hours_per_day"):
         lines.append(f"- You can work (gather) at most {lab['work_hours_per_day']} hours a day.")
     steps = lab["skill_levels"]

@@ -326,9 +326,17 @@ class GiveArgs(BaseModel):
     coins: int = Field(0, ge=0)
 
 
-@ACTIONS.action("give", "Give items and/or coins to a person here. Nothing is asked in return.", GiveArgs)
+@ACTIONS.action("give", "Give items and/or coins to a person here, or anywhere if World facts say gifts are "
+                "carried. Nothing is asked in return.", GiveArgs)
 def give(ctx: Ctx, a: Agent, args: GiveArgs) -> None:
-    other = _agent_here(ctx, a, args.to)
+    other = _agent(ctx, args.to)
+    carried = labor.trade_anywhere(ctx.cfg) and other.location != a.location  # carried like a trade
+    if not carried:
+        other = _agent_here(ctx, a, args.to)
+    elif other.name == a.name:
+        raise ActionError("you cannot do that to yourself")
+    elif other.status != "active":
+        raise ActionError(f"{other.name} cannot receive anything now")
     _items_known(ctx, args.items)
     if not args.items and not args.coins:
         raise ActionError("give what? items and coins are both empty")
@@ -338,8 +346,8 @@ def give(ctx: Ctx, a: Agent, args: GiveArgs) -> None:
     ops.move_items(a.inventory, other.inventory, args.items)
     ops.move_coins(a, other, args.coins)
     what = fmt_items({**args.items, **({"coins": args.coins} if args.coins else {})})
-    ctx.emit("give", f"{a.name} gave {what} to {other.name}.", actor=a.name, location=a.location,
-             visibility="location", to=[other.name])
+    ctx.emit("give", f"{a.name} gave {what} to {other.name}" + (" (carried)." if carried else "."), actor=a.name,
+             location=a.location, visibility="location", to=[other.name], **({"carried": True} if carried else {}))
 
 
 class LendArgs(BaseModel):

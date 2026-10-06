@@ -51,6 +51,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "satiety_loss_night": 10,
     "starving_health_loss_per_hour": 5,
     "starving_health_loss_night": 20,
+    # here.people marks a villager "hungry" below this satiety and "starving" at 0, like "sick" (0 = not shown)
+    "hungry_seen_below": 30,
+    # addressed.py: letters, whispers and words said to a villager by name stay in "said_to_you" until the end of
+    # the next day (keep_days) or until the two have since given, lent or traded to each other; at most `max`
+    "said_to_you": {"keep_days": 1, "max": 5},
     "health_max": 100,
     "health_regen_night_at_home": 15,
     "health_regen_min_satiety": 30,
@@ -746,8 +751,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Building with your own hands (aivillage/construction.py, docs/specs/survival.md). Off here: houses are
     # upgraded at once with upgrade_house. On, every building in `catalog` goes up on a site: start_building
     # opens it, bring_materials delivers `items`, construct is one hour of work (`hours` in all). Work counts
-    # only while at least `min_workers` different villagers worked on the site within `team_window_minutes`;
-    # each extra co-worker in that window (up to `team_max`) adds `team_bonus` to everyone's hour.
+    # once at least `min_workers` different villagers worked on the site on the same day (hours nobody joined
+    # that day are lost); each extra co-worker that day (up to `team_max`) adds `team_bonus` to everyone's hour.
     # Catalog rows: `place` "home" (your yard; finished, it stands among the plot's buildings with a `level`;
     # `house` sets the plot's house level) or "village" (common; `at`: allowed places, empty = any common
     # place); `levels`: one row per level. Effects per level (what that level gives, not added up):
@@ -758,7 +763,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # progress.DEFAULT_UNLOCKS ("building:<kind>", "building:<kind>@<level>").
     "construction": {
         "enabled": False,
-        "team_window_minutes": 60,
         "team_bonus": 0.25,
         "team_max": 3,
         "max_open_sites": 2,  # per villager who started them
