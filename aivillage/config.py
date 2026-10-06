@@ -241,6 +241,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "spouse_night_gain": 1,
         "divorce_hurt": 40,    # the left spouse's feeling drops by this
         "estate_statuses": ["dead", "exiled", "banished"],  # property passes on in these states
+        "pay_debts_first": True,  # the estate repays the deceased's open debts before the heir gets it
         # event kind -> [who, delta]: "to" = addressees about the actor, "both" = both ways,
         # "lender" = the debt's lender, "owner" = who lives in the house where it happened
         "on_event": {

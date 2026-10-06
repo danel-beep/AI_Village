@@ -159,6 +159,7 @@ class Marriage:
     spouses: list[str]
     home: str  # the shared house (the proposer's)
     since_day: int
+    public: bool = True  # announced to the village, or known only to the couple
 
 
 @dataclass
@@ -167,6 +168,7 @@ class Proposal:
     sender: str
     to: str
     expires_day: int
+    public: bool = True  # the wedding will be announced (False: secret)
 
 
 @dataclass
