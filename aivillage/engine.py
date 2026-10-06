@@ -195,6 +195,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
         check_health(ctx)  # lightning: the struck villager falls at once, before acting this tick
 
     deliver_mail(ctx)
+    debtors = debts.coin_snapshot(world)
 
     order = sorted(world.agents)
     ctx.rng.shuffle(order)
@@ -215,6 +216,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
     hour_over = world.minute + minutes >= 60
     if hour_over:
         end_of_hour(ctx)
+    debts.collect_income(ctx, debtors)
     world.tick += 1
     if not hour_over:
         world.minute += minutes

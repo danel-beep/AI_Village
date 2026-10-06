@@ -266,6 +266,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "collect_fee_pct": 10,  # share of what the mayor collects that goes to the treasury
         "late_fee_pct": 0,  # an overdue debt without a pledge grows by this % each night
         "max_promise": 500,  # coins per IOU
+        # Automatic collection of overdue debts without a pledge (no mayor needed): each night up to
+        # `seize_pct`% of the debtor's coins, then of their goods' value (food is never taken), and
+        # `seize_pct`% of any coins they receive until it is paid.
+        "auto_collect": True,
+        "seize_pct": 50,
     },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.

@@ -2,15 +2,18 @@
 
 import pytest
 
-from aivillage import engine, ops
+from aivillage import debts, engine, ops
 from aivillage.invariants import check
 from aivillage.llm import world_facts
 from aivillage.run import bots_decider, run
 
 
+MANUAL = {"auto_collect": False}  # the book alone, without automatic collection
+
+
 @pytest.fixture
 def w():
-    return engine.new_world({"seed": 1})
+    return engine.new_world({"seed": 1, "debts": MANUAL})
 
 
 def step(w, decisions=None):
@@ -86,7 +89,7 @@ def test_forgive_and_transfer(w):
 
 
 def test_late_fee_grows_a_defaulted_debt():
-    w = engine.new_world({"seed": 1, "debts": {"late_fee_pct": 10}})
+    w = engine.new_world({"seed": 1, "debts": {"late_fee_pct": 10, **MANUAL}})
     act(w, "Boris", "promise", to="Anna", coins=10, due_day=2)
     until_day(w, 3)
     d = only_debt(w)
@@ -137,7 +140,7 @@ def test_mayor_can_reject_and_no_mayor_no_collection(w):
 
 
 def test_collection_off_hides_it_from_prompt_and_actions():
-    w = engine.new_world({"seed": 1, "debts": {"collection": False}})
+    w = engine.new_world({"seed": 1, "debts": {"collection": False, **MANUAL}})
     assert "Nobody forces repayment" in world_facts(w.config)
     assert "demand_debt" in world_facts(engine.new_world({"seed": 1}).config)
     w.governance.mayor = "Clara"
@@ -158,3 +161,121 @@ def test_random_bots_keep_invariants_with_debts():
     kinds = []
     run(w, bots_decider(w, ["random"], 7), days=6, on_tick=lambda world, ev: kinds.extend(e.kind for e in ev))
     assert "promise" in kinds
+
+
+# ---------- automatic collection (debts.auto_collect) ----------
+
+def auto_world(**debts):
+    w = engine.new_world({"seed": 1, "debts": {"auto_collect": True, "seize_pct": 50, **debts}})
+    for a in w.agents.values():  # empty pockets and chests: each test sets what it needs
+        ops.burn_coins(w, a, a.coins)
+        chest = w.chests[f"chest_{a.name}"]
+        ops.burn_coins(w, chest, chest.coins)
+        for store in (a.inventory, chest.items):
+            for item, q in list(store.items()):
+                ops.burn(w, store, item, q)
+    return w
+
+
+def kinds_of(events):
+    return [e.kind for e in events]
+
+
+def test_night_takes_half_the_coins_pocket_then_chest():
+    w = auto_world()
+    act(w, "Boris", "promise", to="Anna", coins=30, due_day=2)
+    ops.mint_coins(w, w.agents["Boris"], 10)
+    ops.mint_coins(w, w.chests["chest_Boris"], 10)
+    ev = until_day(w, 3)
+    d = only_debt(w)
+    assert "debt_seized" in kinds_of(ev)
+    assert d.status == "defaulted" and d.coins_owed == 20  # half of 20 coins
+    assert w.agents["Boris"].coins + w.chests["chest_Boris"].coins == 10
+    assert w.agents["Anna"].coins == 10
+    seized = next(e for e in ev if e.kind == "debt_seized")
+    assert set(ops.recipients(w, seized)) == {"Anna", "Boris"}  # not shouted to the village
+
+
+def test_goods_after_coins_but_never_food():
+    w = auto_world()
+    act(w, "Boris", "promise", to="Anna", coins=100, due_day=2)
+    boris = w.agents["Boris"]
+    ops.mint(w, boris.inventory, "tool", 2)
+    ops.mint(w, boris.inventory, "bread", 5)
+    ops.mint(w, w.chests["chest_Boris"].items, "fish", 4)
+    until_day(w, 3)
+    d = only_debt(w)
+    price = debts.unit_price(w.config, "tool")
+    assert boris.inventory.get("tool", 0) == 1 and w.agents["Anna"].inventory.get("tool", 0) == 1
+    assert d.coins_owed == 100 - price  # one of two tools = half their value
+    assert boris.inventory["bread"] == 5 and w.chests["chest_Boris"].items["fish"] == 4
+
+
+def test_never_takes_more_than_owed():
+    w = auto_world()
+    act(w, "Boris", "promise", to="Anna", coins=3, due_day=2)
+    ops.mint_coins(w, w.agents["Boris"], 50)
+    ev = until_day(w, 3)
+    d = only_debt(w)
+    assert d.status == "repaid" and w.agents["Anna"].coins == 3 and w.agents["Boris"].coins == 47
+    assert "the debt is closed" in next(e.text for e in ev if e.kind == "debt_seized")
+
+
+def test_half_of_new_income_goes_to_the_lender():
+    w = auto_world()
+    act(w, "Boris", "promise", to="Anna", coins=20, due_day=2)
+    until_day(w, 3)
+    assert only_debt(w).status == "defaulted"
+    ops.mint_coins(w, w.agents["Clara"], 10)
+    w.agents["Clara"].location = w.agents["Boris"].location
+    ev = act(w, "Clara", "give", to="Boris", coins=10)
+    assert not errors(ev), errors(ev)
+    assert "debt_garnished" in kinds_of(ev)
+    assert w.agents["Boris"].coins == 5 and w.agents["Anna"].coins == 5 and only_debt(w).coins_owed == 15
+    # moving coins into his own chest is not income
+    w.agents["Boris"].location = w.agents["Boris"].home
+    ev = act(w, "Boris", "store", coins=5)
+    assert not errors(ev), errors(ev)
+    assert "debt_garnished" not in kinds_of(ev) and w.chests["chest_Boris"].coins == 5
+
+
+def test_oldest_debt_is_served_first_and_pledged_debts_are_left_alone():
+    w = auto_world()
+    act(w, "Boris", "promise", to="Clara", coins=10, due_day=3)
+    act(w, "Boris", "promise", to="Anna", coins=10, due_day=2)
+    until_day(w, 4)
+    ops.mint_coins(w, w.agents["Boris"], 40)
+    until_day(w, 5)
+    to_anna = next(d for d in w.debts.values() if d.lender == "Anna")
+    to_clara = next(d for d in w.debts.values() if d.lender == "Clara")
+    assert to_anna.status == "repaid" and to_clara.status == "repaid"
+    assert w.agents["Anna"].coins == 10 and w.agents["Clara"].coins == 10
+
+
+def test_auto_collect_off_and_lawless_take_nothing():
+    w = auto_world(auto_collect=False)
+    act(w, "Boris", "promise", to="Anna", coins=10, due_day=2)
+    ops.mint_coins(w, w.agents["Boris"], 10)
+    assert "debt_seized" not in kinds_of(until_day(w, 3))
+    assert w.agents["Boris"].coins == 10
+    assert "collected by the village" not in world_facts(w.config)
+    from aivillage import runconfig
+    cfg = engine.new_world(runconfig.parse({"mode": "lawless"}).world_override()).config
+    assert not debts.auto_on(cfg) and "Nobody forces repayment" in world_facts(cfg)
+
+
+def test_prompt_states_the_rule():
+    w = engine.new_world({"seed": 1})
+    facts = world_facts(w.config)
+    assert "collected by the village" in facts and "food is never taken" in facts
+
+
+def test_random_bots_keep_invariants_and_replay_with_auto_collection(tmp_path):
+    from aivillage.run import replay
+    w = engine.new_world({"seed": 3, "debts": {"auto_collect": True, "late_fee_pct": 10}})
+    kinds = []
+    log = tmp_path / "run.jsonl"
+    run(w, bots_decider(w, ["random"], 3), days=8, log_path=log,
+        on_tick=lambda world, ev: (check(world), kinds.extend(e.kind for e in ev)))
+    assert "debt_seized" in kinds or "debt_garnished" in kinds
+    assert replay(log).hash() == w.hash()

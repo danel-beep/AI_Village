@@ -87,9 +87,9 @@ def compute(records: list[dict]) -> dict:
                                        "repaid": 0, "status": "open", "defaulted_day": None, "kind": "iou"}
             elif kind == "pledge_forfeited" and data.get("debt") in debts:
                 debts[data["debt"]].update(status="defaulted", defaulted_day=ev["day"])
-            elif kind == "debt_collected" and data.get("debt") in debts:
+            elif kind in ("debt_collected", "debt_seized", "debt_garnished") and data.get("debt") in debts:
                 d = debts[data["debt"]]
-                d["repaid"] += int(data.get("coins") or 0)
+                d["repaid"] += int(data.get("coins") or 0) + int(data.get("goods_value") or 0)
                 if "the debt is closed" in ev["text"]:
                     d["status"] = "repaid_late"
             elif kind == "repay":
