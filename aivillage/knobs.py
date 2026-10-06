@@ -87,6 +87,24 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
 
+    # --- word of mouth (aivillage/reputation.py) ---
+    {"key": "mishear_number", "path": "reputation.mishear_number", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух искажает числа", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс, что слушатель запомнит другое число («украл 3 монеты» → «украл 6»). 0: слухи передаются точно."},
+    {"key": "mishear_name", "path": "reputation.mishear_name", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух путает, о ком речь", "min": 0, "max": 50, "step": 1, "unit": "%",
+     "hint": "Шанс, что слушатель решит, что речь о другом жителе. Рекомендуем 5%."},
+    {"key": "overhear", "path": "reputation.overhear", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Шёпот подслушивают", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс для каждого рядом услышать шёпот или сплетню на ухо. Рекомендуем 15%."},
+    {"key": "origin_hops", "path": "reputation.origin_hops", "group": "Слухи", "type": "range",
+     "label": "Сколько пересказов помнят автора слуха", "min": 1, "max": 10, "step": 1, "unit": "",
+     "hint": "Дальше слух идёт как «кто-то говорил»."},
+
+    {"key": "announce_cost", "path": "reputation.announce_cost", "group": "Слухи", "type": "range",
+     "label": "Цена объявления на доске", "min": 0, "max": 50, "step": 1, "unit": " мон.",
+     "hint": "Объявление на площади сразу читают все жители, слово в слово. Деньги идут в казну. Рекомендуем 5."},
+
     # --- dice (aivillage/dice.py) ---
     {"key": "dice", "path": "dice.enabled", "group": "Азарт", "type": "toggle", "label": "Кости на деньги",
      "hint": "На площади жители могут играть в кости на монеты и проигрываться в долг."},

@@ -26,7 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip", "buy_land", "sell_land", "attack", "set_fire", "dice")},
+            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -258,6 +258,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "score_cap": 10,
         "notes_per_person": 3,
         "rumors_kept": 6,
+        # Word of mouth: hearers learn who started a rumor for this many tellings, then "someone".
+        # Each hearer may mishear: a number in the text changes, or (rarer) the rumor lands on another
+        # villager. Whispers and gossip told to one person are overheard by each bystander with "overhear".
+        "origin_hops": 2,
+        "mishear_number": 0.25,
+        "mishear_name": 0.05,
+        "overhear": 0.15,
+        # Notice board: `announce(text)` at this location pays `announce_cost` coins (treasury or burned)
+        # and every villager gets the notice at once.
+        "announce_cost": 5,
+        "announce_at": "square",
         "deltas": {
             "witness": -3,        # saw someone steal
             "steal_attempt": -4,  # caught someone stealing from you
