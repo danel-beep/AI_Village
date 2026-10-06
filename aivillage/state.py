@@ -271,6 +271,7 @@ class World:
     threats: list[dict] = field(default_factory=list)  # raids, beasts, travelers: coming, here, finished (threats.py)
     # labor.py: what the trader bought from / sold to villagers today, per item (reset at dawn)
     trader_day: dict[str, dict[str, int]] = field(default_factory=lambda: {"bought": {}, "sold": {}})
+    trader_stock: dict[str, int] = field(default_factory=dict)  # pricing.py: what villagers sold the trader lately
     graves: list[dict] = field(default_factory=list)  # graves.py: one per dead villager
     works: Works = field(default_factory=Works)  # village structures (works.py)
     next_id: int = 1
@@ -311,6 +312,7 @@ class World:
             crises=d.get("crises", []),
             threats=d.get("threats", []),
             trader_day=d.get("trader_day", {"bought": {}, "sold": {}}),
+            trader_stock=d.get("trader_stock", {}),
             graves=d.get("graves", []),
             works=Works(**d.get("works", {})),
             next_id=d["next_id"],

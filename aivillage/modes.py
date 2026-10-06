@@ -39,13 +39,23 @@ MODES: dict[str, dict[str, Any]] = {
         "about": "Каждый добывает только своё: рыбу ловит рыбак, лес рубит лесоруб, зерно и ягоды собирает фермер, "
                  "камень, руду и золото копает шахтёр; общая только вода, так что еду остальные берут у соседей. Работать можно 6 часов в день, мастерство растёт "
                  "с часами работы. Хлеб и уха готовятся на дровах. Торговец каждый день покупает и продаёт понемногу, на всю деревню. "
-                 "Остальное как в обычном режиме.",
+                 "Цены у торговца падают, когда у него много товара. Инструмент изнашивается за 14 часов работы, у всех есть "
+                 "один на старте, дальше их делает кузнец. Остальное как в обычном режиме.",
         "world": {
-            "labor": {"enabled": True},
+            # the trader sells at most one tool a day (per 5 villagers): tools come from the smith
+            "labor": {"enabled": True, "trader_sells_per_day": {"tool": 1}},
             # wild berries belong to the farmer's trade too: everyone else eats what neighbours grow and catch
             "professions": {"farmer": ["grain", "berries"]},
             # cooking needs firewood: grain is not edible raw, so bread needs a woodcutter too
             "recipes": {"bread": {"inputs": {"grain": 2, "wood": 1}}, "fish_soup": {"inputs": {"fish": 2, "wood": 1}}},
+            # gold pays at most ~2x other work: cheaper, and the trader pays less the more he holds;
+            # it has uses (a ring at the smithy, a level-3 house)
+            "items": {"gold": {"value": 12}},
+            "trader_pricing": {"stock_prices": True},
+            "plots": {"house_upgrade": {"3": {"items": {"gold": 2}}}},
+            # tools wear out in two to three days of work; everyone starts with one, then buys from the smith
+            "start_items": {"tool": 1},
+            "tool_durability_hours": 14,
         },
     },
     "peaceful": {

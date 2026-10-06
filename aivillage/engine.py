@@ -13,7 +13,7 @@ from typing import Any
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor, land, mapgen,
-               market, ops, plots, reputation, seasons, threats, tiles, works)
+               market, ops, plots, pricing, reputation, seasons, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -55,6 +55,9 @@ def new_world(config: dict | None = None) -> World:
         ops.mint_coins(w, a, start.get("coins", cfg["start_coins"]))
         for item, n in sorted(start.get("items", {}).items()):
             ops.mint(w, a.inventory, item, n)
+        for item, n in sorted(cfg.get("start_items", {}).items()):  # everyone's kit (crafts: a tool)
+            if n > 0:
+                ops.mint(w, a.inventory, item, n)
         w.chests[f"chest_{name}"] = Chest(f"chest_{name}", name, home)
         plots.setup(w, spec, home)
     for pid, spec in cfg["projects"].items():
@@ -131,13 +134,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "debts": debts.board(world),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": works.board(world),
-            "trader_prices": {i: {"buy": max(1, int(v["value"] * cfg["npc_sell_ratio"]
-                                                    * crises.price_factor(world, i, "buy")
-                                                    * works.sell_factor(world, "buy"))),
-                                  "sell": max(1, int(v["value"] * cfg["npc_buy_ratio"]
-                                                     * crises.price_factor(world, i, "sell")
-                                                     * works.sell_factor(world, "sell")))}
-                              for i, v in cfg["items"].items() if v.get("tradable", True)},
+            "trader_prices": pricing.prices(world),
             "recipes": cfg["recipes"],
             "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
                           for o in world.agents.values()],
@@ -449,6 +446,7 @@ def night(ctx: Ctx) -> None:
     w.hour = cfg["day_start_hour"]
     seasons.new_day(ctx)
     labor.new_day(w)
+    pricing.new_day(w)
     governance.new_day(ctx)
     crises.new_day(ctx, rng_for(w, "crises"))
     threats.new_day(ctx, rng_for(w, "threats"))

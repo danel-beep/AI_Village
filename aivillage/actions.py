@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import clock, crises, labor, ops, plots, seasons, tiles, works
+from . import clock, crises, labor, ops, plots, pricing, seasons, tiles, works
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer, Order
@@ -473,9 +473,7 @@ def _price(ctx: Ctx, item: str, side: str) -> int:
     info = ctx.cfg["items"].get(item)
     if info is None or not info.get("tradable", True):
         raise ActionError(f"the trader does not deal in {item}")
-    ratio = ctx.cfg["npc_sell_ratio"] if side == "buy" else ctx.cfg["npc_buy_ratio"]
-    return max(1, int(info["value"] * ratio * crises.price_factor(ctx.world, item, side)
-                      * works.sell_factor(ctx.world, side)))
+    return pricing.price(ctx.world, item, side)
 
 
 @ACTIONS.action("buy", "Buy from the trader at the market (expensive).", MarketArgs,
@@ -487,6 +485,7 @@ def buy(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     if a.coins < cost:
         raise ActionError(f"that costs {cost} coins, you have {a.coins}")
     labor.trader_deal(ctx.world, args.item, args.qty, "sell")
+    pricing.trader_sold(ctx.world, args.item, args.qty)
     ops.burn_coins(ctx.world, a, cost)
     ops.mint(ctx.world, a.inventory, args.item, args.qty)
     ctx.emit("buy", f"{a.name} bought {args.qty} {args.item} from the trader for {cost} coins.", actor=a.name,
@@ -501,6 +500,7 @@ def sell(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     price = _price(ctx, args.item, "sell")
     _need(a.inventory, {args.item: args.qty})
     labor.trader_deal(ctx.world, args.item, args.qty, "buy")
+    pricing.trader_bought(ctx.world, args.item, args.qty)
     ops.burn(ctx.world, a.inventory, args.item, args.qty)
     ops.mint_coins(ctx.world, a, price * args.qty)
     ctx.emit("sell", f"{a.name} sold {args.qty} {args.item} to the trader for {price * args.qty} coins.",
