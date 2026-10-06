@@ -75,6 +75,12 @@ def fire_places(world: World) -> set[str]:
             out.add(plot.home)
     for fn in FIRE_SOURCES:
         out |= fn(world)
+    try:
+        from . import construction  # type: ignore[attr-defined]  # task 3: campfires built on site
+    except ImportError:
+        return out
+    if hasattr(construction, "has_building"):
+        out |= {loc for loc in world.locations if construction.has_building(world, "campfire", location=loc)}
     return out
 
 
