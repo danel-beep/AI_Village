@@ -190,3 +190,15 @@ def test_hunters_and_fuzz_bots_keep_invariants_and_replay(tmp_path):
         evs = [e["kind"] for r in recs if r.get("type") == "tick" for e in r["events"]]
         assert "hunt_kill" in evs or "hunt_catch" in evs
         assert any("animals" in r.get("view", {}) for r in recs if r.get("type") == "tick")
+
+
+def test_big_game_opens_with_the_hamlet_stage():
+    w = world(progress={"enabled": True, "start_stage": "camp"})
+    at_forest(w, "Anna")
+    obs = engine.observe(w, "Anna", consume_inbox=False)
+    assert set(obs["animals_here"]) == {"hare"}
+    hunt(w, "Anna", animal="deer")
+    assert "no deer here" in w.agents["Anna"].last_error
+    w2 = world(progress={"enabled": True, "start_stage": "hamlet"})
+    at_forest(w2, "Anna")
+    assert "deer" in engine.observe(w2, "Anna", consume_inbox=False)["animals_here"]

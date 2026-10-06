@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from . import debts
 from .debts import holdings as debt_holdings
 from .plots import holdings as plot_holdings, used_cells
 from .state import World
@@ -56,7 +57,8 @@ def check(world: World) -> None:
         bag(f"pledge {d.id}", d.pledge)
         if d.pledge and d.status not in ("open", "defaulted"):
             errors.append(f"debt {d.id}: {d.status} but still holds a pledge")
-        if d.coins_owed < 0 or d.lender not in world.agents or d.borrower not in world.agents:
+        bill = d.lender == debts.TREASURY and d.kind in debts.BILL_KINDS  # voluntary laws (debts.write_bill)
+        if d.coins_owed < 0 or (d.lender not in world.agents and not bill) or d.borrower not in world.agents:
             errors.append(f"debt {d.id}: bad entry")
     for a in world.agents.values():
         bag(f"agent {a.name}", a.inventory)

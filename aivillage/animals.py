@@ -32,12 +32,14 @@ from collections import deque
 
 from pydantic import BaseModel, Field
 
-from . import conflict, ops
+from . import conflict, ops, progress
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
 from .state import Agent, World
 
 ACTION_NAMES = ("hunt",)
+BIG_GAME = "feature:big_game"  # progress.py: with stages on, big game opens at the hamlet (plan: stage 1)
+progress.DEFAULT_UNLOCKS.setdefault(BIG_GAME, {"stage": "hamlet"})
 
 
 def _c(cfg: dict) -> dict:
@@ -123,6 +125,15 @@ def _herd(world: World, loc: str) -> dict[str, int]:
     return (world.animals.get("herds") or {}).get(loc, {})
 
 
+def _open(world: World, sp: str) -> bool:
+    return int(_species(world.config)[sp]["min_hunters"]) <= 1 or progress.unlocked(world, BIG_GAME)
+
+
+def _seen(world: World, loc: str) -> dict[str, int]:
+    """The herds here a villager can see and hunt (big game is hidden until progress opens it)."""
+    return {k: v for k, v in _herd(world, loc).items() if _open(world, k)}
+
+
 # ---------- hunting ----------
 
 def _party(world: World, loc: str, sp: str) -> dict | None:
@@ -165,7 +176,7 @@ class HuntArgs(BaseModel):
 
 
 def _can_hunt(ctx: Ctx, a: Agent) -> bool:
-    return enabled(ctx.cfg) and bool(_herd(ctx.world, a.location))
+    return enabled(ctx.cfg) and bool(_seen(ctx.world, a.location))
 
 
 @ACTIONS.action("hunt", "Hunt an animal here. Small game: one try, a catch is yours. Big game: you join the "
@@ -176,7 +187,7 @@ def hunt(ctx: Ctx, a: Agent, args: HuntArgs) -> None:
     if not enabled(cfg):
         raise ActionError("there is no hunting in this village")
     sp = args.animal.strip().lower()
-    herd = _herd(w, a.location)
+    herd = _seen(w, a.location)
     if sp not in _species(cfg):
         raise ActionError(f"unknown animal '{args.animal}' (animals: {', '.join(_species(cfg))})")
     if not herd.get(sp):
@@ -342,7 +353,7 @@ def observe(world: World, name: str) -> dict:
     if not enabled(world.config) or not world.animals:
         return {}
     a = world.agents[name]
-    herd = _herd(world, a.location)
+    herd = _seen(world, a.location)
     out: dict = {}
     if herd:
         sp = _species(world.config)

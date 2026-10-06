@@ -315,6 +315,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "auto_collect": True,
         "seize_pct": 50,
     },
+    # How laws are enforced (aivillage/governance.py `voluntary`): "auto" takes the tax (eviction if short) and the
+    # theft fine; "voluntary" writes them as bills owed to the treasury in the debt book, paid with pay_bill or not.
+    "laws": {
+        "enforcement": "auto",
+        "bill_days": 3,  # a bill not paid within this many days is marked overdue (public), nothing more
+    },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
     "governance": {
@@ -522,6 +528,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Visible wealth and the village chronicle (aivillage/chronicle.py). Off here; on in the crafts mode.
     # Wealth levels poor / modest / well-off / rich start at these coins (goods at base value included).
     "chronicle": {"enabled": False, "every_days": 7, "tiers": [50, 150, 400]},
+    # Village stages and unlocks (aivillage/progress.py, docs/specs/survival.md). Off here: everything is open.
+    # On (the «С нуля» mode), the village climbs `stages` by what stands in it (`requires.buildings`: kind ->
+    # how many; `kind@2` = at level 2+) and each stage or building opens mechanics (progress.DEFAULT_UNLOCKS,
+    # overridden by `unlocks`). `start_stage`: a stage id or index; earlier stages count as reached.
+    "progress": {
+        "enabled": False,
+        "start_stage": "camp",
+        "stages": [
+            {"id": "camp", "requires": {}},
+            {"id": "hamlet", "requires": {"buildings": {"house": 3, "workbench": 1}}},
+            {"id": "village", "requires": {"buildings": {"market_square": 1, "smithy": 1}}},
+            {"id": "town", "requires": {"buildings": {"town_hall": 1, "house@2": 3}}},
+        ],
+        "unlocks": {},
+    },
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with
