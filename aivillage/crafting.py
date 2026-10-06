@@ -21,16 +21,25 @@ is a workshop kind (today's `smithy`, owner None), in `world.construction["build
 (`fn(world, location) -> [{"kind", "owner", "level", "users"?}]`; `users` None = everyone).
 Observation (on): `tools` (wear left), `workshops_here`, `crafts_here`. Prompt facts: `facts(cfg)`.
 State: `Agent.tool_wear_by` (hours of use per tool kind; the generic `tool` keeps `Agent.tool_wear`).
+
+Secret recipes (`crafting.secrets`, «С нуля» plan task 19; needs crafting on): a recipe not in `secrets.common`
+is known only to whoever worked it out or was taught it (`Agent.known_recipes`). A recipe no living villager
+knows can be worked out by the first who makes it (`discover_hours` more at the bench); once someone alive knows
+it, others learn it only by `teach` (free at once, or for a price the learner pays with `learn`; the learner may
+teach it on). With `rediscover` on, anyone may still work it out alone. Observation: `recipes_you_know`,
+`lessons_offered`. Pending lessons: `Agent.lesson_offers` on the learner.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Callable
+from typing import Annotated, Callable
 
-from . import labor, ops, progress
+from pydantic import BaseModel, Field
+
+from . import clock, labor, ops, progress
 from .ops import Ctx
-from .registry import ActionError
+from .registry import ACTIONS, ActionError
 from .state import Agent, World
 
 WORKSHOP_SOURCES: list[Callable[[World, str], list[dict]]] = []
@@ -193,6 +202,12 @@ def craft(ctx: Ctx, a: Agent, rid: str, times: int) -> None:
         raise ActionError(f"unknown recipe '{rid}'; known: {', '.join(known)}")
     if rid not in known:
         raise ActionError(f"nobody in the village can make {rid} yet; known: {', '.join(known)}")
+    discovering = False
+    if secret(cfg, rid) and rid not in a.known_recipes:
+        if (who := knowers(w, rid)) and not _s(cfg).get("rediscover"):
+            raise ActionError(f"you do not know how to make {rid}; it is known to {', '.join(who)}, "
+                              f"who can teach it")
+        discovering = True
     if why := where_error(w, a, rid, r):
         raise ActionError(why)
     if r["profession"] and a.profession != r["profession"]:
@@ -206,6 +221,11 @@ def craft(ctx: Ctx, a: Agent, rid: str, times: int) -> None:
     out = _output(r, usable_kinds(w, a)) * times
     ops.mint(w, a.inventory, rid, out)
     hours = int(r.get("hours") or 0) * times  # 0: any batch fits in the action's hour
+    if discovering:
+        hours = max(hours, 1) + int(_s(cfg).get("discover_hours", 0))
+        _learn(a, rid)
+        ctx.emit("discover", f"{a.name} worked out how to make {rid}.", actor=a.name, location=a.location,
+                 visibility="location", recipe=rid)
     if hours > 1:
         a.task = {"kind": "craft", "recipe": rid, "hours_left": hours - 1}
     ctx.emit("craft", f"{a.name} made {out} {rid}.", actor=a.name, location=a.location,
@@ -291,6 +311,7 @@ def observe(world: World, name: str) -> dict:
             tools[t] = f"{durability(cfg, t) - used} of {durability(cfg, t)} work hours left in the one in use"
     if tools:
         out["tools"] = tools
+    out.update(_secrets_observe(world, a))
     here = workshops_at(world, a.location)
     if here:
         out["workshops_here"] = [{"kind": w["kind"], "owner": w["owner"] or "village",
@@ -299,7 +320,7 @@ def observe(world: World, name: str) -> dict:
         crafts = {}
         for rid, r in cfg["recipes"].items():
             if (r.get("building") in kinds or set(r.get("more_at", {})) & kinds) \
-                    and progress.unlocked(world, f"recipe:{rid}"):
+                    and progress.unlocked(world, f"recipe:{rid}") and may_make(world, a, rid):
                 crafts[rid] = f"{_ins(r)} -> {_output(r, kinds)} {rid}"
         if crafts:
             out["crafts_here"] = crafts
@@ -337,4 +358,154 @@ def facts(cfg: dict) -> list[str]:
                  f"after its hours of work): {'; '.join(tl)}.")
     if c.get("needs_tool"):
         lines.append(f"- Not gathered by hand: {', '.join(c['needs_tool'])}.")
+    if secrets_on(cfg):
+        s = _s(cfg)
+        common = [rid for rid in cfg["recipes"] if not secret(cfg, rid)]
+        alone = ("anyone may also work it out alone the same way" if s.get("rediscover") else
+                 "once someone alive knows it, others learn it only when someone who knows teaches them")
+        lines.append(f"- Recipes known to everyone: {', '.join(common) or 'none'}. Every other recipe is known only "
+                     f"to whoever worked it out or was taught it. A recipe no living villager knows is worked out by "
+                     f"the first who makes it ({s.get('discover_hours', 0)} h more at it); {alone}. "
+                     f"A villager who knows a recipe can teach it to a person here, free or for a price.")
     return lines
+
+
+# ---------- secret recipes (task 19) ----------
+
+def _s(cfg: dict) -> dict:
+    return _c(cfg).get("secrets") or {}
+
+
+def secrets_on(cfg: dict) -> bool:
+    return enabled(cfg) and bool(_s(cfg).get("enabled"))
+
+
+def secret(cfg: dict, rid: str) -> bool:
+    """Is this recipe known only to some? (False with secrets off.)"""
+    return secrets_on(cfg) and rid in cfg["recipes"] and rid not in _s(cfg).get("common", [])
+
+
+def knowers(world: World, rid: str) -> list[str]:
+    """Living villagers who know a secret recipe, by name."""
+    return sorted(n for n, x in world.agents.items() if x.status != "dead" and rid in x.known_recipes)
+
+
+def may_make(world: World, a: Agent, rid: str) -> bool:
+    """Knowledge alone: known to everyone, known to `a`, or still free to work out."""
+    cfg = world.config
+    if not secret(cfg, rid) or rid in a.known_recipes:
+        return True
+    return bool(_s(cfg).get("rediscover")) or not knowers(world, rid)
+
+
+def _learn(a: Agent, rid: str) -> None:
+    if rid not in a.known_recipes:
+        a.known_recipes = sorted([*a.known_recipes, rid])
+
+
+def _open_lessons(world: World, a: Agent) -> list[dict]:
+    """Lessons offered to `a` that have not run out (expired ones are dropped)."""
+    a.lesson_offers = [o for o in a.lesson_offers if o["expires_tick"] > world.tick]
+    return a.lesson_offers
+
+
+def _price_text(price: dict) -> str:
+    return ops.fmt_items(price) if price else "nothing"
+
+
+def _secrets_observe(world: World, a: Agent) -> dict:
+    if not secrets_on(world.config):
+        return {}
+    out: dict = {}
+    if a.known_recipes:
+        out["recipes_you_know"] = list(a.known_recipes)
+    lessons = [o for o in a.lesson_offers if o["expires_tick"] > world.tick]
+    if lessons:
+        out["lessons_offered"] = [{"teacher": o["teacher"], "recipe": o["recipe"], "price": _price_text(o["price"])}
+                                  for o in lessons]
+    return out
+
+
+Price = dict[str, Annotated[int, Field(gt=0, le=1000)]]
+
+
+class TeachArgs(BaseModel):
+    person: str = Field(description="a person here")
+    recipe: str
+    price: Price = Field(default_factory=dict, description="what they pay you to learn (items, 'coins' for money); "
+                                                           "empty = free, they learn at once")
+
+
+def _can_teach(ctx: Ctx, a: Agent) -> bool:
+    return secrets_on(ctx.cfg) and bool(a.known_recipes)
+
+
+@ACTIONS.action("teach", "Teach a person here a recipe you know. Free: they know it at once. With a price: they "
+                "learn it when they pay it with learn.", TeachArgs, available=_can_teach)
+def teach(ctx: Ctx, a: Agent, args: TeachArgs) -> None:
+    cfg, w = ctx.cfg, ctx.world
+    if not secrets_on(cfg):
+        raise ActionError("every recipe here is known to everyone")
+    other = w.agents.get(args.person)
+    if other is None or other.status == "dead":
+        raise ActionError(f"no villager named '{args.person}'")
+    if other.name == a.name:
+        raise ActionError("you cannot teach yourself")
+    if other.location != a.location or other.status != "active":
+        raise ActionError(f"{other.name} must be here to learn")
+    if not secret(cfg, args.recipe):
+        raise ActionError(f"'{args.recipe}' is not a recipe known only to some")
+    if args.recipe not in a.known_recipes:
+        raise ActionError(f"you do not know how to make {args.recipe}")
+    if args.recipe in other.known_recipes:
+        raise ActionError(f"{other.name} already knows {args.recipe}")
+    for k in args.price:
+        if k != "coins" and k not in cfg["items"]:
+            raise ActionError(f"unknown item '{k}'")
+    price = dict(args.price)
+    if not price:
+        _learn(other, args.recipe)
+        ctx.emit("teach", f"{a.name} taught {other.name} how to make {args.recipe}.", actor=a.name,
+                 location=a.location, visibility="location", to=[other.name], recipe=args.recipe,
+                 learner=other.name, price={})
+        return
+    lessons = [o for o in _open_lessons(w, other) if not (o["teacher"] == a.name and o["recipe"] == args.recipe)]
+    lessons.append({"teacher": a.name, "recipe": args.recipe, "price": price,
+                    "expires_tick": w.tick + clock.hours(cfg, cfg["offer_ttl_ticks"])})
+    other.lesson_offers = lessons
+    ctx.emit("lesson_offer", f"{a.name} offers to teach you how to make {args.recipe} for {_price_text(price)} "
+             f"(learn to accept).", actor=a.name, to=[other.name], recipe=args.recipe, price=price)
+    ctx.emit("lesson_offer", f"You offered to teach {other.name} how to make {args.recipe} for "
+             f"{_price_text(price)}.", actor=a.name, to=[a.name], recipe=args.recipe, price=price)
+
+
+class LearnArgs(BaseModel):
+    teacher: str
+    recipe: str
+
+
+@ACTIONS.action("learn", "Pay the price of a lesson offered to you and learn the recipe. The teacher must be here.",
+                LearnArgs, available=lambda c, a: secrets_on(c.cfg) and bool(_open_lessons(c.world, a)))
+def learn(ctx: Ctx, a: Agent, args: LearnArgs) -> None:
+    w = ctx.world
+    lesson = next((o for o in _open_lessons(w, a) if o["teacher"] == args.teacher and o["recipe"] == args.recipe),
+                  None)
+    if lesson is None:
+        raise ActionError(f"no open lesson from '{args.teacher}' on '{args.recipe}' for you")
+    t = w.agents[lesson["teacher"]]
+    if t.status != "active" or t.location != a.location:
+        raise ActionError(f"{t.name} must be here to teach you")
+    if args.recipe not in t.known_recipes:
+        a.lesson_offers.remove(lesson)
+        raise ActionError(f"{t.name} does not know {args.recipe}; lesson cancelled")
+    price = lesson["price"]
+    goods = {k: v for k, v in price.items() if k != "coins"}
+    if not ops.has_all(a.inventory, goods) or a.coins < price.get("coins", 0):
+        raise ActionError(f"the lesson costs {_price_text(price)}; you do not have it")
+    ops.move_items(a.inventory, t.inventory, goods)
+    ops.move_coins(a, t, price.get("coins", 0))
+    a.lesson_offers.remove(lesson)
+    _learn(a, args.recipe)
+    ctx.emit("teach", f"{t.name} taught {a.name} how to make {args.recipe} for {_price_text(price)}.",
+             actor=a.name, location=a.location, visibility="location", to=[t.name], recipe=args.recipe,
+             learner=a.name, teacher=t.name, price=price)
