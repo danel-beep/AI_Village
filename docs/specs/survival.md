@@ -50,7 +50,8 @@ API for other modules:
 
 Mode id `survival` («С нуля»). Config `bare_start` (`enabled`, `until_stage`, default `hamlet`): a start before
 that stage has every villager at profession `laborer`, house level 0, no coins, items or yard buildings,
-gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode.
+gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode. A start before `coins_from_stage`
+(default `village`, where the market square brings the trader) has no coins either.
 
 ## Building ids
 

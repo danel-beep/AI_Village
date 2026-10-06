@@ -31,6 +31,12 @@ def test_hamlet_start_is_the_ready_village():
     assert any(a.profession != "laborer" for a in w.agents.values())
     assert all(a.inventory.get("tool") == 1 for a in w.agents.values())
     assert all(p.house >= 1 for p in w.plots.values() if p.kind == "home" and p.owner)
+    assert all(a.coins == 0 for a in w.agents.values())  # no market square yet, so no coins
+
+
+def test_village_start_has_coins():
+    w = world("village", map={"procedural": True, "unfairness": 1.0})
+    assert progress.stage(w) == "village" and sum(a.coins for a in w.agents.values()) > 0
 
 
 def test_other_modes_untouched():
