@@ -196,7 +196,8 @@ def fact(cfg: dict) -> str | None:
     """One neutral line for the LLM rules cheat sheet."""
     if not cfg.get("reputation", {}).get("enabled"):
         return None
-    line = ("- \"reputation\" is what YOU saw others do (score: your own tally, good deeds up, bad deeds down). "
+    line = ("- \"reputation\" is what YOU saw others do (score: your own tally; it falls after thefts, violence and "
+            "unpaid debts you saw, rises after help, gifts, trades and repaid debts). "
             "\"rumors\" are what others told you with gossip: they may be true or false, nobody checks.")
     if "origin_hops" in cfg["reputation"]:
         line += (" Pass one on with gossip(rumor=id). Words change from mouth to mouth: a retold rumor may lose "

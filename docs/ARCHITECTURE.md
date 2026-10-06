@@ -52,6 +52,7 @@ god events ─┐
 | `aivillage/graves.py` | a death (`death_mode: "death"`) buries the villager by their house: `World.graves`, public `death` event that wakes everyone, `graves` / `graves_here` in every observation, `pay_respects` at the grave, `view.graves` (drawn by `viewer/plotlayer.js`); cause = `Agent.harm` (god `lightning`) else hunger / wounds |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
+| `aivillage/handbook.py` | the villager's handbook in the system prompt: intro + every enabled action grouped by topic, built from `ACTIONS` on each call (`ACTION_TOPIC`, else the module's `MODULE_TOPIC`, else "Other"). Cooking hint (`craft_hint`): `you.can_craft_now` / `you.not_edible` in `observe()` |
 | `aivillage/llm.py` | prompt, `parse_decision`, `LLMAgent`, `OpenRouterClient`, `StubClient`; `RateGate` per model (max parallel calls, shared cooldown after 429, env `AIVILLAGE_MAX_PARALLEL`), fallback models (`AIVILLAGE_FALLBACK_MODELS`, `--fallback`, YAML `fallback_models`); `OpenAIClient` + `FallbackClient`; build clients only with `make_client(model)` (provider from keys.py) |
 | `aivillage/keys.py` | keys, provider, model, parallel limit in `<home>/settings.json` on the player's computer (file wins over env); `public()` = masked view for the viewer |
 | `aivillage/run.py` | run loop (parallel decisions), JSONL log (header `brains` = who plays whom, `usage` records = tokens and cost per LLM villager), `replay`, CLI |
@@ -126,6 +127,9 @@ does not jump again). `extinguish` pours all the water the agent carries (up to 
 1. Numbers → `config.py`.
 2. State, if needed → a field in `state.py` (and `from_dict`).
 3. Action → `@ACTIONS.action("name", "one-line description for the model", ArgsModel, available=...)` in `actions.py`. Validate everything first, raise `ActionError` with a message the agent can act on, then mutate. Use `ops` for items/coins and `ctx.emit` for what others see (`visibility`: public / location / private).
+   The action shows up in the villager's handbook by itself (`handbook.py`, topic "Other" unless its module or name
+   is in `MODULE_TOPIC` / `ACTION_TOPIC`). Describe it as a plain fact, no advice or judgement:
+   `tests/test_neutrality.py` scans every prompt, observation, event and error text the model reads.
    To forbid an action under some rule without editing it, append a guard to `ACTIONS.guards` (see `governance._exile_guard`).
 4. Reacting to events (social modules) → append `hook(ctx, event, recipients)` to `ops.EVENT_HOOKS`; it runs after every `emit`, recipients are who actually saw it. Extra observation fields → `obs.update(module.observe(world, name))` in `engine.observe`. Per-agent state → a defaulted field on `Agent` (old logs still load).
    How long it keeps the agent busy: `config.action_minutes[name]` (not listed = 60 min). Anything measured in hours
