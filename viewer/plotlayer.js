@@ -192,7 +192,9 @@ const PlotLayer = (() => {
       const yd = yards[home];
       if (!yd) continue;
       yardGround(g, yd, p.cells, p.buildings.some(b => b.kind === 'fence'));
-      for (const { b, c, r, w, h } of pack(p.buildings, p.cells, yd)) {
+      // «С нуля»: houses and bigger buildings (workbench, granary...) are drawn by viewer/buildlayer.js
+      const mine = K.built ? p.buildings.filter(b => SIZE[b.kind]) : p.buildings;
+      for (const { b, c, r, w, h } of pack(mine, p.cells, yd)) {
         const box = cellBox(yd, c, r, w, h);
         if (b.kind === 'garden_bed') bed(g, box, b, t.view.day);
         else if (b.kind === 'chicken_coop') coop(g, box, b, sec);
@@ -200,7 +202,7 @@ const PlotLayer = (() => {
         else if (b.kind === 'beehive') hive(g, box, b, sec);
         if (built.has(b.id)) puff(g, box[0] + box[2] / 2, box[1] + box[3] / 2, e);
       }
-      if (yd.house) houseLevel(g, yd.house, p.house || 1);
+      if (yd.house) { if (!K.built) houseLevel(g, yd.house, p.house || 1); }
       else lotSign(g, yd, p);
     }
     // graves.py: a headstone by the dead villager's house (several stand side by side)

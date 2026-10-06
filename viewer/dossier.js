@@ -58,7 +58,7 @@
   }
 
   function now(n, v, c) {
-    const ld = c.lastDecision, inv = Object.entries(v.inventory).map(([k, q]) => `${q} ${esc(k)}`).join(', ') || 'пусто';
+    const ld = c.lastDecision, inv = (window.ItemIcons ? ItemIcons.list(v.inventory) : Object.entries(v.inventory).map(([k, q]) => `${q} ${esc(k)}`).join(', ')) || 'пусто';
     const fresh = ld && ld.t === ticks[i];
     return `<h4>Думает</h4><div class="thought">${ld && ld.d.thought ? esc(tr(ld.d.thought)) : '<span class="muted">—</span>'}</div>
       ${ld && ld.d.say ? `<div>💬 «${esc(tr(ld.d.say))}»</div>` : ''}
