@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, clock, conflict, construction, crises, debts, dice, family, governance, graves, handbook, illness,
+from . import (animals, chronicle, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, illness,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
                taxes, threats, tiles, works)
 from .actions import step_move, work_hour
@@ -165,6 +165,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(chronicle.observe(world, name))
     obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
+    obs.update(crafting.observe(world, name))
     obs.update(construction.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
@@ -275,6 +276,8 @@ def continue_task(ctx: Ctx, a: Agent) -> None:
         t["hours_left"] -= 1
         if t["hours_left"] <= 0 or got == 0:
             a.task = None
+    elif t["kind"] == "craft":
+        crafting.continue_task(ctx, a)
     else:  # unknown task kinds never block an agent forever
         a.task = None
 
@@ -340,6 +343,7 @@ def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
     governance.end_of_hour(ctx)
     progress.end_of_hour(ctx)
+    crafting.end_of_hour(ctx)
     for a in w.agents.values():
         if a.status != "active":
             continue

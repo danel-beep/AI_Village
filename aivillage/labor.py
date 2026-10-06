@@ -140,6 +140,21 @@ def trader_deal(world: World, item: str, qty: int, side: str) -> None:
     book[item] = book.get(item, 0) + qty
 
 
+def workshop_trades(ctx: Ctx, owned: list[tuple[str, str]]) -> None:
+    """crafting.end_of_hour: the owner of a workshop who has no trade yet takes the workshop's trade
+    (config `crafting.workshops`: smithy -> smith ...). The first workshop in `owned` order decides."""
+    c = ctx.cfg["crafting"]
+    untrained = set(c.get("untrained", []))
+    for owner, kind in owned:
+        a = ctx.world.agents.get(owner)
+        trade = c["workshops"].get(kind)
+        if not trade or a is None or a.status == "dead" or (a.profession or "") not in untrained:
+            continue
+        a.profession, a.skill_hours = trade, 0
+        ctx.emit("trade_changed", f"{a.name} took the {trade} trade with the {kind}.", actor=a.name,
+                 profession=trade, workshop=kind)
+
+
 def new_day(world: World) -> None:
     world.trader_day = {"bought": {}, "sold": {}}
     for a in world.agents.values():

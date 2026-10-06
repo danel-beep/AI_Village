@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops, seasons, works
+from . import crafting, ops, seasons, works
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Plot, World
@@ -266,7 +266,12 @@ def sow(ctx: Ctx, a: Agent, crop: str | None) -> None:
         raise ActionError(f"you need {spec['seed']} {crop} in your inventory as seed")
     ops.burn(ctx.world, a.inventory, crop, spec["seed"])
     b["crop"], b["ripe_day"] = crop, ctx.world.day + spec["days"]
-    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=ops.count(a.inventory, "tool") > 0)
+    if crafting.enabled(ctx.cfg):  # a hoe (or the generic tool) gives the bonus and wears an hour
+        tool = crafting.tool_for(ctx.cfg, a, crop)[0]
+        crafting.wear(ctx, a, tool)
+    else:
+        tool = "tool" if ops.count(a.inventory, "tool") > 0 else None
+    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=tool is not None)
     where = "at home" if plot.kind == "home" else f"at {ctx.world.locations[plot.home].name}"
     ctx.emit("plant", f"{a.name} planted {crop} in a garden bed {where} (ripe on day {b['ripe_day']}).",
              actor=a.name, location=plot.home, visibility="location", resource=crop, building=b["id"],

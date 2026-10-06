@@ -72,7 +72,7 @@ def check(world: World) -> None:
             errors.append(f"agent {a.name}: bad location {a.location}")
         if a.status == "active" and a.health == 0:
             errors.append(f"agent {a.name}: active with 0 health")
-        if a.task is not None and a.task.get("kind") not in ("move", "work"):
+        if a.task is not None and a.task.get("kind") not in ("move", "work", "craft"):
             errors.append(f"agent {a.name}: bad task {a.task}")
     for c in world.chests.values():
         bag(f"chest {c.id}", c.items)
