@@ -4,7 +4,7 @@
 // without this file the map is the same in every season.
 (function () {
   const SEASON_RU = { spring: '🌱 Весна', summer: '☀️ Лето', autumn: '🍂 Осень', winter: '❄️ Зима' };
-  let base = null, cache = {};
+  const caches = new WeakMap();   // per source canvas: the background, and the bare ground houses are wiped with
   const memos = {};
 
   function seasonOf(header, day) {
@@ -51,7 +51,7 @@
   function ground(bg, header, day) {
     const season = seasonOf(header, day);
     if (season !== 'winter' && season !== 'autumn') return bg;
-    if (bg !== base) { base = bg; cache = {}; }
+    let cache = caches.get(bg); if (!cache) caches.set(bg, cache = {});
     return cache[season] || (cache[season] = recolor(bg, season));
   }
 
