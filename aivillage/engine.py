@@ -12,8 +12,8 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (clock, conflict, crises, debts, dice, family, governance, graves, illness, labor, land, mapgen, market,
-               ops, plots, reputation, seasons, threats, tiles, works)
+from . import (clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor, land, mapgen,
+               market, ops, plots, reputation, seasons, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -146,6 +146,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "last_error": a.last_error,
         "available_actions": ACTIONS.available(ctx, a) if ops.can_act(a) else [],
     }
+    obs["you"].update(handbook.observe(world, name))
     obs.update(reputation.observe(world, name))
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))

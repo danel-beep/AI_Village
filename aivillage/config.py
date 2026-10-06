@@ -11,6 +11,12 @@ from typing import Any
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "seed": 1,
+    # Villager prompt (handbook.py, llm.py). craft_hint: the observation lists recipes the villager's own goods cover
+    # now (`you.can_craft_now`) and marks raw goods that are not food (`you.not_edible`). characters: "off" = every
+    # villager gets the same neutral prompt, per-villager characters included (experiments); "default" = neutral
+    # unless a villager has its own character; "random" = a seeded preset each.
+    "craft_hint": True,
+    "characters": "default",
     # Time: one tick = tick_minutes game minutes (clock.py). Agents act from day_start to day_end, then
     # night runs. 60 is the old hourly mode the engine tests use; the CLI, live server and launcher run 15.
     "day_start_hour": 6,
