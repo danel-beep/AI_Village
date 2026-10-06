@@ -1,8 +1,7 @@
 """Night, cold and winter (config block `warmth`; off unless a mode or the start screen turns it on).
 
-Each night every active villager gets warmth where they sleep: 1 for a roof (`has_roof`: the house they
-are in; `construction.has_roof` replaces this once that module exists), 1 for a burning fire there (a
-campfire, or the hearth of a house), 1 for clothes they carry (`clothes`, none yet). The season says how
+Each night every active villager gets warmth where they sleep: 1 for a roof (`has_roof`: a house or a
+shelter on the plot they are on), 1 for a burning fire there (a campfire, or the hearth of a house), 1 for clothes they carry (`clothes`, none yet). The season says how
 much a night needs (`need`). Each point short costs `short_health` health and `short_satiety` satiety;
 in a `cold_seasons` season each point short is also a `sick_chance` of falling ill (illness.py).
 
@@ -54,14 +53,16 @@ def fuel_per_night(cfg: dict, day: int) -> int:
 
 
 def has_roof(world: World, a: Agent) -> bool:
+    """A roof where `a` sleeps: a house (level >= 1) or a `shelter` in the yard of the plot they stand on;
+    at home, also whatever `construction.has_roof(world, name)` says once that module exists."""
+    plot = world.plots.get(a.location)
+    if plot is not None and (plot.house >= 1 or any(b.get("kind") == "shelter" for b in plot.buildings)):
+        return True
     try:
         from . import construction  # type: ignore[attr-defined]  # task 3 ("Стройка своими руками")
     except ImportError:
-        construction = None
-    if construction is not None and hasattr(construction, "has_roof"):
-        return bool(construction.has_roof(world, a))
-    plot = world.plots.get(a.location)
-    return plot is not None and plot.kind == "home" and plot.house >= 1
+        return False
+    return a.location == a.home and bool(getattr(construction, "has_roof", lambda w, n: False)(world, a.name))
 
 
 def fire_places(world: World) -> set[str]:

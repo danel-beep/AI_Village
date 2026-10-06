@@ -128,3 +128,122 @@ def test_economy_modes_set_start_unfairness():
     assert modes.unfairness("peaceful") < modes.unfairness("standard") < modes.unfairness("gold_rush")
     w = engine.new_world(mapgen.for_run(modes.world_override("scarcity")))
     assert w.config["map"]["unfairness"] == 0.6 and "layout" in w.config["map"]
+
+
+# ---------- large map (map.size) and regrowth from the remainder ----------
+
+def test_normal_size_is_the_old_map():
+    a, b = gen(5, 5), gen(5, 5, size="normal")
+    assert a["map"]["layout"] == b["map"]["layout"] and a["locations"] == b["locations"]
+    assert not any(s.get("biome") for s in a["locations"].values())
+    assert "clay" not in a["items"]
+    with pytest.raises(ValueError):
+        gen(5, 5, size="giant")
+
+
+@pytest.mark.parametrize("size,n", [("large", 5), ("large", 12), ("huge", 5), ("huge", 20)])
+def test_large_map_has_far_wild_zones(size, n):
+    for seed in (1, 2):
+        cfg = gen(seed, n, size=size)
+        assert cfg == gen(seed, n, size=size)  # by seed
+        small = gen(seed, n)
+        lay = cfg["map"]["layout"]
+        assert lay["cols"] > small["map"]["layout"]["cols"] and lay["rows"] > small["map"]["layout"]["rows"]
+        p = mapgen.params(cfg)
+        mapgen.check(cfg, make_config()["locations"], {**p, **{k: p[k] + cfg["map"]["relaxed"] for k in mapgen.RELAXABLE}})
+        d = mapgen.distances(mapgen.graph(cfg), "square")
+        wild = {k: s for k, s in cfg["locations"].items() if s.get("biome")}
+        kinds = {}
+        for lid in wild:
+            kinds[lay["places"][lid]["kind"]] = kinds.get(lay["places"][lid]["kind"], 0) + 1
+        assert kinds == mapgen.MAP_SIZES[size]["wilds"]
+        for lid in wild:
+            assert d[lid] >= 2, (lid, d[lid])  # far: the village core stays compact
+        res = lambda kind: {r for lid, s in wild.items() if lay["places"][lid]["kind"] == kind for r in s["resources"]}
+        assert res("deepwood") == {"wood", "berries"} and res("cave") == {"stone", "ore"}
+        assert res("lake") == {"fish", "water"} and res("clayhill") == {"clay"}
+        assert cfg["items"]["clay"]["value"] > 0
+        # the core is as close as on the normal map's honest minimum
+        assert max(f["square"] for f in cfg["map"]["fairness"].values()) <= p["max_home_hops"] + cfg["map"]["relaxed"]
+
+
+def test_large_map_lake_is_water_roads_go_round():
+    cfg = gen(3, 8, size="large")
+    lay = cfg["map"]["layout"]
+    lake = lay["places"]["lake"]
+    water = set(mapgen.lake_tiles(*lake["box"]))
+    assert len(water) > lake["box"][2] * lake["box"][3] // 2
+    road = set()
+    for r in lay["routes"]:
+        pts = r["path"]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            road |= {(x, y) for x in range(min(x0, x1), max(x0, x1) + 1) for y in range(min(y0, y1), max(y0, y1) + 1)}
+    assert not road & water
+    owned = {}
+    for pid, pl in lay["places"].items():
+        area = pl.get("plot") or pl.get("box")
+        if area:
+            for t in mapgen.rect(*area):
+                assert t not in owned, (pid, owned.get(t))
+                owned[t] = pid
+
+
+def test_large_map_runs_and_replays(tmp_path):
+    w = engine.new_world(mapgen.for_run({"seed": 6, "regrowth": {"from_remainder": True}}, size="large"))
+    assert w.config["map"]["size"] == "large" and "clay" in w.locations["clayhill"].resources
+    log = tmp_path / "run.jsonl"
+    run(w, bots_decider(w, ["worker", "trader", "random"], 6), days=2, log_path=log)
+    assert replay(log).hash() == w.hash()
+
+
+def test_regrowth_from_remainder():
+    from aivillage import tiles
+    from aivillage.state import Location
+    spec = {"start": 80, "max": 80, "regen": 40, "slots": 8}
+    cfg = make_config()
+    loc = Location("f", "F", [], {"wood": 40})
+    assert tiles.regen(cfg, loc, "wood", spec) == 40  # off by default: the flat rate
+    on = make_config({"regrowth": {"from_remainder": True, "floor": 0.1}})
+    assert tiles.regen(on, loc, "wood", spec) == 20  # half left: half the rate
+    loc.resources["wood"] = 80
+    assert tiles.regen(on, loc, "wood", spec) == 40
+    loc.resources["wood"] = 0
+    assert tiles.regen(on, loc, "wood", spec) == 4  # cleared: only the floor
+    assert tiles.regen(on, loc, "wood", {**spec, "regen": 2}) == 1  # never stuck at zero
+    assert tiles.regen(on, loc, "gold", {"start": 9, "max": 9, "regen": 0}) == 0
+    assert tiles.regen(on, loc, "water", {"start": 999, "max": 999, "regen": 999}) == 999
+
+
+def test_cleared_forest_comes_back_slower():
+    def night_after_clearing(flag: bool) -> int:
+        w = engine.new_world({"seed": 2, "regrowth": {"from_remainder": flag}, "seasons": {"enabled": False}})
+        f = w.locations["forest"]
+        from aivillage import tiles
+        tiles.take(f, "wood", f.resources["wood"])
+        engine.night(engine.Ctx(w, engine.rng_for(w, "test")))
+        return f.resources["wood"]
+    assert night_after_clearing(True) < night_after_clearing(False)
+
+
+def test_size_and_regrowth_on_the_start_screen():
+    from aivillage import knobs
+    keys = {k["key"]: k for k in knobs.active()}
+    assert keys["map_size"]["path"] == "map.size" and keys["regrowth"]["path"] == "regrowth.from_remainder"
+    run_ = knobs.to_run({"map_size": "huge", "regrowth": True, "brains": "bots"})
+    assert run_["override"]["map"]["size"] == "huge" and run_["override"]["regrowth"]["from_remainder"] is True
+    assert knobs.to_run({"brains": "bots"})["override"]["map"]["size"] == "normal"
+
+
+def test_viewer_lake_matches_python():
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    js = (Path(__file__).parent.parent / "viewer" / "mapgen.js").read_text(encoding="utf-8")
+    boxes = [[3, 4, 9, 6], [10, 2, 7, 5], [0, 0, 4, 3]]
+    probe = "const window = {};\n" + js + f"\nconsole.log(JSON.stringify({json.dumps(boxes)}.map(b => window.GenMap.lakeTiles(b))));"
+    out = json.loads(subprocess.run(["node", "-e", probe], capture_output=True, text=True, check=True).stdout)
+    for b, tiles_js in zip(boxes, out):
+        assert sorted(map(tuple, tiles_js)) == sorted(mapgen.lake_tiles(*b))
