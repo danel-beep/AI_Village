@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops, seasons
+from . import ops, seasons, works
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Plot, World
@@ -339,7 +339,7 @@ def steal_from_plot(ctx: Ctx, a: Agent, args: StealPlotArgs) -> None:
     victim = guards[0] if guards else owner
     witnesses = [o.name for o in w.agents.values()
                  if o.status == "active" and not o.asleep and o.location == a.location
-                 and o.name != a.name and o.name not in guards and ctx.rng.random() < cfg["steal_notice_chance"]]
+                 and o.name != a.name and o.name not in guards and ctx.rng.random() < cfg["steal_notice_chance"] + works.notice_bonus(ctx.world)]
     for x in witnesses:
         ctx.emit("witness", f"You saw {a.name} steal {args.item} from {owner}'s plot!", actor=a.name, to=[x],
                  thief=a.name, victim=owner)

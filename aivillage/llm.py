@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, conflict, crises, dice, governance, keys, land, plots, seasons
+from . import clock, conflict, crises, dice, governance, keys, land, plots, seasons, works
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -144,6 +144,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(season)
     if land.enabled(cfg):
         lines.append(land.facts(cfg))
+    if works.enabled(cfg):
+        lines.append(works.facts(cfg))
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:

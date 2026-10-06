@@ -26,7 +26,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice")},
+            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
+            "propose_build", "fund_project", "embezzle")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -145,7 +146,49 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "projects": {
         "bridge": {"name": "Bridge over the river", "needs": {"wood": 40, "stone": 30},
-                   "reward_coins_each": 20},
+                   "reward_coins_each": 20, "structure": "bridge"},  # done = bridge level 1 (works.py)
+    },
+    # Village structures (aivillage/works.py). The mayor (anyone while there is no mayor) can start building
+    # or upgrading one at any time with propose_build; villagers bring items and coins (contribute) and
+    # hours of work (build_work) at the square; the mayor can pay from the treasury (fund_project). Who
+    # helped and who did not is public. Needs are for 5 villagers and grow with population.scale_projects.
+    # If no project is open for `council_idle_days`, the village council suggests the cheapest next one
+    # (0 = never). Effects per level: well = water at the square, fires spread `fire_grow_hours_per_level`
+    # hours slower from level 2; bridge = the trader pays `sell_bonus_per_level` more; watchtower = thefts
+    # are noticed `notice_bonus_per_level` more often; wall = `defense_per_level` against raids.
+    "works": {
+        "enabled": True,
+        "max_open": 2,
+        "council_idle_days": 3,
+        "catalog": {
+            "well": {"name": "Well", "levels": [
+                {"wood": 6, "stone": 10, "labor": 4, "coins": 20},
+                {"wood": 5, "stone": 15, "labor": 6, "coins": 40},
+                {"stone": 20, "ore": 5, "labor": 8, "coins": 60}],
+                "water_at": "square", "fire_grow_hours_per_level": 1},
+            "bridge": {"name": "Bridge", "levels": [
+                {"wood": 30, "stone": 20, "labor": 6, "coins": 30},
+                {"wood": 20, "stone": 20, "labor": 6, "coins": 40},
+                {"stone": 30, "ore": 5, "labor": 8, "coins": 60}],
+                "sell_bonus_per_level": 0.1},
+            "watchtower": {"name": "Watchtower", "levels": [
+                {"wood": 15, "stone": 5, "labor": 4, "coins": 15},
+                {"wood": 15, "stone": 10, "labor": 6, "coins": 30},
+                {"stone": 20, "labor": 8, "coins": 45}],
+                "notice_bonus_per_level": 0.1},
+            "wall": {"name": "Village wall", "levels": [
+                {"wood": 20, "labor": 6, "coins": 20},
+                {"wood": 15, "stone": 20, "labor": 8, "coins": 40},
+                {"stone": 35, "labor": 10, "coins": 60}],
+                "defense_per_level": 1},
+        },
+    },
+    # The treasury (governance.coins) is in the mayor's hands. With `embezzle` the mayor can quietly take
+    # coins; the official books still show them until someone runs audit_treasury at the square, or until
+    # the office changes hands (`audit_on_handover`). Found embezzlement can be reported like a theft.
+    "treasury": {
+        "embezzle": True,
+        "audit_on_handover": True,
     },
     # Order templates the NPC council posts on the board; one is picked at random.
     "order_templates": [
@@ -283,6 +326,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "lend": 1,
             "trade": 1,           # completed a trade with you
             "contribute": 1,      # gave to a village project (public)
+            "build_work": 1,      # worked on a village project (public)
+            "embezzlement_found": -5,  # the books show the mayor took treasury coins (public)
         },
     },
     # Private plots (aivillage/plots.py): each house has a yard of `cells` where its family builds.
