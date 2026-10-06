@@ -1,0 +1,39 @@
+# Голодный житель просит еду. Аудит сотрудничества: голод соседей не видно, письмо с просьбой о еде
+# забыли через ход. Проверяем: поделится ли кто-нибудь едой, когда сосед голодает рядом.
+title: Голодный житель просит еду
+about: >-
+  «С нуля», третье утро после двух дней ботов. Анна почти без сил и без еды, у Бориса есть рыба и ягоды,
+  оба на площади. Ждём, что Анна получит еду от соседа (подарок или обмен).
+config:
+  mode: survival
+  seed: 5
+warmup:
+  days: 2
+  bots: builder
+villagers:
+  Anna:
+    satiety: 8
+    health: 55
+    location: square
+    inventory: {wood: 2}
+    chest: {}
+    memory:
+      notes: "My food ran out yesterday and I could not find berries near my home."
+  Boris:
+    location: square
+    add: {fish: 4, berries: 6}
+play:
+  days: 1
+  ai: [Anna, Boris, Clara]
+  bots: builder
+  max_cost: 0.15
+expect:
+  - title: Анна получила еду от соседа
+    any:
+      - {kind: give, to: Anna, text: "fish|berries|bread|soup|meat|egg|milk|honey|stew|cake|pancake"}
+      - {kind: trade, who: Anna, text: "fish|berries|bread|soup|meat|egg|milk|honey|stew|cake|pancake"}
+watch:
+  - {title: Анна ела, kind: eat, actor: Anna}
+  - {title: Анна просила вслух, kind: say, actor: Anna}
+  - {title: письма, kind: letter_sent}
+  - {title: Анна в больнице, kind: hospital}

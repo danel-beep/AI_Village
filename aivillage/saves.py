@@ -33,22 +33,42 @@ def path_for(log: str | Path) -> Path:
 
 # --- villagers' brains ---
 
+def _plain(v):
+    """JSON-safe copy: random.Random -> its state, sets (BuilderBot's places, nested in dicts too) -> sorted lists."""
+    if isinstance(v, random.Random):
+        return {"__rng__": list(v.getstate())}
+    if isinstance(v, (set, frozenset)):
+        return {"__set__": sorted(v, key=str)}
+    if isinstance(v, dict):
+        return {k: _plain(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    return v
+
+
+def _unplain(v):
+    if isinstance(v, dict):
+        if "__rng__" in v:
+            version, internal, gauss = v["__rng__"]
+            rng = random.Random()
+            rng.setstate((version, tuple(internal), gauss))
+            return rng
+        if "__set__" in v:
+            return set(v["__set__"])
+        return {k: _unplain(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_unplain(x) for x in v]
+    return v
+
+
 def _bot_state(bot) -> dict:
     """A bot's own fields; random.Random objects become their state so decisions continue identically."""
-    out = {}
-    for k, v in vars(bot).items():
-        out[k] = {"__rng__": list(v.getstate())} if isinstance(v, random.Random) else v
-    return out
+    return {k: _plain(v) for k, v in vars(bot).items()}
 
 
 def _set_bot_state(bot, state: dict) -> None:
     for k, v in state.items():
-        if isinstance(v, dict) and "__rng__" in v:
-            version, internal, gauss = v["__rng__"]
-            rng = random.Random()
-            rng.setstate((version, tuple(internal), gauss))
-            v = rng
-        setattr(bot, k, v)
+        setattr(bot, k, _unplain(v))
 
 
 def _agent_state(ag) -> dict:

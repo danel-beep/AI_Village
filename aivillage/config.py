@@ -43,7 +43,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "propose_build", "fund_project", "embezzle", "start_building", "bring_materials",
             "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care",
             "join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
-            "give_to_polity", "polity_embezzle", "polity_audit",
+            "give_to_polity", "polity_embezzle", "polity_audit", "praise",
             "take_animal", "leave_animal", "lend_animal", "return_animal", "give_animal", "feed_animal", "buy_animal")},
         "error": 15,  # a failed action only costs a quarter hour
     },
@@ -55,12 +55,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "satiety_loss_night": 10,
     "starving_health_loss_per_hour": 5,
     "starving_health_loss_night": 20,
+    # here.people marks a villager "hungry" below this satiety and "starving" at 0, like "sick" (0 = not shown)
+    "hungry_seen_below": 30,
+    # addressed.py: letters, whispers and words said to a villager by name stay in "said_to_you" until the end of
+    # the next day (keep_days) or until the two have since given, lent or traded to each other; at most `max`
+    "said_to_you": {"keep_days": 1, "max": 5},
     "health_max": 100,
     "health_regen_night_at_home": 15,
     "health_regen_min_satiety": 30,
     # What happens at health 0: "hospital" (lose half the inventory, back in N days) or "death".
     "death_mode": "hospital",
     "hospital_days": 2,
+    # With death_mode "hospital": the collapse number `lives` is death (lives 2 = one hospital stay, then death).
+    # 0 = never die, the hospital every time. Runs get 2 from modes.RUN_DEFAULTS.
+    "lives": 0,
     # Economy
     "start_coins": 20,
     "start_items": {"tool": 0},  # given to every villager at the start (crafts mode: a tool)
@@ -589,6 +597,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Visible wealth and the village chronicle (aivillage/chronicle.py). Off here; on in the crafts mode.
     # Wealth levels poor / modest / well-off / rich start at these coins (goods at base value included).
     "chronicle": {"enabled": False, "every_days": 7, "tiers": [50, 150, 400]},
+    # The honor board (aivillage/honors.py). Off here; on in the crafts mode. `praise`: a public note about another
+    # villager, `per_day` a day, `note_len` characters; the board keeps `keep` notes, the observation shows `show`.
+    # A title law (village or polity) gives a title of `title_len` characters; a person keeps `max_titles`.
+    "honors": {"enabled": False, "per_day": 1, "note_len": 160, "keep": 40, "show": 10, "title_len": 40,
+               "max_titles": 3},
     # Village stages and unlocks (aivillage/progress.py, docs/specs/survival.md). Off here: everything is open.
     # On (the «С нуля» mode), the village climbs `stages` by what stands in it (`requires.buildings`: kind ->
     # how many; `kind@2` = at level 2+) and each stage or building opens mechanics (progress.DEFAULT_UNLOCKS,
@@ -742,8 +755,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Building with your own hands (aivillage/construction.py, docs/specs/survival.md). Off here: houses are
     # upgraded at once with upgrade_house. On, every building in `catalog` goes up on a site: start_building
     # opens it, bring_materials delivers `items`, construct is one hour of work (`hours` in all). Work counts
-    # only while at least `min_workers` different villagers worked on the site within `team_window_minutes`;
-    # each extra co-worker in that window (up to `team_max`) adds `team_bonus` to everyone's hour.
+    # once at least `min_workers` different villagers worked on the site on the same day (hours nobody joined
+    # that day are lost); each extra co-worker that day (up to `team_max`) adds `team_bonus` to everyone's hour.
     # Catalog rows: `place` "home" (your yard; finished, it stands among the plot's buildings with a `level`;
     # `house` sets the plot's house level) or "village" (common; `at`: allowed places, empty = any common
     # place); `levels`: one row per level. Effects per level (what that level gives, not added up):
@@ -754,7 +767,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # progress.DEFAULT_UNLOCKS ("building:<kind>", "building:<kind>@<level>").
     "construction": {
         "enabled": False,
-        "team_window_minutes": 60,
         "team_bonus": 0.25,
         "team_max": 3,
         "max_open_sites": 2,  # per villager who started them

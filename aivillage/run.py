@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, explore, graves, hire, labor, mapgen, modes, plots, pricing, threats, tiles, transport, works
+from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, mapgen, modes, plots, pricing, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -145,7 +145,7 @@ def view(world: World) -> dict:
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
                                 "profession": a.profession, "inventory": a.inventory,
                                 "busy": max(0, a.busy_until - world.tick) * tm,
-                                "task": (a.task or {}).get("kind")}
+                                "task": (a.task or {}).get("kind"), "hospital_stays": a.hospital_stays}
                        for a in world.agents.values()},
             # chests for the hero page's property list (viewer/hero.js)
             "chests": {c.owner: {"coins": c.coins, "items": c.items, "locked": c.locked} for c in world.chests.values()},
@@ -164,6 +164,7 @@ def view(world: World) -> dict:
             "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
             "works": works.view(world),  # village structures and open projects (works.py)
             **construction.view(world),  # building sites and common buildings (construction.py)
+            **honors.view(world),  # honors.py: the honor board (notes and titles), when not empty
             **hire.view(world),  # hire.py: hired outsiders and where they are, open jobs (hiring on)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
@@ -195,7 +196,7 @@ def replay(path: str | Path) -> World:
     recs = read_log(path)
     header = next(recs)
     assert header["type"] == "header" and header["version"] == LOG_VERSION
-    world = engine.new_world(header["config"])
+    world = start_of(header)
     if world.hash() != header["hash"]:
         raise AssertionError("initial world differs (engine or config changed)")
     for rec in recs:
@@ -207,6 +208,11 @@ def replay(path: str | Path) -> World:
         if world.hash() != rec["hash"]:
             raise AssertionError(f"replay diverged at tick {rec['tick']}")
     return world
+
+
+def start_of(header: dict) -> World:
+    """The world a log starts from: built from its config, or given whole (a scenario run, aivillage/scenario.py)."""
+    return World.from_dict(header["start"]) if "start" in header else engine.new_world(header["config"])
 
 
 def bots_decider(world: World, kinds: list[str], seed: int) -> DecideFn:
