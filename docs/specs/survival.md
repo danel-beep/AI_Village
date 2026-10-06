@@ -64,7 +64,9 @@ Config `construction`: `enabled`, `team_window_minutes`, `team_bonus`, `team_max
 (kind -> `name`, `place` "home" | "village", `at` (allowed places for village kinds), `levels`: rows of
 `items`, `hours`, `min_workers` and effects `roof`, `food_keeps_x` (+ `food_items`), `sell_bonus`, `defense`,
 `workshop`; a row is what that level gives, not added up). Catalog today: `shelter`, `house` 1–3, `campfire` 1–2,
-`workbench`, `granary` 1–2, `smokehouse`, `market_square` 1–2, `smithy`, `town_hall`, `tavern`, `palisade` 1–2.
+`workbench`, `granary` 1–2, `smokehouse`, `kiln`, `tannery`, `mill`, `market_square` 1–2, `smithy`, `town_hall`,
+`tavern`, `palisade` 1–2. Costs use crafted materials (`plank`, `brick`, `iron`, `clay`); with crafting off they
+become `construction.substitutes` (1 plank = 2 wood, 1 brick = 2 stone, 1 iron = 2 ore, 1 clay = 1 stone).
 
 - Actions: `start_building(kind)` (here: own yard for "home" kinds, a common place for "village" ones),
   `bring_materials(site_id, items)`, `construct(site_id)` (one hour). With `min_workers` > 1 an hour counts only

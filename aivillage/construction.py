@@ -37,6 +37,9 @@ from .state import Agent, Plot, World
 progress.DEFAULT_UNLOCKS.update({
     "building:granary": {"stage": "hamlet"},
     "building:smokehouse": {"stage": "hamlet"},
+    "building:kiln": {"stage": "hamlet"},
+    "building:tannery": {"stage": "hamlet"},
+    "building:mill": {"stage": "village"},
     "building:market_square": {"stage": "hamlet"},
     "building:smithy": {"stage": "hamlet"},
     "building:palisade": {"stage": "hamlet"},
@@ -73,6 +76,17 @@ def _row(cfg: dict, kind: str, lvl: int) -> dict:
     """The catalog row of a level (its effects); {} for level 0 or an unknown kind."""
     spec = catalog(cfg).get(kind)
     return spec["levels"][min(lvl, len(spec["levels"])) - 1] if spec and lvl >= 1 else {}
+
+
+def cost(cfg: dict, row: dict) -> dict[str, int]:
+    """A level's materials; crafted ones (plank, brick, iron...) become their `substitutes` when this village
+    has no such item (crafting off)."""
+    subs = _c(cfg).get("substitutes", {})
+    out: dict[str, int] = {}
+    for item, n in row.get("items", {}).items():
+        for k, m in (subs[item].items() if item not in cfg["items"] and item in subs else [(item, 1)]):
+            out[k] = out.get(k, 0) + n * m
+    return out
 
 
 def _name(cfg: dict, kind: str) -> str:
@@ -316,7 +330,7 @@ def start_building(ctx: Ctx, a: Agent, args: StartArgs) -> None:
     home = catalog(cfg)[kind].get("place") == "home"
     site = {"id": w.new_id("site"), "kind": kind, "level": lvl, "location": a.location,
             "owner": w.plots[a.location].owner if home else None, "started_by": a.name, "started_day": w.day,
-            "needs": dict(row.get("items", {})), "given": {}, "hours": row["hours"], "work": 0.0,
+            "needs": cost(cfg, row), "given": {}, "hours": row["hours"], "work": 0.0,
             "min_workers": int(row.get("min_workers", 1)), "workers": {}, "givers": {}, "recent": [], "pending": []}
     _mut(w)["sites"][site["id"]] = site
     together = (f"; work counts while at least {site['min_workers']} people work on it within the same hour"
@@ -498,7 +512,7 @@ def observe(world: World, name: str) -> dict:
     here = startable(world, a)
     if here:
         out["can_start_building_here"] = {
-            k: {"level": lvl, "items": _levels(cfg, k)[lvl - 1].get("items", {}),
+            k: {"level": lvl, "items": cost(cfg, _levels(cfg, k)[lvl - 1]),
                 "hours": _levels(cfg, k)[lvl - 1]["hours"],
                 "people_needed_within_an_hour": _levels(cfg, k)[lvl - 1].get("min_workers", 1),
                 "gives": effect_text(cfg, k, lvl)} for k, lvl in here.items()}
@@ -521,7 +535,7 @@ def facts(cfg: dict) -> str:
             when = f", from stage {opens['stage']}" if opens.get("stage") else ""
             ppl = f", {row['min_workers']} people" if row.get("min_workers", 1) > 1 else ""
             eff = effect_text(cfg, kind, i)
-            lv.append(f"L{i}: {fmt_items(row.get('items', {}))}, {row['hours']}h{ppl}{when}" + (f" -> {eff}" if eff else ""))
+            lv.append(f"L{i}: {fmt_items(cost(cfg, row))}, {row['hours']}h{ppl}{when}" + (f" -> {eff}" if eff else ""))
         rows.append(f"{kind} ({where}; " + "; ".join(lv) + ")")
     c = _c(cfg)
     return ("- Building: start_building opens a site where you stand, anyone can bring_materials and construct "

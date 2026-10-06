@@ -66,8 +66,9 @@ def test_house_goes_up_by_materials_and_hours():
     assert not errors(act(w, "Anna", "start_building", kind="house"))
     s = site_of(w, "house")
     assert s["level"] == 2 and s["min_workers"] == 2 and s["owner"] == "Anna"
-    give(w, "Anna", wood=12, stone=10)
-    assert not errors(act(w, "Anna", "bring_materials", site_id=s["id"], items={"wood": 20, "stone": 10}))
+    assert s["needs"] == {"wood": 16, "stone": 16}  # no crafting here: 8 plank = 16 wood, 8 brick = 16 stone
+    give(w, "Anna", wood=16, stone=16)
+    assert not errors(act(w, "Anna", "bring_materials", site_id=s["id"], items={"wood": 20, "stone": 16}))
     assert construction.remaining(s) == {} and ops.count(w.agents["Anna"].inventory, "wood") == 0
     # alone it does not count; a neighbour joining within the hour makes both hours count, with the team bonus
     w.agents["Boris"].location = "home_Anna"
@@ -160,3 +161,11 @@ def test_fuzz_and_replay_with_construction_and_progress(tmp_path):
         assert found == set()
         assert replay(log).hash() == w.hash()
     assert evaluative(llm.world_facts(w.config)) == []
+
+
+def test_crafted_materials_with_crafting_on():
+    w = world(crafting={"enabled": True})
+    assert construction.cost(w.config, w.config["construction"]["catalog"]["house"]["levels"][1]) == \
+        {"plank": 8, "brick": 8}
+    act(w, "Anna", "start_building", kind="kiln")
+    assert site_of(w, "kiln")["needs"] == {"stone": 12, "clay": 6}

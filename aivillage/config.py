@@ -684,13 +684,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "team_bonus": 0.25,
         "team_max": 3,
         "max_open_sites": 2,  # per villager who started them
+        # crafted materials when the village has no such item (crafting off): 1 plank = 2 wood, ...
+        "substitutes": {"plank": {"wood": 2}, "brick": {"stone": 2}, "iron": {"ore": 2}, "clay": {"stone": 1},
+                        "leather": {"wood": 2}},
         "catalog": {
             "shelter": {"name": "Shelter", "place": "home", "levels": [
                 {"items": {"wood": 4}, "hours": 2, "min_workers": 1, "roof": True}]},
             "house": {"name": "House", "place": "home", "levels": [
                 {"items": {"wood": 8, "stone": 2}, "hours": 4, "min_workers": 1, "roof": True},
-                {"items": {"wood": 12, "stone": 10}, "hours": 8, "min_workers": 2, "roof": True},
-                {"items": {"wood": 16, "stone": 16, "ore": 2}, "hours": 10, "min_workers": 2, "roof": True}]},
+                {"items": {"plank": 8, "brick": 8}, "hours": 8, "min_workers": 2, "roof": True},
+                {"items": {"plank": 10, "brick": 14, "iron": 2}, "hours": 10, "min_workers": 2, "roof": True}]},
             "campfire": {"name": "Campfire", "place": "village", "levels": [
                 {"items": {"wood": 3, "stone": 3}, "hours": 1, "min_workers": 1},
                 {"items": {"stone": 8}, "hours": 3, "min_workers": 1}]},
@@ -698,22 +701,28 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 {"items": {"wood": 6, "stone": 2}, "hours": 3, "min_workers": 1, "workshop": True}]},
             "granary": {"name": "Granary", "place": "home", "levels": [
                 {"items": {"wood": 10, "stone": 4}, "hours": 5, "min_workers": 1, "food_keeps_x": 2},
-                {"items": {"wood": 8, "stone": 10}, "hours": 6, "min_workers": 2, "food_keeps_x": 3}]},
+                {"items": {"plank": 6, "brick": 8}, "hours": 6, "min_workers": 2, "food_keeps_x": 3}]},
             "smokehouse": {"name": "Smokehouse", "place": "home", "levels": [
                 {"items": {"wood": 8, "stone": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 3,
                  "food_items": ["meat", "fish"]}]},
+            "kiln": {"name": "Kiln", "place": "home", "levels": [
+                {"items": {"stone": 12, "clay": 6}, "hours": 4, "min_workers": 1, "workshop": True}]},
+            "tannery": {"name": "Tannery", "place": "home", "levels": [
+                {"items": {"plank": 6, "stone": 4}, "hours": 4, "min_workers": 1, "workshop": True}]},
+            "mill": {"name": "Mill", "place": "home", "levels": [
+                {"items": {"plank": 8, "stone": 10}, "hours": 6, "min_workers": 2, "workshop": True}]},
             "market_square": {"name": "Market square", "place": "village", "at": ["square"], "levels": [
-                {"items": {"wood": 15, "stone": 20}, "hours": 10, "min_workers": 2},
-                {"items": {"wood": 10, "stone": 25, "ore": 3}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
+                {"items": {"plank": 8, "stone": 16}, "hours": 10, "min_workers": 2},
+                {"items": {"plank": 8, "brick": 15, "iron": 2}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
             "smithy": {"name": "Smithy", "place": "home", "levels": [
-                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True}]},
+                {"items": {"plank": 6, "stone": 12, "ore": 4}, "hours": 8, "min_workers": 2, "workshop": True}]},
             "town_hall": {"name": "Town hall", "place": "village", "at": ["square"], "levels": [
-                {"items": {"wood": 25, "stone": 30}, "hours": 14, "min_workers": 3}]},
+                {"items": {"plank": 15, "brick": 20}, "hours": 14, "min_workers": 3}]},
             "tavern": {"name": "Tavern", "place": "village", "at": ["square"], "levels": [
-                {"items": {"wood": 20, "stone": 10}, "hours": 8, "min_workers": 2}]},
+                {"items": {"plank": 12, "brick": 8}, "hours": 8, "min_workers": 2}]},
             "palisade": {"name": "Palisade", "place": "village", "at": ["square"], "levels": [
                 {"items": {"wood": 25}, "hours": 8, "min_workers": 2, "defense": 1},
-                {"items": {"wood": 20, "stone": 15}, "hours": 10, "min_workers": 3, "defense": 2}]},
+                {"items": {"plank": 10, "stone": 15}, "hours": 10, "min_workers": 3, "defense": 2}]},
         },
     },
     "agents": [
