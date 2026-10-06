@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import clock, crafting, crises, labor, ops, plots, pricing, seasons, tiles, works
+from . import clock, crafting, crises, labor, ops, plots, pricing, seasons, theft, tiles, works
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer, Order
@@ -619,7 +619,7 @@ def install_lock(ctx: Ctx, a: Agent, args) -> None:
 
 
 class StealArgs(BaseModel):
-    target: str = Field(description="a person here, or 'chest' for the chest here")
+    target: str = Field(description="a person here, or 'chest' for the chest here (or 'treasury' where one is kept)")
     item: str = Field(description="item name or 'coins'")
     qty: int = Field(1, ge=1)
 
@@ -627,33 +627,48 @@ class StealArgs(BaseModel):
 @ACTIONS.action("steal", "Try to steal from a person here or from the chest here. Others may see you.",
                 StealArgs)
 def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
-    cfg = ctx.cfg
+    cfg, w = ctx.cfg, ctx.world
     qty = min(args.qty, cfg["max_steal_qty"])
     if args.item != "coins":
         _items_known(ctx, {args.item: 1})
-    if args.target.lower() == "chest":
+    seen_by: list[str] = []  # the victim who saw who did it (theft.py: owner at home, awake victim)
+    books = None
+    if args.target.lower() == "treasury":
+        found = theft.treasury_here(w, a)
+        if found is None:
+            raise ActionError("there is no treasury here to steal from")
+        if args.item != "coins":
+            raise ActionError("a treasury holds only coins")
+        holder, books, victim_name = found
+        src, success = None, True
+    elif args.target.lower() == "chest":
         chest = _chest_here(ctx, a)
         if chest.owner == a.name:
             raise ActionError("that is your own chest")
         if chest.locked:
             raise ActionError("the chest is locked")
         victim_name, holder, src, success = chest.owner, chest, chest.items, True
+        owner = w.agents.get(chest.owner)
+        if theft.enabled(cfg) and owner and owner.status == "active" and not owner.asleep \
+                and owner.location == a.location and ctx.rng.random() < theft.owner_chance(w):
+            seen_by = [owner.name]
     else:
         victim = _agent_here(ctx, a, args.target)
         victim_name, holder, src = victim.name, victim, victim.inventory
         success = victim.asleep or ctx.rng.random() < cfg["steal_awake_target_success"]
-        if not victim.asleep:
-            # An awake victim always notices the attempt.
-            ctx.emit("steal_attempt", f"{a.name} tried to steal {args.item} from you!", actor=a.name,
-                     to=[victim.name])
+        # An awake victim notices the attempt (always, unless theft.victim_notice_chance says otherwise).
+        if not victim.asleep and (not theft.enabled(cfg) or ctx.rng.random() < theft.victim_chance(w)):
+            seen_by = [victim.name]
+    for v in seen_by:
+        ctx.emit("steal_attempt", f"{a.name} tried to steal {args.item} from you!", actor=a.name, to=[v])
     stock = holder.coins if args.item == "coins" else ops.count(src, args.item)
     qty = min(qty, stock)
-    witnesses = [o.name for o in ctx.world.agents.values()
+    witnesses = [o.name for o in w.agents.values()
                  if o.status == "active" and not o.asleep and o.location == a.location
                  and o.name not in (a.name, victim_name)
-                 and ctx.rng.random() < cfg["steal_notice_chance"] + works.notice_bonus(ctx.world)]
-    for w in witnesses:
-        ctx.emit("witness", f"You saw {a.name} steal {args.item} from {victim_name}!", actor=a.name, to=[w],
+                 and ctx.rng.random() < theft.notice(w, cfg["steal_notice_chance"] + works.notice_bonus(w))]
+    for x in witnesses:
+        ctx.emit("witness", f"You saw {a.name} steal {args.item} from {victim_name}!", actor=a.name, to=[x],
                  thief=a.name, victim=victim_name)
     if not success or qty == 0:
         ctx.emit("steal", f"Your theft from {victim_name} failed.", actor=a.name, to=[a.name],
@@ -664,7 +679,11 @@ def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
     else:
         ops.move_items(src, a.inventory, {args.item: qty})
     ctx.emit("steal", f"You stole {qty} {args.item} from {victim_name}.", actor=a.name, to=[a.name],
-             victim=victim_name, success=True, qty=qty, item=args.item, witnesses=witnesses)
+             victim=victim_name, success=True, qty=qty, item=args.item, witnesses=witnesses,
+             **({"seen_by": seen_by} if seen_by else {}))
+    if books is not None:  # nobody is told; the books still show the coins until an audit
+        theft.take_from_treasury(w, books, qty)
+        return
     # The victim learns about the loss, but not who did it (unless they were awake and present).
     ctx.emit("robbed", f"Someone stole {qty} {args.item} from you.", to=[victim_name], victim=victim_name)
 

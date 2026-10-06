@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, explore, graves, hire, labor, mapgen, modes, plots, pricing, settle, threats, tiles, transport, works
+from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, land, mapgen, modes, plots, pricing, settle, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -163,6 +163,7 @@ def view(world: World) -> dict:
             "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
             "works": works.view(world),  # village structures and open projects (works.py)
             **construction.view(world),  # building sites and common buildings (construction.py)
+            **honors.view(world),  # honors.py: the honor board (notes and titles), when not empty
             **hire.view(world),  # hire.py: hired outsiders and where they are, open jobs (hiring on)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
@@ -195,7 +196,7 @@ def replay(path: str | Path) -> World:
     recs = read_log(path)
     header = next(recs)
     assert header["type"] == "header" and header["version"] == LOG_VERSION
-    world = engine.new_world(header["config"])
+    world = start_of(header)
     if world.hash() != header["hash"]:
         raise AssertionError("initial world differs (engine or config changed)")
     for rec in recs:
@@ -207,6 +208,11 @@ def replay(path: str | Path) -> World:
         if world.hash() != rec["hash"]:
             raise AssertionError(f"replay diverged at tick {rec['tick']}")
     return world
+
+
+def start_of(header: dict) -> World:
+    """The world a log starts from: built from its config, or given whole (a scenario run, aivillage/scenario.py)."""
+    return World.from_dict(header["start"]) if "start" in header else engine.new_world(header["config"])
 
 
 def bots_decider(world: World, kinds: list[str], seed: int) -> DecideFn:
@@ -349,7 +355,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config) \
         | transport.hidden_actions(world.config) \
         | hire.hidden_actions(world.config) | construction.hidden_actions(world.config) \
-        | settle.hidden_actions(world.config)
+        | land.hidden_actions(world.config) | settle.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

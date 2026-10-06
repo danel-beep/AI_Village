@@ -177,13 +177,14 @@ class Letter:
 @dataclass
 class LawProposal:
     id: str
-    law: str  # tax | theft_fine | mayor_salary | exile | payout | grant
+    law: str  # tax | theft_fine | mayor_salary | exile | payout | grant | title
     proposer: str
     closes_tick: int
     value: int | None = None
     person: str | None = None
     yes: list[str] = field(default_factory=list)
     no: list[str] = field(default_factory=list)
+    text: str | None = None  # title: the title's words (honors.py)
 
 
 @dataclass
@@ -303,6 +304,7 @@ class World:
     polities: dict[str, Any] = field(default_factory=dict)  # polity.py: polity id -> polity
     # transport.py: {"animals": {id: animal}, "wild": {loc: {kind: n}}, "pace": {name: credit}, "sold": {kind: n}}
     transport: dict[str, Any] = field(default_factory=dict)
+    honors: dict[str, Any] = field(default_factory=dict)  # honors.py: honor board notes and titles
     hire: dict[str, Any] = field(default_factory=dict)  # hire.py: {"jobs": {id: job}, "npcs": [outsider]}
     # settle.py (camp start): {"camp": [villagers without a house site yet], "homes": {name: site id},
     # "trails": {"a|b": times walked}}
@@ -327,6 +329,11 @@ class World:
             del d["polities"]
         if not d["transport"]:  # transport off: same dict and hash as before the field existed
             del d["transport"]
+        for p in d["governance"]["proposals"].values():  # only title laws have a text: same hash as before
+            if p.get("text") is None:
+                del p["text"]
+        if not d["honors"]:  # honor board off or empty: same dict and hash as before the field existed
+            del d["honors"]
         if not d["hire"]:  # hiring off or unused: same dict and hash as before the field existed
             del d["hire"]
         if not d["settle"]:  # no camp start: same dict and hash as before the field existed
@@ -372,6 +379,7 @@ class World:
             transport=d.get("transport", {}),
             hire=d.get("hire", {}),
             settle=d.get("settle", {}),
+            honors=d.get("honors", {}),
             addressed=d.get("addressed", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],

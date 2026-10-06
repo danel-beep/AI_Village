@@ -65,6 +65,8 @@ MODES: dict[str, dict[str, Any]] = {
             "places": {"enabled": True},
             # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
             "chronicle": {"enabled": True},
+            # a public honor board: notes of praise by villagers, titles by law (honors.py)
+            "honors": {"enabled": True},
             # feasts and goods on view: things worth having beyond food (luxury.py, wants research idea 3)
             "luxury": {"enabled": True},
         },
@@ -150,6 +152,7 @@ MODES: dict[str, dict[str, Any]] = {
             "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
                        "kinds": {"rats": {"weight": 3, "share": 0.6}}},
             "debts": {"auto_collect": False},  # nobody collects debts
+            "theft": {"enabled": True},  # stores in view, thieves hide in the dark (theft.py)
         },
         "disabled": ["install_lock", "report_theft", "demand_debt", "rule_debt"],
     },
@@ -173,6 +176,12 @@ MODES["survival"] = {
                                               "construction": {"enabled": True,
                                                                "catalog": {"town_hall": {"at": []}}},
                                               "transport": {"enabled": True},
+                                              # something to steal and a chance not to be seen (theft.py),
+                                              # land goes to whoever comes first, no court (land.py),
+                                              # winter nights cost more food (seasons.py)
+                                              "theft": {"enabled": True},
+                                              "land": {"claim": "first"},
+                                              "seasons": {"night_hunger": {"winter": 10}},
                                               "hire": {"enabled": True},
                                               "explore": {"enabled": True},
                                               "crafting": {"enabled": True, "secrets": {"enabled": True}},

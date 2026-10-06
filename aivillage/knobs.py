@@ -104,6 +104,9 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Налоги и штрафы", "options": [["auto", "🏛 Забираются сами"], ["voluntary", "🤝 По желанию"]],
      "hint": "По желанию: налог и штраф становятся счётом в книге долгов, житель сам решает, платить ли. "
              "Все видят, кто заплатил, а кто нет. Выселения за неуплату нет."},
+    {"key": "tax_board", "path": "laws.tax_board", "group": "Правила", "type": "toggle", "label": "Налоговая доска",
+     "hint": "При налогах «По желанию»: всем видно, кто заплатил налог за последние налоговые дни, кто ещё нет и у "
+             "кого счёт просрочен. Наказания нет, решают сами жители."},
     {"key": "polities", "path": "polity.enabled", "group": "Правила", "type": "toggle",
      "label": "Государства у ратуш",
      "hint": "Каждая построенная ратуша основывает своё государство: строители становятся его жителями, остальные "
@@ -133,6 +136,11 @@ KNOBS: list[dict[str, Any]] = [
      "options": [["auto", "Авто"], ["spring", "🌱 Весна"], ["summer", "☀️ Лето"], ["autumn", "🍂 Осень"],
                  ["winter", "❄️ Зима"]],
      "hint": "Авто: так, чтобы к концу прогона наступила зима."},
+    {"key": "winter_hunger", "path": "seasons.night_hunger.winter", "group": "Правила", "type": "range",
+     "label": "Зимняя ночь: сытости сверх обычного", "min": 0, "max": 30, "step": 2,
+     "hint": "Холод: каждая зимняя ночь отнимает у всех столько сытости в дополнение к обычной. 0 = зима не голоднее лета."},
+    {"key": "winter_fish", "path": "seasons.regen_multiplier.winter.fish", "group": "Правила", "type": "range",
+     "scale": 0.01, "label": "Рыба зимой, от обычного", "min": 0, "max": 100, "step": 5, "unit": "%"},
 
     # --- division of labour (aivillage/labor.py) ---
     {"key": "labor", "path": "labor.enabled", "group": "Ремёсла", "type": "toggle", "label": "Каждый добывает только своё",
@@ -199,6 +207,32 @@ KNOBS: list[dict[str, Any]] = [
      "scale": 0.01, "label": "Успех кражи у того, кто не спит", "min": 0, "max": 100, "step": 5, "unit": "%"},
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
+    {"key": "theft_rules", "path": "theft.enabled", "group": "Кражи", "type": "toggle",
+     "label": "Есть что украсть, темнота и казна",
+     "hint": "Включает настройки ниже: чужие запасы видны, в темноте кражу замечают реже, хозяин может не заметить "
+             "вора, казну можно обокрасть."},
+    {"key": "see_stores", "path": "theft.see_stores", "group": "Кражи", "type": "toggle",
+     "label": "Чужие запасы на виду",
+     "hint": "Житель видит монеты и еду в чужих сундуках там, где стоит, и в карманах тех, кто рядом."},
+    {"key": "dark_factor", "path": "theft.dark_factor", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Насколько темнота прячет вора", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс заметить кражу в тёмные часы (с 20:00, зимой раньше, и до 7:00) от дневного. 100% = темнота не помогает."},
+    {"key": "owner_notice", "path": "theft.owner_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Хозяин дома видит вора у сундука", "min": 0, "max": 100, "step": 5, "unit": "%"},
+    {"key": "victim_notice", "path": "theft.victim_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Обкрадываемый замечает вора", "min": 0, "max": 100, "step": 5, "unit": "%"},
+    {"key": "steal_treasury", "path": "theft.treasury", "group": "Кражи", "type": "toggle",
+     "label": "Казну можно обокрасть",
+     "hint": "Любой может унести монеты из казны там, где она хранится. По книгам их не хватятся до ревизии, "
+             "а ревизия не скажет, кто взял."},
+
+    # --- land (aivillage/land.py) ---
+    {"key": "land_claim", "path": "land.claim", "group": "Земля", "type": "choice", "label": "Пустые участки",
+     "options": [["buy", "Покупают у деревни"], ["first", "Чей первый, того и участок"]],
+     "hint": "«Чей первый»: участок даром занимает тот, кто встал на него первым. Суда нет: споры жители решают сами."},
+    {"key": "land_jump", "path": "land.claim_jump", "group": "Земля", "type": "toggle",
+     "label": "Пустой участок можно перехватить",
+     "hint": "При «Чей первый»: участок, на котором ничего не построено, забирает любой, пока хозяев там нет."},
 
     # --- debts (aivillage/debts.py) ---
     {"key": "debt_collection", "path": "debts.collection", "group": "Долги", "type": "toggle",
