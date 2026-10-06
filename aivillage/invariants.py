@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .debts import holdings as debt_holdings
 from .plots import holdings as plot_holdings, used_cells
 from .state import World
 
@@ -24,6 +25,7 @@ def holdings(world: World) -> Counter:
         total.update(loc.ground)
     total["coins"] += world.governance.coins
     total.update(plot_holdings(world))
+    total.update(debt_holdings(world))
     return total
 
 
@@ -50,6 +52,12 @@ def check(world: World) -> None:
             bag(f"plot {h} {b['id']}", b["items"])
         if used_cells(cfg, p) > p.cells or h not in world.locations:
             errors.append(f"plot {h}: {used_cells(cfg, p)} cells used of {p.cells}")
+    for d in world.debts.values():
+        bag(f"pledge {d.id}", d.pledge)
+        if d.pledge and d.status not in ("open", "defaulted"):
+            errors.append(f"debt {d.id}: {d.status} but still holds a pledge")
+        if d.coins_owed < 0 or d.lender not in world.agents or d.borrower not in world.agents:
+            errors.append(f"debt {d.id}: bad entry")
     for a in world.agents.values():
         bag(f"agent {a.name}", a.inventory)
         if a.coins < 0:

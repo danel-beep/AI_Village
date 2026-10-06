@@ -95,7 +95,8 @@ def dice(ctx: Ctx, a: Agent, args: DiceArgs) -> None:
     text = f"{other.name} and {a.name} played dice for {args.stake} coins: {shown}. {win.name} won"
     data: dict = {}
     if paid < args.stake:
-        d = Debt(w.new_id("debt"), win.name, lose.name, args.stake - paid, w.day + c["debt_days"])
+        d = Debt(w.new_id("debt"), win.name, lose.name, args.stake - paid, w.day + c["debt_days"],
+                 kind="bet", day=w.day)
         w.debts[d.id] = d
         data["debt"] = d.id
         text += f"; {lose.name} paid {paid} and owes {d.coins_owed} by day {d.due_day} ({d.id})"

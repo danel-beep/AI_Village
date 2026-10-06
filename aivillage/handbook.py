@@ -46,6 +46,7 @@ MODULE_TOPIC = {
     "graves": "People and family", "governance": "Village affairs", "works": "Village affairs",
     "reputation": "Talk and news", "conflict": "Taking and force", "threats": "Outsiders and dangers",
     "illness": "People and family", "dice": "Trade and money",
+    "debts": "Trade and money", "market": "Trade and money",
 }
 
 

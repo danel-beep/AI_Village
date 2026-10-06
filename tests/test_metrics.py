@@ -89,7 +89,7 @@ def test_real_run_consistent(tmp_path):
     assert m["trades"]["count"] == stats.get("trade", 0)
     assert m["thefts"]["attempts"] == stats.get("steal", 0)
     assert m["thefts"]["seen"] + m["thefts"]["unseen"] == m["thefts"]["attempts"]
-    assert m["debts"]["count"] == stats.get("lend", 0)
+    assert m["debts"]["count"] == stats.get("lend", 0) + stats.get("promise", 0)
     assert m["fires"]["count"] == 2 and m["fires"]["put_out"] + m["fires"]["burned"] <= 2
     assert all(0.0 <= g["gini_coins"] <= 1.0 for g in m["gini_by_day"].values())
     assert "Пожары" in out_md.read_text(encoding="utf-8")

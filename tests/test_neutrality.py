@@ -20,9 +20,12 @@ EVALUATIVE = re.compile(
     r"it pays to|best to|best way|you (?:may|might) want|be careful|cooperat\w*|help each other|work together)\b",
     re.I)
 ALLOWED: set[str] = set()
+# pydantic's argument errors ("price: Input should be greater than 0") describe the call, not the world.
+VALIDATOR = re.compile(r"\bInput should (?:be|have)\b")
 
 
 def evaluative(text: str) -> list[str]:
+    text = VALIDATOR.sub("", text)
     return sorted({m.group(0).lower() for m in EVALUATIVE.finditer(text)} - ALLOWED)
 
 

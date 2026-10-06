@@ -346,7 +346,7 @@ def lend(ctx: Ctx, a: Agent, args: LendArgs) -> None:
     if args.due_day <= ctx.world.day:
         raise ActionError("due_day must be in the future")
     ops.move_coins(a, other, args.coins)
-    d = Debt(ctx.world.new_id("debt"), a.name, other.name, args.repay_coins, args.due_day)
+    d = Debt(ctx.world.new_id("debt"), a.name, other.name, args.repay_coins, args.due_day, day=ctx.world.day)
     ctx.world.debts[d.id] = d
     ctx.emit("lend", f"{a.name} lent {args.coins} coins to {other.name}; {other.name} must repay "
              f"{args.repay_coins} by day {args.due_day} ({d.id}).", actor=a.name, location=a.location,
@@ -359,14 +359,14 @@ class RepayArgs(BaseModel):
 
 
 @ACTIONS.action("repay", "Pay back (part of) a debt. Can be done from anywhere.", RepayArgs,
-                available=lambda c, a: any(d.borrower == a.name and d.status != "repaid"
+                available=lambda c, a: any(d.borrower == a.name and d.status in ("open", "defaulted")
                                            for d in c.world.debts.values()))
 def repay(ctx: Ctx, a: Agent, args: RepayArgs) -> None:
     d = ctx.world.debts.get(args.debt_id)
     if d is None or d.borrower != a.name:
         raise ActionError(f"you have no debt '{args.debt_id}'")
-    if d.status == "repaid":
-        raise ActionError("that debt is already repaid")
+    if d.status not in ("open", "defaulted"):
+        raise ActionError(f"that debt is already closed ({d.status})")
     pay = min(args.coins, d.coins_owed)
     if a.coins < pay:
         raise ActionError(f"you only have {a.coins} coins")
@@ -374,9 +374,12 @@ def repay(ctx: Ctx, a: Agent, args: RepayArgs) -> None:
     ops.move_coins(a, lender, pay)
     d.coins_owed -= pay
     if d.coins_owed == 0:
-        d.status = "repaid"
+        d.status, d.claim = "repaid", None
     ctx.emit("repay", f"{a.name} repaid {pay} coins to {d.lender} ({d.id}, {d.coins_owed} left).",
              actor=a.name, visibility="public", debt=d.id)
+    if d.status == "repaid":
+        from . import debts
+        debts.on_repaid(ctx, d)
 
 
 class OfferArgs(BaseModel):
@@ -681,14 +684,20 @@ class OrderArgs(BaseModel):
     order_id: str
 
 
-@ACTIONS.action("fulfill_order", "Deliver everything an order on the board needs, at the square, and get "
-                "the whole reward yourself.", OrderArgs,
-                available=lambda c, a: a.location == "square" and any(o.status == "open"
-                                                                      for o in c.world.orders.values()))
+def _remote_orders(cfg: dict) -> bool:
+    """market.remote: a villager's own order (post_order) is delivered from anywhere; council orders at the square."""
+    return bool(cfg.get("market", {}).get("enabled") and cfg["market"].get("remote"))
+
+
+@ACTIONS.action("fulfill_order", "Deliver everything an order on the board needs and get the whole reward "
+                "yourself: at the square, or from anywhere for a villager's order if World facts say so.", OrderArgs,
+                available=lambda c, a: any(o.status == "open" and o.by != a.name and
+                                           (a.location == "square" or (o.by and _remote_orders(c.cfg)))
+                                           for o in c.world.orders.values()))
 def fulfill_order(ctx: Ctx, a: Agent, args: OrderArgs) -> None:
-    if a.location != "square":
-        raise ActionError("orders are delivered at the square")
     o = ctx.world.orders.get(args.order_id)
+    if a.location != "square" and not (o is not None and o.by and _remote_orders(ctx.cfg)):
+        raise ActionError("orders are delivered at the square")
     if o is None or o.status != "open":
         raise ActionError(f"no open order '{args.order_id}'")
     if o.by == a.name:
