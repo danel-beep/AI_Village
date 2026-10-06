@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import chronicle, handbook, market, places, reputation, spoilage, taxes
+from . import animals, chronicle, construction, handbook, market, places, reputation, spoilage, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -164,6 +164,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(crisis)
     if threat := threats.facts(cfg):
         lines.append(threat)
+    if (hunt := animals.facts(cfg)) and "hunt" not in (cfg.get("disabled_actions") or []):
+        lines.append(hunt)
     if sick := illness.facts(cfg):
         lines.append(sick)
     if season := seasons.fact(cfg):
@@ -187,6 +189,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(market.facts(cfg))
     if works.enabled(cfg):
         lines.append(works.facts(cfg))
+    if built := construction.facts(cfg):
+        lines.append(built)
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:
@@ -637,6 +641,7 @@ def compact_obs(obs: dict) -> dict:
     """Drop what the agent does not need every hour, to save tokens."""
     o = json.loads(json.dumps(obs))
     o["board"].pop("recipes", None)
+    o.pop("locked_actions", None)  # progress.py: goes into the handbook instead
     o["board"]["trader_prices"] = {k: f"{v['buy']}/{v['sell']}" for k, v in o["board"]["trader_prices"].items()}
     for k in ("fires", "offers_to_you", "your_offers"):
         if not o[k]:
@@ -671,8 +676,9 @@ class LLMAgent:
     plan: str = ""  # what the villager meant to do today (INTRO "today", else last night's "tomorrow")
     introduced: bool = False
 
-    def system_prompt(self) -> str:
-        return SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(self.disabled_actions),
+    def system_prompt(self, obs: dict) -> str:
+        off = self.disabled_actions | set(obs.get("locked_actions", ()))  # progress.py: not open yet
+        return SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(off),
                              facts=self.facts or "(none)", goals=GOALS if self.own_goals else "",
                              character="\n" + self.character if self.character else "")
 
@@ -687,7 +693,7 @@ class LLMAgent:
         if self.diary:
             memory["last_diary"] = self.diary[-1]["text"]
         user = "Observation (your memory: " + json.dumps(memory) + "):\n" + json.dumps(compact_obs(obs))
-        return [{"role": "system", "content": self.system_prompt()}, {"role": "user", "content": user}]
+        return [{"role": "system", "content": self.system_prompt(obs)}, {"role": "user", "content": user}]
 
     def introduce(self, obs: dict) -> dict | None:
         """Before the first turn: the villager writes who it is, what it wants and what it means to do today,
@@ -695,7 +701,7 @@ class LLMAgent:
         self.introduced = True
         user = INTRO.format(words=ABOUT_ME_WORDS) + "\nYour first observation:\n" + json.dumps(compact_obs(obs))
         try:
-            text, usage = self.client.complete([{"role": "system", "content": self.system_prompt()},
+            text, usage = self.client.complete([{"role": "system", "content": self.system_prompt(obs)},
                                                 {"role": "user", "content": user}])
         except Exception:
             self.usage.failures += 1

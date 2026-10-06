@@ -36,7 +36,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
             "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
-            "propose_build", "fund_project", "embezzle", "defend", "help_stranger", "chase_stranger", "care")},
+            "propose_build", "fund_project", "embezzle", "start_building", "bring_materials", "defend", "help_stranger", "chase_stranger", "care")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -143,7 +143,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # `unfairness` 0..1 goes from as equal as possible to random and unfair (see mapgen.MAP_DEFAULTS).
     # Off here (the engine and its tests use the hand-made map below); the CLI and the live server
     # turn it on unless --fixed-map.
-    "map": {"procedural": False, "unfairness": 0.3},
+    # `size`: "normal" (as always), "large" or "huge": the village stays compact, a wilderness ring with far
+    # zones (deep forest, lake, caves with ore and stone, clay hills) lies 2+ hours away (mapgen.MAP_SIZES).
+    "map": {"procedural": False, "unfairness": 0.3, "size": "normal"},
+    # Nightly regrowth of wild resources (tiles.regen): off = the flat `regen` of each resource; on = in
+    # proportion to what is left, so a cleared forest or fished-out river comes back only at `floor` of it.
+    "regrowth": {"from_remainder": False, "floor": 0.1},
     # Map: a graph of locations. Homes are added per agent and connected to the square.
     # "slots" splits a resource into finite map objects (trees, beds, bushes, shoals, rocks; see tiles.py).
     # "plant": the resource can be sown in an empty bed (costs `seed` of it, ripe after `days` nights).
@@ -318,6 +323,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "auto_collect": True,
         "seize_pct": 50,
     },
+    # How laws are enforced (aivillage/governance.py `voluntary`): "auto" takes the tax (eviction if short) and the
+    # theft fine; "voluntary" writes them as bills owed to the treasury in the debt book, paid with pay_bill or not.
+    "laws": {
+        "enforcement": "auto",
+        "bill_days": 3,  # a bill not paid within this many days is marked overdue (public), nothing more
+    },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
     "governance": {
@@ -408,7 +419,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "expand_price": 25,       # first purchase; each next one costs expand_price_step more
         "expand_price_step": 15,
         "house_max": 3,
-        "house_upgrade": {"2": {"coins": 60, "items": {"wood": 8, "stone": 6}},
+        # "1": a level-0 villager (no house yet, the «С нуля» camp) builds a level-1 house
+        "house_upgrade": {"1": {"coins": 0, "items": {"wood": 6, "stone": 2}},
+                          "2": {"coins": 60, "items": {"wood": 8, "stone": 6}},
                           "3": {"coins": 150, "items": {"wood": 12, "stone": 12}}},
         "house_bonus_cells": 2,   # per upgrade
         "house_bonus_health": 5,  # extra night health at home per level above 1
@@ -525,6 +538,25 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Visible wealth and the village chronicle (aivillage/chronicle.py). Off here; on in the crafts mode.
     # Wealth levels poor / modest / well-off / rich start at these coins (goods at base value included).
     "chronicle": {"enabled": False, "every_days": 7, "tiers": [50, 150, 400]},
+    # Village stages and unlocks (aivillage/progress.py, docs/specs/survival.md). Off here: everything is open.
+    # On (the «С нуля» mode), the village climbs `stages` by what stands in it (`requires.buildings`: kind ->
+    # how many; `kind@2` = at level 2+) and each stage or building opens mechanics (progress.DEFAULT_UNLOCKS,
+    # overridden by `unlocks`). `start_stage`: a stage id or index; earlier stages count as reached.
+    "progress": {
+        "enabled": False,
+        "start_stage": "camp",
+        "stages": [
+            {"id": "camp", "requires": {}},
+            {"id": "hamlet", "requires": {"buildings": {"house": 3, "workbench": 1}}},
+            {"id": "village", "requires": {"buildings": {"market_square": 1, "smithy": 1}}},
+            {"id": "town", "requires": {"buildings": {"town_hall": 1, "house@2": 3}}},
+        ],
+        "unlocks": {},
+    },
+    # Empty start of the «С нуля» mode (modes.bare_start). On, and with progress starting below `until_stage`:
+    # no houses (level 0), no coins, empty pockets, no buildings in the yards, everyone a laborer who may
+    # gather anything by hand (no trade places). From `until_stage` on, the start is the ready village.
+    "bare_start": {"enabled": False, "until_stage": "hamlet"},
     # Graves (aivillage/graves.py): who died, when, of what; the grave stands by the dead villager's house.
     "graves": {"enabled": True},
     # Dice for coins (aivillage/dice.py): challenge at a dice place, played when the other answers with
@@ -539,6 +571,37 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (`seen_show` lines; co-presence and events with a place update it).
     "market": {"enabled": True, "remote": True, "place": "square", "sale_hours": 24, "max_sale_hours": 72,
                "max_own_sales": 3, "show": 10, "seen_show": 10},
+    # Game animals and hunting (aivillage/animals.py), off here (the "from scratch" mode turns it on).
+    # Herds per place: `habitats` {loc: {species: count}} if set (the map may fill it), else every place
+    # with the species' `lives_by` resource, only those of its `biomes` if the map has any (big maps: mapgen's
+    # `deep_forest`, `lake`); otherwise `far` species only in the farther half of those (road hops from
+    # `center`), `farthest` only in the farthest. Counts and caps scale with villagers / `base_size`.
+    # Small game (`min_hunters` 1): one roll d`combat.die` + weapon attack >= `hit_at` catches one.
+    # Big game: a hunt party at the place; at the end of the hour (party open `party_hours`), with
+    # `min_hunters` present, up to `rounds` rounds of strikes (combat dice vs `hit_at`, d`combat.damage_die` +
+    # weapon damage) against `hp`; `attack` set = it strikes back (d`damage_die`). The killing blow takes `loot`.
+    # Night: a place hunted `flee_after` times that day loses `flee_share` of each herd to the calmest other
+    # habitat; herds grow by `breed` x n x (1 - n/cap) (n >= 2); hunting pressure halves; an emptied habitat
+    # gets `stray_count` animals from the wild with `stray_chance` a night.
+    "animals": {
+        "enabled": False, "center": "square", "base_size": 5, "party_hours": 1, "rounds": 4,
+        "flee_after": 3, "flee_share": 0.5, "stray_chance": 0.1, "stray_count": 2, "habitats": {},
+        "items": {"meat": {"value": 4, "food": 25}, "hide": {"value": 3}},
+        "species": {
+            "hare": {"lives_by": "wood", "start": 6, "cap": 10, "breed": 0.5, "min_hunters": 1, "hit_at": 12,
+                     "loot": {"meat": 1, "hide": 1}},
+            "duck": {"lives_by": "fish", "start": 5, "cap": 8, "breed": 0.4, "min_hunters": 1, "hit_at": 13,
+                     "loot": {"meat": 1}},
+            "deer": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 3, "cap": 5, "breed": 0.3,
+                     "min_hunters": 2, "hit_at": 10, "hp": 16, "loot": {"meat": 6, "hide": 2}},
+            "boar": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 2, "cap": 4, "breed": 0.35,
+                     "min_hunters": 2, "hit_at": 11, "hp": 20, "attack": 3, "damage_die": 6,
+                     "loot": {"meat": 6, "hide": 1}},
+            "elk": {"lives_by": "wood", "biomes": ["deep_forest"], "farthest": True, "start": 2, "cap": 3,
+                    "breed": 0.25, "min_hunters": 3, "hit_at": 10, "hp": 30, "attack": 2, "damage_die": 8,
+                    "loot": {"meat": 12, "hide": 3}},
+        },
+    },
     # Food goes bad (aivillage/spoilage.py). Off here; a mode or the start screen turns it on.
     # `days`: how many days a unit keeps from the day it reached its owner (bag + own chests + own market
     # listings count as one store, so moving food between them does not refresh it); items not listed never
@@ -546,6 +609,57 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spoilage": {"enabled": False,
                  "days": {"meat": 2, "fish": 2, "milk": 2, "berries": 3, "bread": 3, "fish_soup": 3, "stew": 3,
                           "pancakes": 3, "egg": 4, "honey_cake": 4, "grain": 14}},
+    # Building with your own hands (aivillage/construction.py, docs/specs/survival.md). Off here: houses are
+    # upgraded at once with upgrade_house. On, every building in `catalog` goes up on a site: start_building
+    # opens it, bring_materials delivers `items`, construct is one hour of work (`hours` in all). Work counts
+    # only while at least `min_workers` different villagers worked on the site within `team_window_minutes`;
+    # each extra co-worker in that window (up to `team_max`) adds `team_bonus` to everyone's hour.
+    # Catalog rows: `place` "home" (your yard; finished, it stands among the plot's buildings with a `level`;
+    # `house` sets the plot's house level) or "village" (common; `at`: allowed places, empty = any common
+    # place); `levels`: one row per level. Effects per level (what that level gives, not added up):
+    # `roof` (sleeping under a roof),
+    # `food_keeps_x` (food in the owner's store keeps that many times longer; `food_items` limits it),
+    # `sell_bonus` (the trader pays that much more), `defense` (added to the village defense), `workshop`
+    # (recipes that need this building; crafting.py). Which kinds can be started at which stage:
+    # progress.DEFAULT_UNLOCKS ("building:<kind>", "building:<kind>@<level>").
+    "construction": {
+        "enabled": False,
+        "team_window_minutes": 60,
+        "team_bonus": 0.25,
+        "team_max": 3,
+        "max_open_sites": 2,  # per villager who started them
+        "catalog": {
+            "shelter": {"name": "Shelter", "place": "home", "levels": [
+                {"items": {"wood": 4}, "hours": 2, "min_workers": 1, "roof": True}]},
+            "house": {"name": "House", "place": "home", "levels": [
+                {"items": {"wood": 8, "stone": 2}, "hours": 4, "min_workers": 1, "roof": True},
+                {"items": {"wood": 12, "stone": 10}, "hours": 8, "min_workers": 2, "roof": True},
+                {"items": {"wood": 16, "stone": 16, "ore": 2}, "hours": 10, "min_workers": 2, "roof": True}]},
+            "campfire": {"name": "Campfire", "place": "village", "levels": [
+                {"items": {"wood": 3, "stone": 3}, "hours": 1, "min_workers": 1},
+                {"items": {"stone": 8}, "hours": 3, "min_workers": 1}]},
+            "workbench": {"name": "Workbench", "place": "home", "levels": [
+                {"items": {"wood": 6, "stone": 2}, "hours": 3, "min_workers": 1, "workshop": True}]},
+            "granary": {"name": "Granary", "place": "home", "levels": [
+                {"items": {"wood": 10, "stone": 4}, "hours": 5, "min_workers": 1, "food_keeps_x": 2},
+                {"items": {"wood": 8, "stone": 10}, "hours": 6, "min_workers": 2, "food_keeps_x": 3}]},
+            "smokehouse": {"name": "Smokehouse", "place": "home", "levels": [
+                {"items": {"wood": 8, "stone": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 3,
+                 "food_items": ["meat", "fish"]}]},
+            "market_square": {"name": "Market square", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 15, "stone": 20}, "hours": 10, "min_workers": 2},
+                {"items": {"wood": 10, "stone": 25, "ore": 3}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
+            "smithy": {"name": "Smithy", "place": "home", "levels": [
+                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True}]},
+            "town_hall": {"name": "Town hall", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 25, "stone": 30}, "hours": 14, "min_workers": 3}]},
+            "tavern": {"name": "Tavern", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 20, "stone": 10}, "hours": 8, "min_workers": 2}]},
+            "palisade": {"name": "Palisade", "place": "village", "at": ["square"], "levels": [
+                {"items": {"wood": 25}, "hours": 8, "min_workers": 2, "defense": 1},
+                {"items": {"wood": 20, "stone": 15}, "hours": 10, "min_workers": 3, "defense": 2}]},
+        },
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

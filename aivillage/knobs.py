@@ -11,7 +11,7 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
   A knob whose path is not in DEFAULT_CONFIG yet is hidden, so knobs can be listed before their feature lands.
 - no `path`: a run option handled in `to_run()` (villagers, days, mode, pace, ...).
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
-- `only`: "llm" or "bots" shows the knob for that kind of village only.
+- `only`: "llm" or "bots" shows the knob for that kind of village only; `mode`: shown in that economy mode only.
 - `roster` (not a knob): optional list of {name, profession, character} from "Жители по одному".
 - `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
 - `sets` (on a choice): {option: {knob key: slider value}}, a preset. Picking the option moves those sliders;
@@ -69,6 +69,11 @@ KNOBS: list[dict[str, Any]] = [
      "options": [[m, v["title"]] for m, v in modes.MODES.items()],
      "about": {m: v["about"] for m, v in modes.MODES.items()},
      "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах."},
+    {"key": "start_stage", "path": "progress.start_stage", "group": "Правила", "type": "choice", "mode": "survival",
+     "label": "С какой стадии начать", "options": [["camp", "🔥 Лагерь (с нуля)"], ["hamlet", "🛖 Хутор"],
+                                                  ["village", "🏘 Деревня"], ["town", "🏰 Посёлок"]],
+     "hint": "Лагерь: ни домов, ни денег, ни профессий. Со стадии повыше всё, что нужно для неё, уже построено "
+             "и открыто, старт как в «Обычном»."},
     {"key": "unfairness", "path": "map.unfairness", "group": "Правила", "type": "range", "scale": 0.1,
      "label": "Нечестный старт", "min": 0, "max": 10, "step": 1,
      "hint": "0: у всех одинаковые участки, деньги и дорога до работы. 10: у кого-то большой участок и "
@@ -85,6 +90,10 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Доля налогов, которая уходит из игры", "min": 0, "max": 100, "step": 5, "unit": "%"},
     {"key": "tax_every_days", "path": "tax_every_days", "group": "Правила", "type": "range",
      "label": "Налог раз в", "min": 1, "max": 14, "step": 1, "unit": " дн."},
+    {"key": "law_enforcement", "path": "laws.enforcement", "group": "Правила", "type": "choice",
+     "label": "Налоги и штрафы", "options": [["auto", "🏛 Забираются сами"], ["voluntary", "🤝 По желанию"]],
+     "hint": "По желанию: налог и штраф становятся счётом в книге долгов, житель сам решает, платить ли. "
+             "Все видят, кто заплатил, а кто нет. Выселения за неуплату нет."},
     {"key": "eviction_days", "path": "eviction_days", "group": "Правила", "type": "range",
      "label": "Выселение за долг по налогу на", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "satiety_loss_per_hour", "path": "satiety_loss_per_hour", "group": "Правила", "type": "range",
@@ -198,6 +207,9 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Объявление на площади сразу читают все жители, слово в слово. Деньги идут в казну. Рекомендуем 5."},
 
     # --- dice (aivillage/dice.py) ---
+    {"key": "animals", "path": "animals.enabled", "group": "Охота", "type": "toggle", "label": "Звери и охота",
+     "hint": "В лесах и у воды живут звери. Зайца и утку ловят в одиночку, оленя, кабана и лося только вдвоём-втроём; "
+             "добычу забирает тот, кто нанёс последний удар. Звери плодятся и уходят из мест, где на них охотятся."},
     {"key": "dice", "path": "dice.enabled", "group": "Азарт", "type": "toggle", "label": "Кости на деньги",
      "hint": "На площади жители могут играть в кости на монеты и проигрываться в долг."},
     {"key": "dice_max_stake", "path": "dice.max_stake", "group": "Азарт", "type": "range",
@@ -296,6 +308,15 @@ KNOBS: list[dict[str, Any]] = [
     # --- map and speed ---
     {"key": "fixed_map", "group": "Карта и скорость", "type": "toggle", "label": "Старая ручная карта", "default": False,
      "hint": "Выключено: каждый раз новая деревня (река, дома, участки)."},
+    {"key": "map_size", "path": "map.size", "group": "Карта и скорость", "type": "choice", "label": "Размер карты",
+     "options": [["normal", "Обычная"], ["large", "Большая"], ["huge", "Огромная"]],
+     "hint": "Деревня в середине такая же тесная. Вокруг дикие места: глубокий лес, озеро, пещеры с рудой и "
+             "камнем, глиняные холмы. На большой карте до них 2–3 часа ходьбы, на огромной их больше и до 5 часов. "
+             "Со старой ручной картой не действует."},
+    {"key": "regrowth", "path": "regrowth.from_remainder", "group": "Карта и скорость", "type": "toggle",
+     "label": "Природа растёт от остатка",
+     "hint": "Включено: за ночь лес, рыба, ягоды, камень и руда прирастают тем медленнее, чем меньше их осталось; "
+             "выбранное дочиста почти не растёт. Выключено: каждую ночь прирастает одинаково."},
     {"key": "seed", "group": "Карта и скорость", "type": "number", "label": "Номер деревни", "default": None,
      "hint": "Пусто: каждый раз новая. Тот же номер даёт ту же карту."},
     {"key": "pace", "group": "Карта и скорость", "type": "range", "label": "Секунд на игровой час",

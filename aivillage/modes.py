@@ -153,7 +153,47 @@ MODES: dict[str, dict[str, Any]] = {
     },
 }
 
+# «С нуля»: the village is built by its villagers and climbs stages (progress.py). A start at hamlet or later
+# is the ready village of «Обычный»; a camp start empties it (bare_start below).
+MODES["survival"] = {
+    "title": "С нуля",
+    "about": "Деревню строят сами жители. На старте нет домов, денег, профессий, рынка и кузницы: всё добывается "
+             "руками, карманы пустые. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
+             "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
+             "как в «Обычном».",
+    "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+                                              "animals": {"enabled": True},
+                                              "construction": {"enabled": True}}),
+}
+
 DEFAULT_MODE = "crafts"
+
+
+def bare_start(cfg: dict) -> None:
+    """Empty a full world config (in place) for a camp start: called by engine.new_world. Idempotent.
+
+    Does nothing unless `bare_start.enabled`, progress is on and the start stage is before
+    `bare_start.until_stage`. Then: houses at level 0, no coins, empty pockets and yards, everyone a
+    laborer who may gather anything by hand, no trade places."""
+    from . import progress
+    b = cfg.get("bare_start") or {}
+    if not b.get("enabled") or b.get("applied") or not progress.enabled(cfg):
+        return
+    ids = progress.stage_ids(cfg)
+    start = cfg["progress"].get("start_stage", 0)
+    idx = ids.index(start) if isinstance(start, str) else int(start)
+    until = b.get("until_stage")
+    if until in ids and idx >= ids.index(until):
+        return
+    cfg["start_coins"] = 0
+    cfg["start_items"] = {k: 0 for k in cfg.get("start_items", {})}
+    for st in cfg["map"].get("start", {}).values():  # mapgen's unfair start: yards stay, coins and stashes go
+        st["coins"], st["items"] = 0, {}
+    for a in cfg["agents"]:
+        a.update(profession="laborer", house_level=0, buildings=[])
+    cfg["labor"]["own_trade_only"] = False
+    cfg["places"]["enabled"] = False
+    b["applied"] = True
 
 
 def check(mode: str) -> None:

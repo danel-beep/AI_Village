@@ -12,9 +12,9 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (chronicle, clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor,
-               land, mapgen, market, ops, places, plots, pricing, reputation, seasons, spoilage, taxes, threats, tiles,
-               works)
+from . import (animals, chronicle, clock, conflict, construction, crises, debts, dice, family, governance, graves, handbook, illness,
+               labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
+               taxes, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -36,6 +36,7 @@ def new_world(config: dict | None = None) -> World:
     if "layout" in cfg["map"]:  # a generated map has its own lots; the hand-made map's ones must not leak in
         for lid in [k for k, s in cfg["locations"].items() if "lot" in s and k not in cfg["map"]["layout"]["places"]]:
             del cfg["locations"][lid]
+    modes.bare_start(cfg)
     w = World(config=cfg, hour=cfg["day_start_hour"])
     for lid, spec in cfg["locations"].items():
         res = {r: v["start"] for r, v in spec.get("resources", {}).items()}
@@ -64,6 +65,8 @@ def new_world(config: dict | None = None) -> World:
     for pid, spec in cfg["projects"].items():
         w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]), structure=spec.get("structure"),
                                   level=1 if spec.get("structure") else 0, proposer="council")
+    animals.setup(w)
+    progress.setup(w)
     for a in w.agents.values():
         a.busy_until = w.tick + wake_offset(w, a.name)
     return w
@@ -149,6 +152,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))
     obs.update(threats.observe(world, name))
+    obs.update(animals.observe(world, name))
     obs.update(land.observe(world, name))
     obs.update(debts.observe(world, name))
     obs.update(labor.observe(world, name))
@@ -159,7 +163,9 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(taxes.observe(world, name))
     obs.update(places.observe(world, name))
     obs.update(chronicle.observe(world, name))
+    obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
+    obs.update(construction.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -333,6 +339,7 @@ def wake_busy_agents(ctx: Ctx) -> None:
 def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
     governance.end_of_hour(ctx)
+    progress.end_of_hour(ctx)
     for a in w.agents.values():
         if a.status != "active":
             continue
@@ -347,6 +354,7 @@ def end_of_hour(ctx: Ctx) -> None:
     for f in list(w.fires.values()):
         burn_for(ctx, f, 1)
     threats.end_of_hour(ctx)
+    animals.end_of_hour(ctx)  # hunt parties; herds move and breed on the day's last hour
     illness.end_of_hour(ctx, rng_for(w, "illness"))
     for o in list(w.offers.values()):
         if o.expires_tick <= w.tick:
@@ -465,7 +473,7 @@ def night(ctx: Ctx) -> None:
             if crises.blocks_regrowth(w, loc.id, r):
                 continue
             cap = tiles.capacity(s) if s.get("slots") else s["max"]
-            tiles.grow(loc, r, seasons.regen(cfg, w.day, r, s["regen"]), cap, s["max"])
+            tiles.grow(loc, r, seasons.regen(cfg, w.day, r, tiles.regen(cfg, loc, r, s)), cap, s["max"])
     for loc in w.locations.values():
         if not loc.planted:
             continue

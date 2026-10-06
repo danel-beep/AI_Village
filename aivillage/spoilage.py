@@ -22,15 +22,19 @@ def enabled(cfg: dict) -> bool:
     return bool(_c(cfg).get("enabled"))
 
 
-def storage_factor(world: World, owner: str) -> float:
-    """How much longer food keeps in this owner's store (a granary or smokehouse will raise it)."""
-    return 1.0
+# fn(world, owner, item) -> factor; the best one counts (construction.py: granary, smokehouse).
+STORAGE_SOURCES: list = []
+
+
+def storage_factor(world: World, owner: str, item: str | None = None) -> float:
+    """How much longer food keeps in this owner's store (a granary or smokehouse raises it)."""
+    return max([1.0] + [f(world, owner, item) for f in STORAGE_SOURCES])
 
 
 def life(world: World, owner: str, item: str) -> int:
     """Days a unit of `item` keeps for `owner`; 0 = never spoils."""
     days = _c(world.config).get("days", {}).get(item, 0)
-    return max(1, round(days * storage_factor(world, owner))) if days else 0
+    return max(1, round(days * storage_factor(world, owner, item))) if days else 0
 
 
 def _stores(world: World, owner: str) -> list[dict]:
