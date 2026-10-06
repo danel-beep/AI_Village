@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import chronicle, crafting, handbook, market, places, reputation, spoilage, taxes
+from . import animals, chronicle, construction, crafting, handbook, market, places, reputation, spoilage, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -148,6 +148,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(crisis)
     if threat := threats.facts(cfg):
         lines.append(threat)
+    if (hunt := animals.facts(cfg)) and "hunt" not in (cfg.get("disabled_actions") or []):
+        lines.append(hunt)
     if sick := illness.facts(cfg):
         lines.append(sick)
     if season := seasons.fact(cfg):
@@ -171,6 +173,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(market.facts(cfg))
     if works.enabled(cfg):
         lines.append(works.facts(cfg))
+    if built := construction.facts(cfg):
+        lines.append(built)
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:

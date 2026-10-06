@@ -33,7 +33,7 @@ class AgentSpec(Strict):
     bot: str | None = None  # scripted bot kind
     # Private plot at start (aivillage/plots.py); None = config "plots" defaults
     plot_cells: int | None = Field(default=None, ge=0)
-    house_level: int | None = Field(default=None, ge=1)
+    house_level: int | None = Field(default=None, ge=0)
     buildings: list[str] | None = None  # built for free at the start
     # Character hint for an LLM villager (aivillage/llm.py CHARACTERS): a preset key, free text, or
     # "default" for the neutral prompt; None = follow the run's `characters`.

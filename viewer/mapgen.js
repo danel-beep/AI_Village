@@ -4,8 +4,18 @@
 // hand-made map, so pixelmap can paint the same art shifted. GenMap.paint() draws what only generated maps
 // have: a winding river with its dock, fenced plots, groves, ponds, quarries, hamlet greens, road signposts.
 // GenMap.spots() gives viewer/maplayer.js the pixel spots of resource objects outside the old landmarks.
+// A large map (map.size) adds far wild zones: deep forest, lake, cave, clay hills.
 const GenMap = (() => {
-  const LABEL = { grove: -34, pond: -30, quarry: -34, hamlet: -30, waypoint: -26, lot: -30 };
+  const LABEL = { grove: -34, pond: -30, quarry: -34, hamlet: -30, waypoint: -26, lot: -30,
+                  deepwood: -40, lake: -30, cave: -40, clayhill: -34 };
+  const CLAY = ['#d08a58', '#b0683c', '#86492a'];
+  // water tiles of a lake: the ellipse inscribed in its box (mapgen.lake_tiles)
+  const lakeTiles = ([x, y, w, h]) => {
+    const out = [];
+    for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++)
+      if (((i + .5 - x - w / 2) / (w / 2)) ** 2 + ((j + .5 - y - h / 2) / (h / 2)) ** 2 <= 1) out.push([i, j]);
+    return out;
+  };
 
   function layout(lay, names, T, ROOFS) {
     const px = (x, y) => [x * T + 8, y * T + 8];
@@ -25,6 +35,10 @@ const GenMap = (() => {
       else if (pl.kind === 'forest') fill(b, 'forest');
       else if (pl.kind === 'market' || pl.kind === 'smithy' || pl.kind === 'mine') fill(b, 'block');
       else if (pl.kind === 'pond') fill(b, 'water');
+      else if (pl.kind === 'lake') lakeTiles(b).forEach(([x, y]) => set(x, y, 'water'));
+      else if (pl.kind === 'deepwood') fill([b[0] - 1, b[1] - 1, b[2] + 2, b[3] + 1], 'forest');
+      else if (pl.kind === 'clayhill') fill(b, 'soil');
+      else if (pl.kind === 'cave') fill(b, 'block');
       else if (pl.kind === 'grove' || pl.kind === 'quarry' || pl.kind === 'hamlet') fill(b, 'block');
       else if (pl.kind === 'home' || pl.kind === 'lot') fill(pl.plot, 'block');
     }
@@ -73,6 +87,26 @@ const GenMap = (() => {
       else if (pl.kind === 'pond') out[id] = { fish: [0, 1, 2, 3].map(i => [x0 + 12 + (i % 2) * 28, y0 + 10 + (i >> 1) * 18]) };
       else if (pl.kind === 'quarry') out[id] = {
         stone: [0, 1, 2].map(i => [x0 + 2 + i * 20, y0 + 4]), ore: [0, 1, 2].map(i => [x0 + 12 + i * 18, y0 + 22]) };
+      else if (pl.kind === 'deepwood') {   // 12 trees fill the wood (4 x 3), more go in the gaps between them
+        const wood = [];
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++)
+          wood.push([x0 - 4 + c * 40 + (r % 2) * 14, y0 - 20 + r * 34, (r + c) % 3 !== 0]);
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++)
+          wood.push([x0 + 14 + c * 40 - (r % 2) * 14, y0 - 3 + r * 34, (r + c) % 2 === 0]);
+        out[id] = { wood, berries: [0, 1, 2, 3, 4, 5, 6, 7].map(i => [x0 + 4 + i * 19, y0 + h + (i % 2) * 5]) };
+      } else if (pl.kind === 'lake') out[id] = {
+        fish: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => [x0 + w * (.22 + .14 * (i % 5)), y0 + h * (.3 + .3 * (i > 4)) + (i % 2) * 6]) };
+      else if (pl.kind === 'cave') {   // rocks on the hill around the mouth
+        const ring = [];
+        for (let i = 0; i < 16; i++) { const a = Math.PI * (1.05 + i * 0.86 / 15 * 1.0), r = i % 2 ? .62 : .78;
+          ring.push([x0 + w / 2 - 8 + Math.cos(a + Math.PI * .1 * (i % 4)) * w * r * .6, y0 + h * .55 - 10 + Math.sin(a) * h * r * .55 + (i % 3) * 8]); }
+        out[id] = { stone: ring.filter((_, i) => i % 3 === 0), ore: ring.filter((_, i) => i % 3 !== 0) };
+      } else if (pl.kind === 'clayhill') {
+        const clay = [];
+        for (let i = 0; i < 6; i++) clay.push([x0 + 6 + (i % 3) * 30, y0 + 8 + (i / 3 | 0) * 28]);   // 6 fill the hills,
+        for (let i = 0; i < 6; i++) clay.push([x0 + 20 + (i % 3) * 30 - (i > 2) * 6, y0 + 20 + (i / 3 | 0) * 22]);  // more in between
+        out[id] = { clay };
+      }
     }
     return out;
   }
@@ -113,6 +147,25 @@ const GenMap = (() => {
         if (SP(g, 'lilypads', x0 + w * .3, y0 + h * .45)) { SP(g, 'lilypads', x0 + w * .72, y0 + h * .8, { flip: true }); SP(g, 'reeds', x0 + 4, y0 + h + 4); SP(g, 'reeds', x0 + w - 2, y0 + 6); continue; }
         for (let i = 0; i < 5; i++) { const bx = x0 + rnd(i, 7) * w | 0, by = y0 + h - 4 + (i % 2) * 3;
           R(g, bx, by, 1, 5, C.leafD); R(g, bx + 2, by + 1, 1, 4, C.leaf); }
+      } else if (pl.kind === 'lake') {   // reeds along the shore, lily pads
+        SP(g, 'lilypads', x0 + w * .3, y0 + h * .4); SP(g, 'lilypads', x0 + w * .7, y0 + h * .65, { flip: true });
+        for (let i = 0; i < 9; i++) { const a = Math.PI * (.15 + i * .3), bx = x0 + w / 2 + Math.cos(a) * w * .47, by = y0 + h / 2 + Math.sin(a) * h * .47;
+          if (SP(g, 'reeds', bx, by + 6)) continue; R(g, bx, by, 1, 5, C.leafD); R(g, bx + 2, by + 1, 1, 4, C.leaf); }
+      } else if (pl.kind === 'deepwood') {   // old pines all round the edge, behind the trees that can be cut
+        if (K.tree) for (let i = 0; i < 16; i++) {
+          const a = Math.PI * 2 * i / 16, px = x0 + w / 2 - 16 + Math.cos(a) * (w / 2 + 14), py = y0 + h / 2 - 34 + Math.sin(a) * (h / 2 + 8);
+          if (py > y0 + h - 40) continue;  // keep the way in open
+          K.tree(g, px + (rnd(i, x0, 3) * 8 | 0), py, true);
+        }
+      } else if (pl.kind === 'cave') {   // a rocky hill with a dark mouth at the bottom
+        blob(g, x0 + w / 2, y0 + h * .55, w / 2 + 6, h / 2 + 4, [C.stoneL, C.stone, C.stoneD]);
+        blob(g, x0 + w * .3, y0 + h * .35, w / 4, h / 4, [C.stoneL, C.stone, C.stoneD], null);
+        blob(g, x0 + w * .72, y0 + h * .4, w / 4, h / 4, [C.stoneL, C.stone, C.stoneD], null);
+        blob(g, x0 + w / 2, y0 + h - 8, 10, 9, ['#2a2622', '#1a1714', '#0e0c0a'], C.k);
+        R(g, x0 + w / 2 - 11, y0 + h - 17, 2, 14, C.woodD); R(g, x0 + w / 2 + 9, y0 + h - 17, 2, 14, C.woodD);
+        R(g, x0 + w / 2 - 12, y0 + h - 18, 24, 2, C.woodD);   // timber frame of the entrance
+      } else if (pl.kind === 'clayhill') {   // low reddish mounds
+        for (let i = 0; i < 3; i++) blob(g, x0 + w * (.25 + .25 * i), y0 + h * (.45 + .15 * (i % 2)), w / 4 + 4, h / 3, CLAY, null);
       } else if (pl.kind === 'quarry') {   // a gravel pit with a dark rim
         const gp = pat('tex_gravel');
         if (gp) { g.beginPath(); g.ellipse(x0 + w / 2, y0 + h / 2 + 2, w / 2 + 3, h / 2 + 1, 0, 0, Math.PI * 2);
@@ -136,6 +189,6 @@ const GenMap = (() => {
     }
   }
 
-  return { layout, spots, paint };
+  return { layout, spots, paint, lakeTiles };
 })();
 if (typeof window !== 'undefined') window.GenMap = GenMap;
