@@ -60,11 +60,32 @@ def observe(world: World, name: str) -> dict:
     return out
 
 
+def lives(cfg: dict) -> int:
+    """How many times a villager can drop to 0 health; the last one is death. 0 = never die."""
+    return 1 if cfg["death_mode"] == "death" else max(0, int(cfg.get("lives", 0)))
+
+
+def lives_left(cfg: dict, a: Agent) -> dict:
+    """The villager's own count for the observation: hospital stays so far and how many remain before death."""
+    n = lives(cfg)
+    if n <= 1:
+        return {}
+    return {"hospital_stays": a.hospital_stays, "hospital_stays_left": max(0, n - 1 - a.hospital_stays)}
+
+
 def facts(cfg: dict) -> str:
-    if cfg["death_mode"] != "death":
+    n = lives(cfg)
+    if n == 0:
         return ""
-    return ("- Death: at 0 health a villager dies for good. The dead are buried by their house; "
-            "\"graves\" lists everyone who died, when and of what.")
+    tail = (" The dead are buried by their house; \"graves\" lists everyone who died, when and of what. "
+            "A dead villager's things and land go to their spouse or closest friend; with neither, the land "
+            "belongs to nobody and the chest stays where it is.")
+    if n == 1:
+        return "- Death: at 0 health a villager dies for good." + tail
+    stays = "once" if n == 2 else f"{n - 1} times"
+    return (f"- Death: at 0 health a villager is taken to the hospital ({cfg['hospital_days']} days, half of what "
+            f"they carry is lost) {stays}; the next time they drop to 0 health they die for good. "
+            "\"you.hospital_stays\" and \"you.hospital_stays_left\" show your own count." + tail)
 
 
 def view(world: World) -> list[dict]:

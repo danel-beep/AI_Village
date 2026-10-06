@@ -246,7 +246,13 @@ def settle_estate(ctx: Ctx, name: str) -> None:
     own = w.chests[f"chest_{name}"]
     if _cfg(w).get("pay_debts_first", True):
         _pay_debts(ctx, a, own)
-    if heir is None:
+    if heir is None:  # no heir: the land is nobody's (a lot can be bought again), the chest stays where it is
+        freed = sorted(h for h, p in w.plots.items() if p.owner == name)
+        for h in freed:
+            w.plots[h].owner, w.plots[h].sale = "", None
+        if freed:
+            ctx.emit("land_freed", f"{name}'s land ({', '.join(w.locations[h].name for h in freed)}) now belongs "
+                     "to nobody.", visibility="public", deceased=name, houses=freed)
         return
     dst = w.chests[f"chest_{heir}"]
     items: dict[str, int] = {}
