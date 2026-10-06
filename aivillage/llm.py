@@ -20,10 +20,10 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import (clock, conflict, crises, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
+from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import reputation
+from . import market, reputation
 from .registry import ACTIONS
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
@@ -125,8 +125,8 @@ def world_facts(cfg: dict) -> str:
     lines.append(f"- steal succeeds {cfg['steal_awake_target_success']:.0%} of the time against an awake person and always "
                  f"against a sleeping one; awake people nearby notice it with {cfg['steal_notice_chance']:.0%} chance; "
                  f"at most {cfg['max_steal_qty']} per attempt.")
-    lines.append("- Debts are written on the public board, but nobody forces repayment. "
-                 "Orders on the board pay the whole reward to the first person who delivers.")
+    lines.append(debts.fact(cfg))
+    lines.append("- Orders on the board pay the whole reward to the first person who delivers.")
     if rep := reputation.fact(cfg):
         lines.append(rep)
     fam = cfg.get("family")
@@ -156,6 +156,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(pricing.facts(cfg))
     if death := graves.facts(cfg):
         lines.append(death)
+    if market.enabled(cfg):
+        lines.append(market.facts(cfg))
     if works.enabled(cfg):
         lines.append(works.facts(cfg))
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()

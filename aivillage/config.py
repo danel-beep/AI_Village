@@ -80,7 +80,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Trader prices that follow his stock (aivillage/pricing.py). Off here; the crafts mode turns it on.
     # Every unit he holds (per 5 villagers) lowers both his prices of that good by drop_per_unit, down to
     # floor; each dawn he keeps keep_per_day of his stock.
-    "market": {"stock_prices": False, "drop_per_unit": 0.08, "floor": 0.3, "keep_per_day": 0.5},
+    "trader_pricing": {"stock_prices": False, "drop_per_unit": 0.08, "floor": 0.3, "keep_per_day": 0.5},
     "items": {
         "grain": {"value": 2},
         "fish": {"value": 3, "food": 15},
@@ -274,6 +274,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "scale_projects": True,
         "scale_orders": True,  # more council orders at once: they are the main coin source besides the trader
         "profession_weights": {"farmer": 1.2, "fisher": 1.2, "woodcutter": 1, "miner": 1, "smith": 0.6},
+    },
+    # The debt book (aivillage/debts.py): IOUs with pledges, late fees, collection through the mayor.
+    "debts": {
+        "collection": True,  # demand_debt / rule_debt (needs governance and a mayor)
+        "collect_fee_pct": 10,  # share of what the mayor collects that goes to the treasury
+        "late_fee_pct": 0,  # an overdue debt without a pledge grows by this % each night
+        "max_promise": 500,  # coins per IOU
+        # Automatic collection of overdue debts without a pledge (no mayor needed): each night up to
+        # `seize_pct`% of the debtor's coins, then of their goods' value (food is never taken), and
+        # `seize_pct`% of any coins they receive until it is paid.
+        "auto_collect": True,
+        "seize_pct": 50,
     },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
@@ -481,6 +493,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # A player may stake up to coins + `credit`; a loser short of coins owes the rest, due in `debt_days`.
     "dice": {"enabled": True, "places": ["square"], "dice": 2, "sides": 6, "rerolls": 2, "max_stake": 30,
              "credit": 15, "debt_days": 2, "offer_hours": 2},
+    # Market board (aivillage/market.py). `post_sale` puts items up for a price from anywhere (the board holds
+    # them for `sale_hours`, at most `max_sale_hours`); `buy_sale` buys a listing from anywhere when `remote`
+    # (else at `place`), and `remote` also lets villagers' own orders (post_order) be delivered from anywhere.
+    # Observation shows the `show` cheapest listings per unit and where/when each villager was last seen
+    # (`seen_show` lines; co-presence and events with a place update it).
+    "market": {"enabled": True, "remote": True, "place": "square", "sale_hours": 24, "max_sale_hours": 72,
+               "max_own_sales": 3, "show": 10, "seen_show": 10},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

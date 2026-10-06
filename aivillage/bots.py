@@ -69,6 +69,17 @@ class RandomBot(Bot):
         elif name == "repay":
             debts = [d["id"] for d in obs["board"]["debts"]] or ["debt0"]
             args = {"debt_id": r.choice(debts), "coins": r.randint(1, 5)}
+        elif name == "promise":
+            args = {"to": r.choice(people), "coins": r.randint(1, 9), "due_day": obs["time"]["day"] + r.randint(0, 3),
+                    **({"pledge": {pick_item(): 1}} if r.random() < 0.4 else {}),
+                    **({"note": "for bread"} if r.random() < 0.5 else {})}
+        elif name in ("forgive_debt", "transfer_debt", "demand_debt", "rule_debt"):
+            debts = [d["id"] for d in obs["board"]["debts"]] or ["debt0"]
+            args = {"debt_id": r.choice(debts)}
+            if name == "transfer_debt":
+                args["to"] = r.choice(people)
+            if name == "rule_debt":
+                args["decision"] = r.choice(["collect", "reject", "maybe"])
         elif name == "offer":
             args = {"to": r.choice(people), "give": {pick_item(): 1}, "want": {r.choice(items + ["coins"]): 2}}
         elif name in ("accept", "decline"):
@@ -111,6 +122,13 @@ class RandomBot(Bot):
             args = {"structure": r.choice(["well", "bridge", "watchtower", "wall", "castle"])}
         elif name == "embezzle":
             args = {"coins": r.randint(-1, 40)}
+        elif name == "post_sale":
+            args = {"items": {pick_item(): r.randint(1, 3)}, "price": r.choice([r.randint(1, 30), 0]),
+                    "hours": r.choice([24, r.randint(1, 100)])}
+        elif name in ("buy_sale", "cancel_listing"):
+            ids = [x["id"] for x in obs.get("for_sale", []) + obs.get("your_sales", [])]
+            ids += [o["id"] for o in obs["board"]["orders"]] + ["sale0"]
+            args = {"sale_id" if name == "buy_sale" else "listing_id": r.choice(ids)}
         elif name == "fulfill_order":
             orders = [o["id"] for o in obs["board"]["orders"]] or ["order0"]
             args = {"order_id": r.choice(orders)}

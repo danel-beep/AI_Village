@@ -176,10 +176,11 @@ def villagers(records: list[dict], path: str | Path | None = None, lies: list[di
             if who in rows:
                 rows[who]["trades"] += 1
     for d in m["debts"]["list"]:
-        if d["lender"] in rows:
+        loan = d.get("kind", "loan") == "loan"  # IOUs (promise) count only for defaults/repaid
+        if loan and d["lender"] in rows:
             rows[d["lender"]]["loans_given"] += 1
         if d["borrower"] in rows:
-            rows[d["borrower"]]["loans_taken"] += 1
+            rows[d["borrower"]]["loans_taken"] += loan
             rows[d["borrower"]]["debts_defaulted"] += d["defaulted_day"] is not None
             rows[d["borrower"]]["debts_repaid"] += d["status"] in ("repaid", "repaid_late")
     for f in m["fires"]["list"]:

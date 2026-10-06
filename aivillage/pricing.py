@@ -1,7 +1,7 @@
-"""The trader's prices: base value x ratio x crises x village works x his stock (config block `market`).
+"""The trader's prices: base value x ratio x crises x village works x his stock (config block `trader_pricing`).
 
 The final live runs showed one good (gold) paying ~7x any other work: the trader bought any amount at a
-fixed price. With `market.stock_prices` on (the "crafts" mode turns it on) the trader remembers how much of
+fixed price. With `trader_pricing.stock_prices` on (the "crafts" mode turns it on) the trader remembers how much of
 each good villagers sold him lately (`World.trader_stock`); every unit he holds lowers both his buying and
 his selling price of that good by `drop_per_unit` (scaled to the population), down to `floor` of the base.
 Each dawn he keeps only `keep_per_day` of his stock (he ships the rest away), so a glut wears off in a day
@@ -17,14 +17,14 @@ from .state import World
 
 
 def enabled(cfg: dict) -> bool:
-    return bool(cfg.get("market", {}).get("stock_prices"))
+    return bool(cfg.get("trader_pricing", {}).get("stock_prices"))
 
 
 def stock_factor(world: World, item: str) -> float:
     cfg = world.config
     if not enabled(cfg):
         return 1.0
-    m = cfg["market"]
+    m = cfg["trader_pricing"]
     held = world.trader_stock.get(item, 0)
     drop = m["drop_per_unit"] / max(population.resource_scale(cfg), 1e-9)
     return max(m["floor"], 1.0 - drop * held)
@@ -62,12 +62,12 @@ def trader_sold(world: World, item: str, qty: int) -> None:
 def new_day(world: World) -> None:
     if not enabled(world.config):
         return
-    keep = world.config["market"]["keep_per_day"]
+    keep = world.config["trader_pricing"]["keep_per_day"]
     world.trader_stock = {i: k for i, n in sorted(world.trader_stock.items()) if (k := math.floor(n * keep)) > 0}
 
 
 def facts(cfg: dict) -> str:
-    m = cfg["market"]
+    m = cfg["trader_pricing"]
     return (f"- The trader's prices follow his stock: each unit of a good villagers sold him lately lowers his "
             f"buying and selling price of that good (down to {m['floor']:.0%} of normal); every night he keeps only "
             f"{m['keep_per_day']:.0%} of his stock. trader_prices always shows today's prices.")

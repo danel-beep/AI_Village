@@ -44,6 +44,8 @@ class Agent:
     harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
     # dice.py: an open challenge {"to", "stake", "expires_tick"}
     dice_offer: dict | None = None
+    # market.py: where this agent last saw each villager: name -> {"place": location id, "tick": tick}
+    seen: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -88,7 +90,13 @@ class Debt:
     borrower: str
     coins_owed: int
     due_day: int
-    status: str = "open"  # open | repaid | defaulted
+    status: str = "open"  # open | defaulted (still owed) | repaid | forgiven | forfeited (debts.py)
+    kind: str = "loan"  # loan (lend) | iou (promise) | anything other modules write (debts.write)
+    note: str = ""
+    pledge: dict[str, int] = field(default_factory=dict)  # items held by the book until repaid
+    claim: dict | None = None  # the lender asked the mayor to collect: {"tick", "day"}
+    claim_day: int = 0  # day the mayor last ruled on it
+    day: int = 0  # day it was written
 
 
 @dataclass
@@ -100,6 +108,16 @@ class Order:
     status: str = "open"  # open | fulfilled | expired
     fulfilled_by: str | None = None
     by: str = ""  # a villager's own order (post_order): the coins are held by the board until delivery
+
+
+@dataclass
+class Sale:
+    """A villager's sell listing on the market board (market.py): the items are held by the board."""
+    id: str
+    seller: str
+    items: dict[str, int]
+    price: int  # coins for the whole lot
+    expires_tick: int
 
 
 @dataclass
@@ -242,6 +260,7 @@ class World:
     offers: dict[str, Offer] = field(default_factory=dict)
     debts: dict[str, Debt] = field(default_factory=dict)
     orders: dict[str, Order] = field(default_factory=dict)
+    sales: dict[str, Sale] = field(default_factory=dict)  # market.py: open sell listings
     projects: dict[str, Project] = field(default_factory=dict)
     fires: dict[str, Fire] = field(default_factory=dict)
     mail: list[Letter] = field(default_factory=list)
@@ -283,6 +302,7 @@ class World:
             offers={k: Offer(**v) for k, v in d["offers"].items()},
             debts={k: Debt(**v) for k, v in d["debts"].items()},
             orders={k: Order(**v) for k, v in d["orders"].items()},
+            sales={k: Sale(**v) for k, v in d.get("sales", {}).items()},
             projects={k: Project(**v) for k, v in d["projects"].items()},
             fires={k: Fire(**v) for k, v in d["fires"].items()},
             mail=[Letter(**v) for v in d["mail"]],
