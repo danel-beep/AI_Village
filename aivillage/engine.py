@@ -13,7 +13,8 @@ from typing import Any
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (animals, chronicle, clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness,
-               labor, land, mapgen, market, ops, places, plots, pricing, reputation, seasons, taxes, threats, tiles, works)
+               labor, land, mapgen, market, ops, places, plots, pricing, reputation, seasons, spoilage, taxes, threats,
+               tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -160,6 +161,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(taxes.observe(world, name))
     obs.update(places.observe(world, name))
     obs.update(chronicle.observe(world, name))
+    obs.update(spoilage.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -356,6 +358,7 @@ def end_of_hour(ctx: Ctx) -> None:
     market.expire(ctx)
     check_health(ctx)
     family.after_hour(ctx)
+    spoilage.end_of_hour(ctx)
 
 
 def burn_for(ctx: Ctx, f: Fire, hours: int) -> None:
@@ -511,5 +514,6 @@ def night(ctx: Ctx) -> None:
     taxes.after_night(ctx)
     places.after_night(ctx)
     chronicle.after_night(ctx)
+    spoilage.after_night(ctx)
     conflict.random_fire(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")
