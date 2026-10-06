@@ -30,6 +30,10 @@ class Agent:
     busy_until: int = 0  # tick at which the current action (or task step) is over; not asked before it
     tool_wear: int = 0
     tool_wear_by: dict[str, int] = field(default_factory=dict)  # crafting.py: hours of use per tool kind
+    # crafting.py secret recipes: recipes this agent knows beyond the common ones, and lessons offered to it
+    # ({"teacher", "recipe", "price", "expires_tick"})
+    known_recipes: list[str] = field(default_factory=list)
+    lesson_offers: list[dict] = field(default_factory=list)
     status: str = "active"  # active | hospital | dead
     status_until_day: int = 0
     sick_until_day: int = 0

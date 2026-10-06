@@ -47,6 +47,14 @@ class RandomBot(Bot):
             args = {"hours": r.randint(1, 4)}
         elif name == "craft":
             args = {"recipe": r.choice(list(obs["board"]["recipes"]) + ["cake"]), "times": r.randint(1, 2)}
+        elif name == "teach":
+            args = {"person": r.choice(people), "recipe": r.choice((obs.get("recipes_you_know")
+                                                                    or ["iron"]) + ["cake"]),
+                    **({"price": {r.choice(items[:3] + ["coins"]): r.randint(1, 3)}} if r.random() < 0.5 else {})}
+        elif name == "learn":
+            lessons = obs.get("lessons_offered") or [{"teacher": "nobody", "recipe": "cake"}]
+            les = r.choice(lessons)
+            args = {"teacher": les["teacher"], "recipe": les["recipe"]}
         elif name in ("eat", "buy", "sell", "pick_up"):
             args = {"item": pick_item(), "qty": r.randint(1, 3)}
         elif name in ("say",):
