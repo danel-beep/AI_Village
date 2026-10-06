@@ -668,7 +668,9 @@ const PixelMap = (() => {
     ctx.drawImage(buf, cam.x0, cam.y0, W / cam.z, H / cam.z, 0, 0, W * S, H * S);
     labels(ctx, t, shown, selected, sec);
     Actors.noteTick(t, frac, dt);
-    Actors.bubbles(ctx, shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y + 8 - ((sheets[a.n] || {}).fh || 16)); return { n: a.n, sx, sy }; }),
+    const heads = shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y + 8 - ((sheets[a.n] || {}).fh || 16)); return { n: a.n, sx, sy }; });
+    Actors.badges(ctx, heads, t);
+    Actors.bubbles(ctx, heads,
                    selected, tr || String, W * S);
   }
 

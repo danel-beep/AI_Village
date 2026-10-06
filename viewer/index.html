@@ -63,6 +63,7 @@
 <script src="actors.js"></script>
 <script src="camera.js"></script>
 <script src="omens.js"></script>
+<script src="digest.js"></script>
 <script src="dossier.js"></script>
 <script src="highlights.js"></script>
 <script>
@@ -107,7 +108,16 @@ function push(row) {
       else if (ph && ph.k + 1 < ph.of && !d) hop[n] = { ...ph, k: ph.k + 1 };
       if (!acts[n] && !d && pa && pa.busy > 0 && pa.location === a.location && last._acts && last._acts[n]) acts[n] = last._acts[n];
     }
-    row._goal = goal; row._hop = hop; row._acts = acts;
+    // _mood: who is angry (robbed, cheated, attacked in the last two game hours) or fighting right now, for the
+    // little icons over heads (Actors.badges); hunger and wounds come straight from the view.
+    const mood = {}, keep = Math.round(120 / step), hurt = /^(robbed|steal_attempt|witness|default|theft)$/;
+    for (const [n, m] of Object.entries(last && last._mood || {})) if (m.angry > 1) mood[n] = { angry: m.angry - 1 };
+    for (const e of row.events || []) {
+      const fight = /fight|attack|duel|brawl|hit/.test(e.kind), who = [...(e.to || []), ...(fight && e.actor ? [e.actor] : [])];
+      if (!fight && !hurt.test(e.kind)) continue;
+      for (const n of who) if (row.view.agents[n] && (fight || n !== e.actor)) mood[n] = { ...mood[n], angry: keep, ...(fight ? { fight: 1 } : {}) };
+    }
+    row._goal = goal; row._hop = hop; row._acts = acts; row._mood = mood;
     ticks.push(row); document.getElementById('scrub').max = ticks.length - 1;
   }
 }
