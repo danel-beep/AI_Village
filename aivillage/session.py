@@ -21,12 +21,12 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from . import modes, scorecard
+from . import dilemmas, modes, scorecard
 from .clock import time_of
 from .highlights import DRAMA, Highlighter, sidecar_path as highlights_path
 from .summary import by_day, sidecar_path as summary_path, when
 
-VERSION = 1
+VERSION = 2  # 2: village growth and the dilemma tally
 ENDED_BY = {
     "button": "завершена кнопкой «Завершить сессию»",
     "finished": "все дни сыграны",
@@ -79,7 +79,9 @@ def _scorecard(log: Path) -> dict:
     sc = Path(f"{log.with_suffix('')}.scorecard.json")
     if sc.is_file() and sc.stat().st_mtime >= log.stat().st_mtime:
         try:
-            return json.loads(sc.read_text(encoding="utf-8"))
+            rep = json.loads(sc.read_text(encoding="utf-8"))
+            if all("stages" in r for r in rep.get("runs") or [{}]):  # older scorecards lack the dilemma tally
+                return rep
         except ValueError:
             pass
     return scorecard.compute([log])
@@ -136,6 +138,9 @@ def build(log: str | Path, *, ended_by: str = "closed", days_planned: int | None
                                         "gifts", "trades", "loans_given", "loans_taken", "debts_defaulted",
                                         "fire_help", "gossip", "invalid", "turns", "cost_usd")}
                  for v in rows]
+    dl_rows = [{"name": v.get("name"), "model": v.get("model"), **{k: v.get(k) or 0 for k in dilemmas.ROW}}
+               for v in rows]
+    run0 = (rep.get("runs") or [{}])[0]
     extra_cost = sum(float(s.get("cost_usd") or 0) for s in recaps) + \
         sum(float(h.get("cost_usd") or 0) for h in highlights.values())
     last = ticks[-1]["view"] if ticks else {}
@@ -155,6 +160,10 @@ def build(log: str | Path, *, ended_by: str = "closed", days_planned: int | None
         "mayor": last.get("mayor"),
         "cost_usd": round(sum(float(v.get("cost_usd") or 0) for v in villagers) + extra_cost, 4),
         "counts": counts, "headline": headline, "stories": stories, "days": per_day, "villagers": villagers,
+        "stages": run0.get("stages") or [], "built": run0.get("built") or [],
+        "owns": {v.get("name"): v.get("owns") or {} for v in rows},
+        "dilemmas": dl_rows if dilemmas.any_dilemma(dl_rows) or run0.get("stages") else [],
+        "dilemma_models": list(dilemmas.by_model(dl_rows).values()) if dl_rows else [],
         "note": note,
     }
 
@@ -276,6 +285,22 @@ def to_markdown(s: dict) -> str:
         if d["recaps"]:
             out.append("")
         out += [f"- {it['time']}, **{it['title']}**: {it['text']}" for it in d["highlights"]] or ["Ничего заметного."]
+    if s.get("stages") or s.get("built"):
+        out += ["", "## Развитие деревни", ""]
+        if s.get("stages"):
+            out.append(f"- Стадии: {dilemmas.stage_line(s['stages'])}.")
+        out += [f"- {dilemmas.built_line(b)}" for b in s.get("built") or []] or ["- Ничего не построено."]
+        out += ["", "Чем владеют в конце:", ""]
+        out += [f"- **{n}**: {dilemmas.owns_line(o)}" for n, o in (s.get("owns") or {}).items()]
+    if s.get("dilemmas"):
+        cols = dilemmas.COLUMNS
+        out += ["", "## Дилеммы", "", dilemmas.NOTES, "",
+                "| Житель | Модель | " + " | ".join(c for c, _ in cols) + " |", "| --- " * (len(cols) + 2) + "|"]
+        out += [f"| {r['name']} | {r['model']} | " + " | ".join(f(r) for _, f in cols) + " |" for r in s["dilemmas"]]
+        out += ["", "### По моделям", "", "| Модель | Жителей | " + " | ".join(c for c, _ in cols) + " |",
+                "| --- " * (len(cols) + 2) + "|"]
+        out += [f"| {m['model']} | {m['villagers']} | " + " | ".join(f(m) for _, f in cols) + " |"
+                for m in s.get("dilemma_models") or []]
     if s["villagers"]:
         out += ["", "## По жителям", "", "| " + " | ".join(VCOLS) + " |", "| --- " * len(VCOLS) + "|"]
         out += ["| " + " | ".join(_vrow(v)) + " |" for v in s["villagers"]]
@@ -361,6 +386,7 @@ def to_html(s: dict, app: bool = False) -> str:
         body = "".join(f'<div class="recap">{e(r["text"])}</div>' for r in d["recaps"])
         body += _items(d["highlights"]) or '<div class="dim">Ничего заметного.</div>'
         out.append(f'<h2>День {d["day"]}</h2><div class="card">{body}</div>')
+    out += _growth_html(s)
     if s["villagers"]:
         out.append('<h2>По жителям</h2><div class="card tbl"><table><tr>' + "".join(f"<th>{e(c)}</th>" for c in VCOLS)
                    + "</tr>" + "".join("<tr>" + "".join(f"<td>{e(x)}</td>" for x in _vrow(v)) + "</tr>"
@@ -370,6 +396,35 @@ def to_html(s: dict, app: bool = False) -> str:
         out.append(f"<script>{APP_JS}</script>")
     out.append("</body></html>")
     return "\n".join(out)
+
+
+def _table(head: list[str], rows: list[list[str]]) -> str:
+    e = html.escape
+    return ('<div class="card tbl"><table><tr>' + "".join(f"<th>{e(c)}</th>" for c in head) + "</tr>"
+            + "".join("<tr>" + "".join(f"<td>{e(str(x))}</td>" for x in r) + "</tr>" for r in rows) + "</table></div>")
+
+
+def _growth_html(s: dict) -> list[str]:
+    """Village stages, who built what and owns what, the dilemma tally per villager and per model."""
+    e, out = html.escape, []
+    if s.get("stages") or s.get("built"):
+        body = ""
+        if s.get("stages"):
+            body += f'<div class="it"><b>Стадии</b>: {e(dilemmas.stage_line(s["stages"]))}</div>'
+        body += "".join(f'<div class="it">{e(dilemmas.built_line(b))}</div>' for b in s.get("built") or []) \
+            or '<div class="dim">Ничего не построено.</div>'
+        out.append(f'<h2>Развитие деревни</h2><div class="card">{body}</div>')
+        out.append(_table(["Житель", "Чем владеет в конце"],
+                          [[n, dilemmas.owns_line(o)] for n, o in (s.get("owns") or {}).items()]))
+    if s.get("dilemmas"):
+        cols = dilemmas.COLUMNS
+        out.append(f'<h2>Дилеммы</h2><div class="card dim">{e(dilemmas.NOTES)}</div>')
+        out.append(_table(["Житель", "Модель"] + [c for c, _ in cols],
+                          [[r["name"], r["model"]] + [f(r) for _, f in cols] for r in s["dilemmas"]]))
+        out.append('<h2>Дилеммы по моделям</h2>')
+        out.append(_table(["Модель", "Жителей"] + [c for c, _ in cols],
+                          [[m["model"], m["villagers"]] + [f(m) for _, f in cols] for m in s.get("dilemma_models") or []]))
+    return out
 
 
 def list_html(rows: list[dict]) -> str:
