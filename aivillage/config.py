@@ -585,12 +585,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # gets `stray_count` animals from the wild with `stray_chance` a night.
     "animals": {
         "enabled": False, "center": "square", "base_size": 5, "party_hours": 1, "rounds": 4,
-        "flee_after": 3, "flee_share": 0.5, "stray_chance": 0.1, "stray_count": 2, "habitats": {},
-        "items": {"meat": {"value": 4, "food": 25}, "hide": {"value": 3}},
+        "flee_after": 3, "flee_share": 0.5, "stray_chance": 0.5, "stray_count": 3, "habitats": {},
+        "items": {"meat": {"value": 4, "food": 40}, "hide": {"value": 3}},
         "species": {
-            "hare": {"lives_by": "wood", "start": 6, "cap": 10, "breed": 0.5, "min_hunters": 1, "hit_at": 12,
+            "hare": {"lives_by": "wood", "start": 10, "cap": 18, "breed": 0.8, "min_hunters": 1, "hit_at": 11,
                      "loot": {"meat": 1, "hide": 1}},
-            "duck": {"lives_by": "fish", "start": 5, "cap": 8, "breed": 0.4, "min_hunters": 1, "hit_at": 13,
+            "duck": {"lives_by": "fish", "start": 8, "cap": 14, "breed": 0.7, "min_hunters": 1, "hit_at": 12,
                      "loot": {"meat": 1}},
             "deer": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 3, "cap": 5, "breed": 0.3,
                      "min_hunters": 2, "hit_at": 10, "hp": 16, "loot": {"meat": 6, "hide": 2}},
