@@ -272,7 +272,8 @@ def _pay_debts(ctx: Ctx, a: Agent, own) -> None:
     w = ctx.world
     gone = set(_cfg(w)["estate_statuses"])
     for d in sorted(w.debts.values(), key=lambda d: (d.due_day, d.id)):
-        if d.borrower != a.name or d.status == "repaid" or w.agents[d.lender].status in gone:
+        if (d.borrower != a.name or d.status == "repaid" or d.lender not in w.agents  # treasury bills
+                or w.agents[d.lender].status in gone):
             continue
         paid = 0
         for src in (a, own):
