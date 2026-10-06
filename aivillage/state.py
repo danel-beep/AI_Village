@@ -287,6 +287,8 @@ class World:
     works: Works = field(default_factory=Works)  # village structures (works.py)
     chronicle: dict[str, Any] = field(default_factory=dict)  # chronicle.py: what happened since the last report
     progress: dict[str, Any] = field(default_factory=dict)  # progress.py: village stage and opened mechanics
+    # spoilage.py: owner -> item -> [[expire_day, qty], ...] oldest first, as of the last dawn
+    spoilage: dict[str, dict[str, list]] = field(default_factory=dict)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -330,6 +332,7 @@ class World:
             works=Works(**d.get("works", {})),
             chronicle=d.get("chronicle", {}),
             progress=d.get("progress", {}),
+            spoilage=d.get("spoilage", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

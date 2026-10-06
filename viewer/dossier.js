@@ -11,7 +11,7 @@
     #dossier[hidden] { display:none; }
     #dossier .top { display:flex; align-items:center; gap:8px; }
     #dossier .top .name { font-size:16px; flex:1; }
-    #dossier .x { padding:2px 8px; }
+    #dossier .x, #dossier .hero { padding:2px 8px; }
     #dossier h4 { margin:10px 0 4px; font-size:11px; color:var(--muted); text-transform:uppercase; }
     #dossier .bar { height:8px; background:#34403b; border-radius:4px; overflow:hidden; margin:2px 0 4px; }
     #dossier .bar i { display:block; height:100%; }
@@ -144,11 +144,13 @@
     const keep = box.dataset.key === n + tab ? box.scrollTop : 0;  // ticks re-render: don't jump to the top
     box.hidden = false; box.dataset.key = n + tab;
     box.innerHTML = `<div class="top"><span class="name" style="color:${color[n]}">${esc(n)}</span>
+        <button class="hero" title="Вся жизнь жителя на одной странице">📖 Страница героя</button>
         <button class="x" title="закрыть">✕</button></div>
       <div class="muted">${esc(v.profession)} · ${esc(t.view.locations[v.location] || v.location)} · ${STATUS[v.status] || esc(v.status)}</div>
       <div class="tabs">${TABS.map(([k, l]) => `<button data-t="${k}" aria-selected="${k === tab}">${l}</button>`).join('')}</div>
       <div>${body}</div>`;
     box.scrollTop = keep;
+    box.querySelector('.hero').onclick = () => Hero.open(n);
     box.querySelector('.x').onclick = () => { select(n); render(null); };
     for (const b of box.querySelectorAll('[data-t]')) b.onclick = () => { tab = b.dataset.t; render(n); };
     for (const b of box.querySelectorAll('[data-p]')) b.onclick = () => { select(b.dataset.p); lastPanel = -1; };
