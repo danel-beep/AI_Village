@@ -280,6 +280,7 @@ class World:
     plots: dict[str, Plot] = field(default_factory=dict)  # home or lot location id -> plot
     crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
     threats: list[dict] = field(default_factory=list)  # raids, beasts, travelers: coming, here, finished (threats.py)
+    animals: dict[str, Any] = field(default_factory=dict)  # animals.py: herds, caps, hunting pressure, hunt parties
     # labor.py: what the trader bought from / sold to villagers today, per item (reset at dawn)
     trader_day: dict[str, dict[str, int]] = field(default_factory=lambda: {"bought": {}, "sold": {}})
     trader_stock: dict[str, int] = field(default_factory=dict)  # pricing.py: what villagers sold the trader lately
@@ -298,7 +299,10 @@ class World:
 
     # ---- serialization ----
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        if not d["animals"]:  # animals off: same dict and hash as before the field existed (old logs, saves)
+            del d["animals"]
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "World":
@@ -323,6 +327,7 @@ class World:
             plots={k: Plot(**v) for k, v in d.get("plots", {}).items()},
             crises=d.get("crises", []),
             threats=d.get("threats", []),
+            animals=d.get("animals", {}),
             trader_day=d.get("trader_day", {"bought": {}, "sold": {}}),
             trader_stock=d.get("trader_stock", {}),
             graves=d.get("graves", []),
