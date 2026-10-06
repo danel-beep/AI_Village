@@ -3,13 +3,27 @@
 import pytest
 
 from aivillage import engine, ops, run, tiles
+from aivillage.config import DEFAULT_CONFIG
 from aivillage.invariants import check
 from aivillage.registry import ACTIONS
+
+# The default village has no common field any more (grain grows in private garden beds, plots.py);
+# the generic map-object rules (work multipliers, sowable beds, regrowth, seasons) are tested on one added back.
+FIELD = {
+    "locations": {
+        "square": {"neighbors": DEFAULT_CONFIG["locations"]["square"]["neighbors"] + ["field"]},
+        "field": {"name": "Field", "neighbors": ["square"],
+                  "resources": {"grain": {"start": 40, "max": 40, "regen": 10, "slots": 8,
+                                          "plant": {"seed": 1, "days": 2}}}},
+    },
+    "seasons": {"wither": {"winter": {"field": ["grain"]}}},
+    "crises": {"enabled": False},  # random crop failures would blur the numbers
+}
 
 
 @pytest.fixture
 def w():
-    return engine.new_world({"seed": 1})
+    return engine.new_world({"seed": 1, **FIELD})
 
 
 def put(w, name, loc):
@@ -334,7 +348,7 @@ def test_hunger_wakes_once(w):
     assert w.agents["Boris"].task is not None
 
 def test_winter_field_yields_nothing_until_spring():
-    w = engine.new_world({"seed": 1, "seasons": {"length_days": 2}})
+    w = engine.new_world({"seed": 1, **FIELD, "seasons": {"length_days": 2, **FIELD["seasons"]}})
     assert engine.observe(w, "Anna", consume_inbox=False)["time"]["season"] == "spring"
     while w.day < 7:  # day 7 = first day of winter
         engine.step(w, {})
@@ -352,7 +366,7 @@ def test_winter_field_yields_nothing_until_spring():
 
 
 def test_seasons_can_be_disabled():
-    w = engine.new_world({"seed": 1, "seasons": {"enabled": False, "length_days": 1}, "crises": {"enabled": False}})
+    w = engine.new_world({"seed": 1, **FIELD, "seasons": {"enabled": False, "length_days": 1}})
     while w.day < 5:
         engine.step(w, {})
     assert w.locations["field"].resources["grain"] == 40

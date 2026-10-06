@@ -104,7 +104,8 @@ def step_move(ctx: Ctx, a: Agent, dest: str) -> None:
 
 
 USED_UP = {"wood": "felled a tree", "grain": "harvested a whole bed", "berries": "picked a bush clean",
-           "fish": "fished out a shoal", "stone": "broke up a rock", "ore": "mined out an ore vein"}
+           "fish": "fished out a shoal", "stone": "broke up a rock", "ore": "mined out an ore vein",
+           "gold": "dug out a gold seam"}
 
 
 def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
@@ -122,6 +123,9 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
         amount *= cfg["work_tool_multiplier"]
     if resource == "water":
         amount = 2
+    cap = cfg["locations"].get(loc.id, {}).get("resources", {}).get(resource, {}).get("per_hour")
+    if cap:
+        amount = min(amount, cap)  # gold: slow digging whatever the tools
     taken = tiles.take(loc, resource, amount)
     amount = sum(n for _, n in taken)
     if amount > 0:
@@ -194,7 +198,8 @@ class CraftArgs(BaseModel):
     times: int = Field(1, ge=1, le=10)
 
 
-@ACTIONS.action("craft", "Make an item from a recipe (bread, fish_soup at home; tool, lock at the smithy by a smith).",
+@ACTIONS.action("craft", "Make an item from a recipe (bread, fish_soup, club at home; tool, lock, spear at the smithy "
+                "by a smith).",
                 CraftArgs)
 def craft(ctx: Ctx, a: Agent, args: CraftArgs) -> None:
     r = ctx.cfg["recipes"].get(args.recipe)

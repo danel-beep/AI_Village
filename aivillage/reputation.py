@@ -69,14 +69,21 @@ def on_event(ctx: Ctx, ev: Event, recipients: list[str]) -> None:
     if delta is None:
         return
     for name in recipients:
-        subject = _subject(w, ev, name)
-        a = w.agents.get(name)
-        if a is None or subject is None or subject == name or subject not in w.agents:
-            continue
-        rec = a.reputation.setdefault(subject, {"score": 0, "seen": []})
-        rec["score"] = max(-cfg["score_cap"], min(cfg["score_cap"], rec["score"] + delta))
-        rec["seen"].append(f"day {ev.day}: {ev.text}")
-        del rec["seen"][: -cfg["notes_per_person"]]
+        note(w, name, _subject(w, ev, name), delta, f"day {ev.day}: {ev.text}")
+
+
+def note(w, name: str, subject: str | None, delta: int, text: str) -> None:
+    """`name` saw `subject` do something: move their own score by delta and keep the note."""
+    if not w.config.get("reputation", {}).get("enabled"):
+        return
+    cfg = _cfg(w)
+    a = w.agents.get(name)
+    if a is None or subject is None or subject == name or subject not in w.agents:
+        return
+    rec = a.reputation.setdefault(subject, {"score": 0, "seen": []})
+    rec["score"] = max(-cfg["score_cap"], min(cfg["score_cap"], rec["score"] + delta))
+    rec["seen"].append(text)
+    del rec["seen"][: -cfg["notes_per_person"]]
 
 
 def _store_rumor(w, ev: Event, recipients: list[str]) -> None:

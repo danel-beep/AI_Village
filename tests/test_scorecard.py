@@ -56,7 +56,8 @@ def test_scorecard_rows_and_grouping(tmp_path):
     assert rep["seeds"] == [2, 3] and rep["wealth_exact"] and len(rep["villagers"]) == 12
     thief = rep["models"]["bot:thief"]
     assert thief["villagers"] == 10 and thief["villager_days"] == 30
-    assert thief["actions"].get("steal", 0) > 0 and thief["thefts_tried"] == thief["actions"]["steal"]
+    acts = thief["actions"]
+    assert acts.get("steal", 0) > 0 and thief["thefts_tried"] == acts["steal"] + acts.get("steal_from_plot", 0)
     assert rep["models"]["bot:worker"]["thefts_tried"] == 0
     for v in rep["villagers"]:
         assert v["wealth_start"] is not None and v["turns"] > 0 and v["profession"]

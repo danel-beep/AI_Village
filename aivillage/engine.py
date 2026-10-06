@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import clock, crises, family, governance, mapgen, ops, plots, reputation, seasons, tiles
+from . import clock, conflict, crises, family, governance, land, mapgen, ops, plots, reputation, seasons, tiles
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -31,11 +31,15 @@ def new_world(config: dict | None = None) -> World:
         raise ValueError(f"tick_minutes must be one of {clock.ALLOWED}, got {cfg.get('tick_minutes')}")
     if cfg["map"].get("procedural") and "layout" not in cfg["map"]:
         cfg = mapgen.generate(cfg)  # a replayed log already carries its map, so it is never re-rolled
+    if "layout" in cfg["map"]:  # a generated map has its own lots; the hand-made map's ones must not leak in
+        for lid in [k for k, s in cfg["locations"].items() if "lot" in s and k not in cfg["map"]["layout"]["places"]]:
+            del cfg["locations"][lid]
     w = World(config=cfg, hour=cfg["day_start_hour"])
     for lid, spec in cfg["locations"].items():
         res = {r: v["start"] for r, v in spec.get("resources", {}).items()}
         w.locations[lid] = Location(lid, spec["name"], list(spec["neighbors"]), res)
         tiles.init(w.locations[lid], spec.get("resources", {}))
+    land.setup(w)
     for spec in cfg["agents"]:
         name = spec["name"]
         home = f"home_{name}"
@@ -141,6 +145,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(reputation.observe(world, name))
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))
+    obs.update(land.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -276,6 +281,7 @@ WAKE_RULES: dict[str, str] = {
     "fire": "heard",
     "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
     "inheritance": "direct",
+    "fight": "direct", "arson_seen": "direct", "land_offer": "direct", "land_sold": "direct",
     "say": "mention",
 }
 
@@ -320,6 +326,7 @@ def end_of_hour(ctx: Ctx) -> None:
     for o in list(w.offers.values()):
         if o.expires_tick <= w.tick:
             del w.offers[o.id]
+    land.expire_offers(w)
     check_health(ctx)
     family.after_hour(ctx)
 
@@ -453,4 +460,5 @@ def night(ctx: Ctx) -> None:
                      f"until day {o.expires_day}.", visibility="public")
     plots.after_night(ctx)
     family.after_night(ctx)
+    conflict.random_fire(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")

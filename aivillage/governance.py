@@ -127,7 +127,7 @@ def facts(cfg: dict) -> str:
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, exile, payout, grant); everyone votes with vote_law; a law passes when "
             "more than half of all villagers vote yes. Tax goes to the village treasury. Witnesses and victims of a "
-            "theft can report_theft to make the thief pay the theft_fine.")
+            "theft, attack or arson can report_theft to make the culprit pay the theft_fine.")
 
 
 # ---------- guards ----------
@@ -248,7 +248,7 @@ class ReportArgs(BaseModel):
     person: str = Field(description="the thief you saw")
 
 
-@ACTIONS.action("report_theft", "Report a theft you witnessed or suffered awake; the thief pays the theft_fine "
+@ACTIONS.action("report_theft", "Report a theft, attack or arson you witnessed or suffered awake; the culprit pays the theft_fine "
                 "into the treasury and everyone learns about it.", ReportArgs,
                 available=lambda c, a: enabled(c.cfg) and any(a.name in x["known_by"] for x in c.world.governance.crimes))
 def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
@@ -257,7 +257,7 @@ def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
     thief = _agent(ctx, args.person)
     crime = next((c for c in w.governance.crimes if c["thief"] == thief.name and a.name in c["known_by"]), None)
     if crime is None:
-        raise ActionError(f"you did not see {thief.name} steal anything (in the last "
+        raise ActionError(f"you did not see {thief.name} steal, attack or set fire (in the last "
                           f"{_g(ctx.cfg)['crime_memory_days']} days, unreported)")
     w.governance.crimes.remove(crime)
     fine = min(law(w, "theft_fine"), thief.coins)
@@ -265,7 +265,8 @@ def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
         ops.move_coins(thief, w.governance, fine)
     penalty = f"{thief.name} paid a fine of {fine} coins to the treasury." if fine else \
         "There is no fine for theft." if not law(w, "theft_fine") else f"{thief.name} had no coins to pay the fine."
-    ctx.emit("theft_report", f"{a.name} reports that {thief.name} stole from {crime['victim']} on day "
+    did = {"assault": "attacked", "arson": "set fire to the house of"}.get(crime.get("crime"), "stole from")
+    ctx.emit("theft_report", f"{a.name} reports that {thief.name} {did} {crime['victim']} on day "
              f"{crime['day']}. {penalty}", actor=a.name, visibility="public", thief=thief.name,
              victim=crime["victim"], fine=fine)
 
@@ -275,10 +276,16 @@ def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
 def _record_crimes(ctx: Ctx) -> None:
     w = ctx.world
     for ev in ctx.events:
+        crime_kind = "theft"
         if ev.kind == "witness":
             thief, victim, seen = ev.data.get("thief"), ev.data.get("victim"), ev.to
         elif ev.kind == "steal_attempt":
             thief, victim, seen = ev.actor, (ev.to or [None])[0], ev.to
+        elif ev.kind == "fight":  # conflict.py: the victim and everyone who saw it
+            thief, victim = ev.actor, ev.data.get("defender")
+            seen, crime_kind = [victim, *ev.data.get("witnesses", [])], "assault"
+        elif ev.kind == "arson_seen":
+            thief, victim, seen, crime_kind = ev.actor, ev.data.get("victim"), ev.to, "arson"
         else:
             continue
         if not thief or not victim:
@@ -287,6 +294,8 @@ def _record_crimes(ctx: Ctx) -> None:
                       and c["victim"] == victim), None)
         if crime is None:
             crime = {"thief": thief, "victim": victim, "day": ev.day, "tick": ev.tick, "known_by": []}
+            if crime_kind != "theft":
+                crime["crime"] = crime_kind
             w.governance.crimes.append(crime)
         crime["known_by"] += [n for n in seen if n not in crime["known_by"] and n != thief]
 

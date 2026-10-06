@@ -48,7 +48,12 @@ def test_disabled_means_no_crises():
 
 
 def test_crop_failure_stops_regrowth_then_ends():
-    w = world(enabled=False)
+    # the default village has no common field (grain grows in private gardens); an old-style one is added back
+    from aivillage.config import DEFAULT_CONFIG
+    w = engine.new_world({"seed": 3, "crises": {"enabled": False}, "locations": {
+        "square": {"neighbors": DEFAULT_CONFIG["locations"]["square"]["neighbors"] + ["field"]},
+        "field": {"name": "Field", "neighbors": ["square"],
+                  "resources": {"grain": {"start": 40, "max": 40, "regen": 10, "slots": 8}}}}})
     field = w.locations["field"]
     before = field.resources["grain"]
     c = start(w, "crop_failure", days=2)
@@ -61,6 +66,15 @@ def test_crop_failure_stops_regrowth_then_ends():
     assert any(e.kind == "crisis_over" for e in events)
     assert not crises.active(w)
     assert field.resources["grain"] > low  # grows again
+
+
+def test_crop_failure_without_a_field_hits_gardens():
+    w = world(enabled=False)
+    w.config["crises"]["kinds"]["crop_failure"]["garden_share"] = 1.0
+    bed = w.plots["home_Anna"].buildings[0]  # the farmer starts with sown beds
+    assert crises._possible(w, "crop_failure", w.config["crises"]["kinds"]["crop_failure"])
+    c = start(w, "crop_failure")
+    assert bed["crop"] is None and "gardens" in c["text"]
 
 
 def test_crop_failure_kills_sown_garden_beds():

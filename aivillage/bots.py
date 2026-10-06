@@ -3,7 +3,8 @@ and answer with the same decision format, so they exercise the real interface fo
 
 - RandomBot: fuzzer. Random actions with random (often invalid) arguments.
 - WorkerBot: honest villager. Eats, works, crafts, sells, fights fires, fulfills orders.
-- ThiefBot: a WorkerBot that steals whenever it sees a chance (people, chests, yards).
+- ThiefBot: a WorkerBot that steals whenever it sees a chance (people, chests, yards) and sometimes
+  robs people at the mine by force.
 - HomesteadBot: a TraderBot that builds up its own plot in the evening (plots.py).
 """
 
@@ -13,7 +14,8 @@ from collections import Counter
 
 import random
 
-WORK_SPOT = {"farmer": "field", "fisher": "river", "woodcutter": "forest", "miner": "mine", "smith": "forest"}
+# Farmers work their own garden beds at home (there is no common field) and gather wood the rest of the day.
+WORK_SPOT = {"farmer": "forest", "fisher": "river", "woodcutter": "forest", "miner": "mine", "smith": "forest"}
 FOODS = ["fish_soup", "bread", "fish", "berries"]
 
 
@@ -74,6 +76,13 @@ class RandomBot(Bot):
         elif name == "answer_proposal":
             props = [p["from"] for p in obs["relations"]["proposals_to_you"]] or people
             args = {"person": r.choice(props), "accept": r.random() < 0.7}
+        elif name == "attack":
+            args = {"target": r.choice(people + ["nobody"]), "take": r.choice(items + ["coins", "gold", None]),
+                    "qty": r.randint(1, 5)}
+        elif name in ("buy_land", "sell_land"):
+            lots = [x["id"] for x in obs.get("land_for_sale", [])] + list(obs.get("land_owners", {})) + ["lot_99"]
+            args = {"lot": r.choice(lots), **({"to": r.choice(people), "price": r.randint(0, 80)}
+                                              if name == "sell_land" else {})}
         elif name == "build":
             args = {"kind": r.choice(["garden_bed", "chicken_coop", "cow_pen", "beehive", "fence", "castle"])}
         elif name == "steal_from_plot":
@@ -107,6 +116,13 @@ class WorkerBot(Bot):
 
         def go(dest: str, why: str) -> dict:
             return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
+
+        # Tend the garden bed at home: take the ripe grain, sow again
+        acts = obs["available_actions"]
+        if loc == me["home"] and "collect" in acts:
+            return decision("collect", None, "harvest my garden")
+        if loc == me["home"] and "plant" in acts and inv.get("grain", 0) >= 1:
+            return decision("plant", None, "sow my garden")
 
         # Cook ahead when at home with ingredients
         if loc == me["home"] and inv.get("bread", 0) + inv.get("fish_soup", 0) < 4:
@@ -174,11 +190,13 @@ class WorkerBot(Bot):
         if me["profession"] == "smith" and inv.get("tool", 0) >= 2:
             return decision("sell", {"item": "tool"}) if loc == "market" else go("market", "sell tools")
 
-        # Sell surplus
-        surplus = [k for k, v in inv.items() if v >= 12 and k not in FOODS + ["water", "tool"]]
+        # Sell surplus (gold is worth the walk sooner)
+        surplus = [k for k, v in inv.items() if (v >= 12 or (k == "gold" and v >= 3))
+                   and k not in FOODS + ["water", "tool"]]
         if surplus:
             k = surplus[0]
-            return decision("sell", {"item": k, "qty": inv[k] - 4}) if loc == "market" else go("market", "sell")
+            qty = inv[k] if k == "gold" else inv[k] - 4
+            return decision("sell", {"item": k, "qty": qty}) if loc == "market" else go("market", "sell")
 
         # Work
         spot = WORK_SPOT[me["profession"]]
@@ -204,6 +222,10 @@ class ThiefBot(WorkerBot):
         for p in here["people"]:
             if p["asleep"]:
                 return decision("steal", {"target": p["name"], "item": "coins", "qty": 3}, "they sleep")
+        if here["id"] == "mine" and "attack" in obs["available_actions"] and me["health"] >= 50 \
+                and self.rng.random() < 0.3:
+            p = self.rng.choice(here["people"])
+            return decision("attack", {"target": p["name"], "take": "gold", "qty": 3}, "that gold is mine")
         if not here["people"] and here["id"] != me["home"] and self.rng.random() < 0.1:
             homes = [f"home_{v['name']}" for v in obs["board"]["villagers"] if v["name"] != me["name"]]
             return decision("move", {"to": self.rng.choice(homes)}, "let's visit someone's house")
@@ -246,8 +268,9 @@ class TraderBot(WorkerBot):
         sale: dict = {}
         if sum(inv.get(m, 0) for m in self.MEALS) > self.RESERVE:
             sale.update({m: inv[m] for m in self.MEALS if inv.get(m)})
-        if prof == "smith" and inv.get("tool", 0) > 1:
-            sale["tool"] = inv["tool"] - 1
+        keep = max([1] + [o["needs"].get("tool", 0) for o in obs["board"]["orders"]])  # tools for an order
+        if prof == "smith" and inv.get("tool", 0) > keep:
+            sale["tool"] = inv["tool"] - keep
         if prof in ("woodcutter", "miner"):
             sale.update({k: inv[k] for k in ("wood", "ore") if inv.get(k)})
         return sale
@@ -309,8 +332,12 @@ class TraderBot(WorkerBot):
     def _tweak(self, obs: dict, d: dict, tax_reserve: int) -> dict:
         """Small fixes to WorkerBot choices: miners dig ore, meals are bought for several days."""
         act, me = d["action"], obs["you"]
-        if act["name"] == "work" and me["profession"] == "miner" and obs["here"]["resources"].get("ore"):
-            act["args"]["resource"] = "ore"  # ore is worth more than stone
+        if act["name"] == "work" and me["profession"] == "miner":
+            res = obs["here"]["resources"]
+            if res.get("gold"):
+                act["args"]["resource"] = "gold"  # the mine's prize, while it lasts
+            elif res.get("ore"):
+                act["args"]["resource"] = "ore"  # ore is worth more than stone
         if act["name"] == "buy" and act["args"].get("item") in self.MEALS:
             price = obs["board"]["trader_prices"][act["args"]["item"]]["buy"]
             need = max(1, self._wants(obs, act["args"]["item"]))
@@ -326,10 +353,12 @@ class LonerBot(TraderBot):
 
 class HomesteadBot(TraderBot):
     """A TraderBot that builds up its own plot in the evening: collects, sows, feeds animals,
-    builds (coop and beds for farmers, hives otherwise), buys land when the yard is full."""
+    builds (coop and beds for farmers, hives otherwise), buys land when the yard is full
+    (expand_plot, else the cheapest empty lot on the map)."""
 
     PLOT_FOODS = ["egg", "milk", "honey"]
     wood_trip = False
+    land_trip: str | None = None  # an empty lot it is walking to buy
     COSTS = {"chicken_coop": (15, 4, 2), "garden_bed": (0, 1, 1), "beehive": (10, 2, 1), "fence": (0, 6, 0)}
 
     def decide(self, obs: dict) -> dict:
@@ -339,6 +368,15 @@ class HomesteadBot(TraderBot):
             food = next((f for f in self.PLOT_FOODS if inv.get(f)), None)
             if food:
                 return decision("eat", {"item": food}, "eat from my yard")
+        lot = self.land_trip
+        if lot and not obs["fires"] and me["satiety"] >= 45:
+            if lot not in {x["id"] for x in obs.get("land_for_sale", [])}:
+                self.land_trip = None  # someone else was faster
+            elif me["location"] == lot:
+                self.land_trip = None
+                return decision("buy_land", None, "a lot of my own")
+            else:
+                return decision("move", {"to": lot}, "go buy that empty lot")
         if plot and self.wood_trip and not obs["fires"] and me["satiety"] >= 45:
             if me["location"] == "forest":
                 self.wood_trip = False
@@ -368,7 +406,10 @@ class HomesteadBot(TraderBot):
                 return decision("build", {"kind": kind}, f"build a {kind}")
             self.wood_trip = True
             break
-        if plot["free_cells"] == 0 and plot["expand_price"] and me["coins"] - plot["expand_price"] >= 3 * reserve:
+        sale = sorted(obs.get("land_for_sale", []), key=lambda x: x["price"])
+        if plot["free_cells"] == 0 and sale and me["coins"] - sale[0]["price"] >= 3 * reserve:
+            self.land_trip = sale[0]["id"]  # a whole lot is cheaper per cell than expanding the yard
+        elif plot["free_cells"] == 0 and plot["expand_price"] and me["coins"] - plot["expand_price"] >= 3 * reserve:
             return decision("expand_plot", None, "more land")
         return super().decide(obs)
 
