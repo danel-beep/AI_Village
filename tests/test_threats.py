@@ -108,6 +108,14 @@ def test_wall_weakens_raiders():
     assert w.threats[0]["max_hp"] == round(60 * 0.6)
 
 
+def test_village_wall_levels_weaken_raiders():
+    w = world()
+    w.works.levels["wall"] = 2
+    step(w, god=[{"name": "raid", "args": {"target": "Anna", "warn": False}}])
+    step(w)
+    assert w.threats[0]["max_hp"] == round(60 * 0.75 ** 2)
+
+
 def test_beast_eats_food_and_mauls():
     w = world()
     ops.mint(w, w.chests["chest_Anna"].items, "fish", 10)

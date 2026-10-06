@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops, seasons
+from . import ops, seasons, works
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Plot, World
@@ -56,7 +56,8 @@ def setup(world: World, spec: dict, home: str) -> None:
         if not given and used_cells(cfg, plot) + p["buildings"][kind]["cells"] > plot.cells:
             continue  # default start: only what fits a small yard
         b = _add_building(world, plot, kind, built_day=world.day)
-        if not given and "crop" in p["buildings"][kind]:  # default beds start sown, ripe on day 2
+        crop = p["buildings"][kind].get("crop")  # default beds start sown, ripe on day 2 (not in frozen ground)
+        if not given and crop and seasons.regen(cfg, world.day, crop, 1) > 0:
             spec_b = p["buildings"][kind]
             b["crop"], b["ripe_day"] = spec_b["crop"], world.day + 1
             b["amount"] = _bed_yield(cfg, spec_b, spec.get("profession"))
@@ -338,7 +339,7 @@ def steal_from_plot(ctx: Ctx, a: Agent, args: StealPlotArgs) -> None:
     victim = guards[0] if guards else owner
     witnesses = [o.name for o in w.agents.values()
                  if o.status == "active" and not o.asleep and o.location == a.location
-                 and o.name != a.name and o.name not in guards and ctx.rng.random() < cfg["steal_notice_chance"]]
+                 and o.name != a.name and o.name not in guards and ctx.rng.random() < cfg["steal_notice_chance"] + works.notice_bonus(ctx.world)]
     for x in witnesses:
         ctx.emit("witness", f"You saw {a.name} steal {args.item} from {owner}'s plot!", actor=a.name, to=[x],
                  thief=a.name, victim=owner)

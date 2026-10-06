@@ -23,7 +23,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from . import modes
+from . import modes, seasons
 from .config import DEFAULT_CONFIG, make_config
 
 BOT_MIXES = {
@@ -79,7 +79,36 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "hospital_days", "path": "hospital_days", "group": "Правила", "type": "range",
      "label": "Дней в больнице", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "seasons", "path": "seasons.enabled", "group": "Правила", "type": "toggle", "label": "Времена года",
-     "hint": "Зимой поле не растёт, ягод нет, рыбы меньше."},
+     "hint": "Зимой грядки не засеять, что не дозрело, замерзает, ягод нет, рыбы меньше."},
+    {"key": "season_days", "group": "Правила", "type": "choice", "label": "Длина сезона", "default": 0,
+     "options": [[0, "Авто"], [1, "1 день"], [2, "2 дня"], [3, "3 дня"], [7, "Неделя"], [14, "2 недели"]],
+     "hint": "Авто: весь год укладывается в прогон и последним идёт зима (3 дня = лето, осень, зима)."},
+    {"key": "season_start", "group": "Правила", "type": "choice", "label": "С какого сезона начать", "default": "auto",
+     "options": [["auto", "Авто"], ["spring", "🌱 Весна"], ["summer", "☀️ Лето"], ["autumn", "🍂 Осень"],
+                 ["winter", "❄️ Зима"]],
+     "hint": "Авто: так, чтобы к концу прогона наступила зима."},
+
+    # --- division of labour (aivillage/labor.py) ---
+    {"key": "labor", "path": "labor.enabled", "group": "Ремёсла", "type": "toggle", "label": "Каждый добывает только своё",
+     "hint": "Рыбу ловит только рыбак, лес рубит лесоруб, зерно сеет фермер, камень, руду и золото копает шахтёр "
+             "(в режиме «Ремёсла» и ягоды собирает только фермер). Остальное жители берут друг у друга."},
+    {"key": "trade_anywhere", "path": "labor.trade_anywhere", "group": "Ремёсла", "type": "toggle",
+     "label": "Сделки на расстоянии",
+     "hint": "Предложение обмена можно принять, не стоя рядом: товар доставят. Выключено: оба должны быть в одном месте."},
+    {"key": "work_hours", "path": "labor.work_hours_per_day", "group": "Ремёсла", "type": "range",
+     "label": "Часов работы в день", "min": 0, "max": 12, "step": 1, "unit": " ч",
+     "hint": "0: без ограничения. Работает, только когда включено «Каждый добывает только своё»."},
+    {"key": "skill_bonus", "path": "labor.skill_bonus", "group": "Ремёсла", "type": "range",
+     "label": "Прибавка за уровень мастерства", "min": 0, "max": 3, "step": 1, "unit": " в час",
+     "hint": "Мастерство растёт от часов работы по своей профессии (3 уровня)."},
+    {"key": "trader_buys", "path": "labor.trader_buys_per_day.default", "group": "Ремёсла", "type": "range",
+     "label": "Торговец скупает в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
+     "hint": "Сколько штук каждого товара торговец покупает за день у всей деревни (на 5 жителей). Кто первый, тот и продал."},
+    {"key": "trader_buys_gold", "path": "labor.trader_buys_per_day.gold", "group": "Ремёсла", "type": "range",
+     "label": "Из них золота", "min": 0, "max": 40, "step": 1, "unit": " шт."},
+    {"key": "trader_sells", "path": "labor.trader_sells_per_day.default", "group": "Ремёсла", "type": "range",
+     "label": "Торговец продаёт в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
+     "hint": "Сколько штук каждого товара у торговца есть на продажу за день (на 5 жителей)."},
 
     # --- theft ---
     {"key": "steal_notice_chance", "path": "steal_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
@@ -88,6 +117,33 @@ KNOBS: list[dict[str, Any]] = [
      "scale": 0.01, "label": "Успех кражи у того, кто не спит", "min": 0, "max": 100, "step": 5, "unit": "%"},
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
+
+    # --- word of mouth (aivillage/reputation.py) ---
+    {"key": "mishear_number", "path": "reputation.mishear_number", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух искажает числа", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс, что слушатель запомнит другое число («украл 3 монеты» → «украл 6»). 0: слухи передаются точно."},
+    {"key": "mishear_name", "path": "reputation.mishear_name", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух путает, о ком речь", "min": 0, "max": 50, "step": 1, "unit": "%",
+     "hint": "Шанс, что слушатель решит, что речь о другом жителе. Рекомендуем 5%."},
+    {"key": "overhear", "path": "reputation.overhear", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Шёпот подслушивают", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс для каждого рядом услышать шёпот или сплетню на ухо. Рекомендуем 15%."},
+    {"key": "origin_hops", "path": "reputation.origin_hops", "group": "Слухи", "type": "range",
+     "label": "Сколько пересказов помнят автора слуха", "min": 1, "max": 10, "step": 1, "unit": "",
+     "hint": "Дальше слух идёт как «кто-то говорил»."},
+
+    {"key": "announce_cost", "path": "reputation.announce_cost", "group": "Слухи", "type": "range",
+     "label": "Цена объявления на доске", "min": 0, "max": 50, "step": 1, "unit": " мон.",
+     "hint": "Объявление на площади сразу читают все жители, слово в слово. Деньги идут в казну. Рекомендуем 5."},
+
+    # --- dice (aivillage/dice.py) ---
+    {"key": "dice", "path": "dice.enabled", "group": "Азарт", "type": "toggle", "label": "Кости на деньги",
+     "hint": "На площади жители могут играть в кости на монеты и проигрываться в долг."},
+    {"key": "dice_max_stake", "path": "dice.max_stake", "group": "Азарт", "type": "range",
+     "label": "Наибольшая ставка", "min": 1, "max": 100, "step": 1, "unit": " мон."},
+    {"key": "dice_credit", "path": "dice.credit", "group": "Азарт", "type": "range",
+     "label": "Можно ставить в долг сверх кармана", "min": 0, "max": 100, "step": 5, "unit": " мон.",
+     "hint": "0: играют только на свои. Больше: проигравший без денег остаётся должен победителю."},
 
     # --- crises (aivillage/crises.py) ---
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
@@ -152,6 +208,18 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "illness_spread", "path": "illness.spread_chance", "group": "Случайные события", "type": "range",
      "scale": 0.01, "label": "Заразность болезни", "min": 0, "max": 50, "step": 5, "unit": "% в час",
      "hint": "Шанс заразиться за час рядом с больным. Рекомендуем 10%."},
+    # --- village works and treasury (aivillage/works.py, governance.py) ---
+    {"key": "works", "path": "works.enabled", "group": "Стройки и казна", "type": "toggle", "label": "Общие стройки",
+     "hint": "Колодец, мост, вышка, стена (по 3 уровня). Начинает мэр (без мэра любой), строят все вместе; "
+             "видно, кто помог, а кто нет."},
+    {"key": "works_council", "path": "works.council_idle_days", "group": "Стройки и казна", "type": "range",
+     "label": "Совет сам предлагает стройку после простоя", "min": 0, "max": 10, "step": 1, "unit": " дн.",
+     "hint": "0: никогда, стройки начинают только жители. Рекомендуем 3."},
+    {"key": "embezzle", "path": "treasury.embezzle", "group": "Стройки и казна", "type": "toggle",
+     "label": "Мэр может украсть из казны",
+     "hint": "Казна у мэра. Пропажу видно при проверке казны на площади или при смене мэра."},
+    {"key": "audit_on_handover", "path": "treasury.audit_on_handover", "group": "Стройки и казна", "type": "toggle",
+     "label": "Пересчёт казны при смене мэра"},
 
     # --- fires ---
     {"key": "fire_ticks", "path": "fire_ticks", "group": "Пожары и заказы", "type": "range",
@@ -335,6 +403,12 @@ def to_run(opts: dict) -> dict:
     if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter
         override["agents"] = clean_roster(rows, val["villagers"])
     override.setdefault("map", {})["procedural"] = not val["fixed_map"]
+    if val["seasons"]:
+        cal = seasons.calendar(val["days"], val["season_days"])
+        if val["season_start"] != "auto":
+            cal.update(start=val["season_start"], offset_days=0)
+        for k, v in cal.items():
+            _set(override, f"seasons.{k}", v)
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
             "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"], "values": val}

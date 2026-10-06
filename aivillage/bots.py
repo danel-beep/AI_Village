@@ -52,8 +52,13 @@ class RandomBot(Bot):
         elif name in ("say",):
             args = {"text": r.choice(["hello", "anyone selling bread?", "I need wood", "   "])}
         elif name == "gossip":
-            args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""]),
-                    **({"to": r.choice(people)} if r.random() < 0.5 else {})}
+            heard = [x["id"] for x in obs.get("rumors", []) if "id" in x]
+            if heard and r.random() < 0.5:  # pass on a rumor heard, as is
+                args = {"rumor": r.choice(heard + ["r0.nobody"])}
+            else:
+                args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""])}
+            if r.random() < 0.5:
+                args["to"] = r.choice(people)
         elif name in ("whisper", "letter"):
             args = {"to": r.choice(people), "text": "psst"}
         elif name == "give":
@@ -89,12 +94,23 @@ class RandomBot(Bot):
             args = {"item": pick_item()}
         elif name == "care":
             args = {"person": r.choice(people), "item": r.choice(["honey", "milk", "fish_soup", "bread"])}
+        elif name == "dice":
+            ch = [c["from"] for c in obs.get("dice_challenges_to_you", [])]
+            args = {"person": r.choice(ch or people + ["nobody"]), "stake": r.choice([5, 5, r.randint(-2, 40)])}
         elif name == "steal_from_plot":
             args = {"item": r.choice(["egg", "milk", "honey", "grain", "coins"]), "qty": r.randint(1, 5)}
         elif name == "steal":
             args = {"target": r.choice(people + ["chest"]), "item": r.choice(items + ["coins"]), "qty": 2}
         elif name == "contribute":
-            args = {"project_id": "bridge", "items": {pick_item(): r.randint(1, 3)}}
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["bridge"]
+            args = {"project_id": r.choice(projs), "items": {r.choice([pick_item(), "coins", "labor"]): r.randint(1, 3)}}
+        elif name in ("build_work", "fund_project"):
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
+            args = {"project_id": r.choice(projs), **({"coins": r.randint(-2, 50)} if name == "fund_project" else {})}
+        elif name == "propose_build":
+            args = {"structure": r.choice(["well", "bridge", "watchtower", "wall", "castle"])}
+        elif name == "embezzle":
+            args = {"coins": r.randint(-1, 40)}
         elif name == "fulfill_order":
             orders = [o["id"] for o in obs["board"]["orders"]] or ["order0"]
             args = {"order_id": r.choice(orders)}
