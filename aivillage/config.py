@@ -159,6 +159,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "length_days": 7,
         "order": ["spring", "summer", "autumn", "winter"],
+        "start": "spring",  # season of day 1 (the start screen fits the calendar to the run: seasons.calendar)
+        "offset_days": 0,  # day 1 is this many days into `start`
+        "frost": ["winter"],  # at the first dawn of these, garden beds still growing die
         "regen_multiplier": {
             "summer": {"berries": 1.5},
             "autumn": {"grain": 1.5},
@@ -167,8 +170,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "wither": {},  # {season: {location: [resources]}} emptied at the season's first dawn
         "announce": {
             "spring": "Gardens can be sown again.",
-            "winter": "The ground is frozen: garden beds cannot be sown until spring, berries are gone, "
-                      "fish are scarce.",
+            "winter": "The ground is frozen: garden beds cannot be sown until spring, crops still growing froze, "
+                      "berries are gone, fish are scarce.",
         },
     },
     # Soft world crises (aivillage/crises.py): at dawn, from `first_day`, with `chance_per_day`, a crisis of a

@@ -56,7 +56,8 @@ def setup(world: World, spec: dict, home: str) -> None:
         if not given and used_cells(cfg, plot) + p["buildings"][kind]["cells"] > plot.cells:
             continue  # default start: only what fits a small yard
         b = _add_building(world, plot, kind, built_day=world.day)
-        if not given and "crop" in p["buildings"][kind]:  # default beds start sown, ripe on day 2
+        crop = p["buildings"][kind].get("crop")  # default beds start sown, ripe on day 2 (not in frozen ground)
+        if not given and crop and seasons.regen(cfg, world.day, crop, 1) > 0:
             spec_b = p["buildings"][kind]
             b["crop"], b["ripe_day"] = spec_b["crop"], world.day + 1
             b["amount"] = _bed_yield(cfg, spec_b, spec.get("profession"))

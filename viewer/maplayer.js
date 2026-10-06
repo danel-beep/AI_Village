@@ -152,6 +152,20 @@ const MapLayer = (() => {
   // Map pixels of one resource slot (tree [x, y, pine], bed [x, y, w, h], bush/rock [x, y]) for viewer/actors.js.
   const spotOf = (loc, res, slot) => ((spots[loc] || {})[res] || [])[slot];
 
-  return { init, claimTrees, draw, drawTop, spotOf };
+  // Boxes around the live plants (trees, bushes, beds) per location, for viewer/seasonlayer.js to recolour.
+  function plantBoxes() {
+    const out = [];
+    for (const loc of Object.keys(spots)) {
+      const pts = [];
+      for (const [x, y] of spots[loc].wood || []) pts.push([x - 10, y - 30, x + 42, y + 36]);
+      for (const [x, y] of spots[loc].berries || []) pts.push([x - 2, y - 2, x + 18, y + 18]);
+      for (const [x, y, w, h] of spots[loc].grain || []) pts.push([x - 2, y - 6, x + w + 2, y + h + 2]);
+      if (pts.length) out.push([Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])),
+                                Math.max(...pts.map(p => p[2])), Math.max(...pts.map(p => p[3]))]);
+    }
+    return out;
+  }
+
+  return { init, claimTrees, draw, drawTop, spotOf, plantBoxes };
 })();
 if (typeof window !== 'undefined') window.MapLayer = MapLayer;
