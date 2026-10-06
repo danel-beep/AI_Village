@@ -108,6 +108,8 @@ class RandomBot(Bot):
         elif name == "dice":
             ch = [c["from"] for c in obs.get("dice_challenges_to_you", [])]
             args = {"person": r.choice(ch or people + ["nobody"]), "stake": r.choice([5, 5, r.randint(-2, 40)])}
+        elif name == "hunt":
+            args = {"animal": r.choice(list(obs.get("animals_here", {})) + ["hare", "deer", "dragon"])}
         elif name == "steal_from_plot":
             args = {"item": r.choice(["egg", "milk", "honey", "grain", "coins"]), "qty": r.randint(1, 5)}
         elif name == "steal":
@@ -484,5 +486,42 @@ class HomesteadBot(TraderBot):
         return super().decide(obs)
 
 
+
+class HunterBot(WorkerBot):
+    """Hunts in the daytime (animals.py): joins any hunt party here, starts one for big game when enough
+    people are awake here, else takes small game; eats meat first. Otherwise a WorkerBot."""
+
+    GROUND = "forest"
+    KEEP_MEAT = 6
+
+    def decide(self, obs: dict) -> dict:
+        me, here, t = obs["you"], obs["here"], obs["time"]
+        inv = me["inventory"]
+        if me["satiety"] < 45 and inv.get("meat"):
+            return decision("eat", {"item": "meat"}, "eat meat")
+        day = 8 <= t["hour"] < t["day_ends_at"] - 3
+        if not day or me["health"] < 30 or me["satiety"] < 20 or ("hunt" not in obs["available_actions"] \
+                                                                   and me["location"] == self.GROUND):
+            return super().decide(obs)
+        herd, parties = obs.get("animals_here", {}), obs.get("hunt_parties_here", [])
+        for p in parties:
+            if me["name"] not in p["hunters"] and herd.get(p["animal"]):
+                return decision("hunt", {"animal": p["animal"]}, "join the hunt")
+        if any(me["name"] in p["hunters"] for p in parties):
+            return decision("wait", None, "wait for the others")
+        awake = 1 + sum(1 for p in here["people"] if not p["asleep"])
+        big = [k for k, v in herd.items() if 1 < v["hunters_needed"] <= awake]
+        if big:
+            return decision("hunt", {"animal": big[0]}, "big game, enough of us here")
+        if inv.get("meat", 0) >= self.KEEP_MEAT:
+            return super().decide(obs)
+        small = [k for k, v in herd.items() if v["hunters_needed"] <= 1]
+        if small:
+            return decision("hunt", {"animal": small[0]}, "small game")
+        if me["location"] != self.GROUND:
+            return decision("move", {"to": self.GROUND}, "go hunting")
+        return super().decide(obs)
+
+
 BOT_TYPES = {"random": RandomBot, "worker": WorkerBot, "thief": ThiefBot, "trader": TraderBot, "loner": LonerBot,
-             "homestead": HomesteadBot}
+             "homestead": HomesteadBot, "hunter": HunterBot}

@@ -668,6 +668,7 @@ const PixelMap = (() => {
     lastPos = {};
     for (const a of shown) lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8];
     const one = a => Actors.paint(b, sheets[a.n], a, sec, a.n === selected);
+    if (window.AnimalLayer) AnimalLayer.draw(b, t, layout, sec);   // hares, ducks, deer, boars, elk (animals.py)
     if (window.Depth) Depth.paint(b, shown, one); else shown.forEach(one);   // trees and houses in front cover them
     if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
