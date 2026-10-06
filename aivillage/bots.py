@@ -168,6 +168,20 @@ class RandomBot(Bot):
         elif name == "vote_law":
             props = [p["id"] for p in obs.get("government", {}).get("proposals", [])] or ["law0"]
             args = {"proposal_id": r.choice(props), "vote": r.choice(["yes", "no", "maybe"])}
+        elif name in ("join_polity", "give_to_polity"):
+            ids = [x["id"] for x in obs.get("polities", [])] + ["polity0"]
+            args = {"polity": r.choice(ids)} | ({"coins": r.randint(1, 10)} if name == "give_to_polity" else {})
+        elif name == "polity_vote":
+            args = {"topic": r.choice(["name", "coin", "form", "leader", "bogus"]),
+                    "choice": r.choice(people + ["assembly", "council", "ruler", "Dale", ""])}
+        elif name == "polity_propose":
+            args = {"law": r.choice(["tax", "fine", "grant", "payout", "expel", "bogus"]),
+                    "value": r.randint(-5, 60), "person": r.choice(people)}
+        elif name == "polity_vote_law":
+            props = [pr["id"] for x in obs.get("polities", []) for pr in x.get("proposals", [])] or ["plaw0"]
+            args = {"proposal_id": r.choice(props), "vote": r.choice(["yes", "no", "maybe"])}
+        elif name == "sign_petition":
+            args = {"form": r.choice(["assembly", "council", "ruler", "anarchy"])}
         if r.random() < 0.05:
             args = {"garbage": [1, 2, 3]}
         return decision(name, args, say="hi" if r.random() < 0.05 else None)

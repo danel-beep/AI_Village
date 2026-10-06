@@ -166,7 +166,11 @@ MODES["survival"] = {
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
                                               "animals": {"enabled": True},
-                                              "construction": {"enabled": True},
+                                              # each town hall founds a polity (polity.py), so a
+                                              # second one may stand at any common place
+                                              "polity": {"enabled": True},
+                                              "construction": {"enabled": True,
+                                                               "catalog": {"town_hall": {"at": []}}},
                                               "crafting": {"enabled": True, "secrets": {"enabled": True}},
                                               # clay for bricks a short walk away on every map (the clay hills
                                               # of a large map are far): a clay bank at the mine

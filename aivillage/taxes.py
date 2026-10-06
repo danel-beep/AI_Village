@@ -62,7 +62,7 @@ def orders_open(world: World) -> bool:
 
 def time_info(world: World, a: Agent) -> dict:
     """`next_tax_day` and `tax` (the bill so far) for the observation's `time`; {} while there is no tax."""
-    if not due(world):
+    if not due(world) or governance.polity_on(world.config):  # polity.py shows each polity's own tax
         return {}
     every = world.config["tax_every_days"]
     return {"next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": bill(world, a)["total"]}
@@ -112,7 +112,7 @@ def pay(world: World, a: Agent, n: int) -> int:
 def collect(ctx: Ctx) -> None:
     """Tax day: every living villager pays their bill; who cannot pay gives all coins and is evicted."""
     w, cfg = ctx.world, ctx.cfg
-    if not due(w):
+    if not due(w) or governance.polity_on(cfg):  # polity.py taxes each polity's own members
         return
     if governance.voluntary(cfg):
         return write_bills(ctx)
@@ -353,6 +353,8 @@ def observe(world: World, name: str) -> dict:
 
 
 def facts(cfg: dict) -> str:
+    if governance.polity_on(cfg):
+        return f"- Tax{governance.opens_note(cfg, TAXES)}: only members of a polity pay, what their polity's tax law says."
     return _facts(cfg).replace("- Tax:", f"- Tax{governance.opens_note(cfg, TAXES)}:", 1)
 
 

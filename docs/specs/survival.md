@@ -124,3 +124,33 @@ everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(worl
   the last `team_window_minutes`. Common buildings: tick `view.buildings` = `[{"id", "kind", "level", "location"}]`.
 - Buildings with levels: plot building dicts carry `level` (default 1); works keep `works.levels`.
 - Unexplored places (task 6): tick `view.known` = location ids someone has seen.
+
+## Polity (`aivillage/polity.py`, task 16)
+
+Config `polity` (`enabled`, on in `survival`; `vote_hours`, `law_vote_hours`, `council_size`, `max_open_proposals`,
+`expel_days`, `limits` for tax/grant/fine, `max_name_len`). In `survival` the `town_hall` may stand at any common
+place (`construction.catalog.town_hall.at = []`), one per place.
+
+- Every standing town hall founds one polity: finished ones from `construction.common` (builders who belong to no
+  polity are the first members) and the ones a later start stage counts as standing (`prebuilt`, at the square,
+  no members). One polity per villager: `join_polity` (from anywhere, leaves the old one), `leave_polity`.
+- Founding ballot `polity_vote(topic, choice)`, members only: `name`, `coin` (free text), `form`
+  (`assembly` / `council` / `ruler`, listed in a random order per polity, described by their rules only),
+  `leader` (a member). Closes after `vote_hours`; a topic with no votes stays open. Plurality, rng tie-break.
+- Laws (`polity_propose`, `polity_vote_law`): `tax` (per member each tax day), `fine`, `grant`, `payout`, `expel`.
+  Deciders: all members (assembly), the council (top `council_size` leader votes), the ruler (passes at once).
+- `sign_petition(form)`: more than half of the members on one form changes it (proposals lapse, leaders elected
+  anew). `give_to_polity(coins)`: a gift to a treasury.
+- Tax day = the village's (`tax_every_days`): `laws.enforcement` auto takes the tax (shortfall public, no
+  eviction), voluntary writes a debt-book bill to `treasury` whose id is in the polity's `bills`; `pay_bill` pays it
+  into that polity (`debts.BILL_PAYEES`). Non-members pay nothing.
+- With polities on there is no village-wide government: `governance.REPLACED` (mayor, elections, law votes,
+  embezzle, audit, treasury_order) are refused and hidden, `taxes.collect` / `time_info` step aside, report_theft
+  carries no fine (`governance.polity_on`).
+- State: `world.polities[id]` = `{id, hall, location, founded_day, name, coin, members, form, rulers, coins, laws,
+  options, ballot: {topic: {voter: choice}}, closes, proposals, petition: {member: form}, expelled: {name: day},
+  bills}`; `coins` is counted by invariants. Observation `polities` (+ `next_tax_day`).
+- Log (all with `polity`): public `polity_founded` (members, options), `polity_named` (topic, choice, votes),
+  `polity_form` (form, votes or old_form/signed), `polity_leaders` (rulers, votes), `polity_joined`, `polity_left`,
+  `polity_law_proposed`, `polity_law_passed` (law_kind, value, person, form), `polity_law_failed`, `polity_petition`
+  (form, signed, needed), `polity_gift`, `polity_tax_bills`, `polity_tax_short`; private `polity_vote`, `polity_tax`.

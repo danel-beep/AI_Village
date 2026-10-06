@@ -25,6 +25,7 @@ def holdings(world: World) -> Counter:
     for loc in world.locations.values():
         total.update(loc.ground)
     total["coins"] += world.governance.coins
+    total["coins"] += sum(p["coins"] for p in world.polities.values())  # polity treasuries
     total.update(plot_holdings(world))
     total.update(debt_holdings(world))
     return total
@@ -96,6 +97,9 @@ def check(world: World) -> None:
     g = world.governance
     if g.coins < 0:
         errors.append(f"treasury: coins {g.coins}")
+    for pid, p in world.polities.items():
+        if p["coins"] < 0:
+            errors.append(f"polity {pid}: coins {p['coins']}")
     for n in [g.mayor, *g.candidates, *g.votes, *g.exiled]:
         if n is not None and n not in world.agents:
             errors.append(f"governance: unknown villager {n}")

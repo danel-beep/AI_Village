@@ -75,7 +75,7 @@ def test_market_square_brings_the_trader():
 
 
 def test_town_hall_opens_tax_elections_and_council_orders():
-    w = world()
+    w = world(polity={"enabled": False})  # with polities each polity taxes and governs itself (test_polity.py)
     for a in w.agents.values():
         ops.mint_coins(w, a, 50)
     with standing("market_square", "town_hall"):
@@ -102,7 +102,8 @@ def test_raids_come_by_themselves_at_the_town_stage():
 def test_prompt_says_when_each_opens():
     facts = world_facts(world().config)
     assert "Tax (once a town_hall stands in the village):" in facts
-    assert "Government (once a town_hall stands in the village):" in facts
+    assert "Polities (once a town_hall stands in the village):" in facts
+    assert "Government (once a town_hall stands in the village):" in world_facts(world(polity={"enabled": False}).config)
     assert "The trader (once a market_square stands in the village)" in facts
     assert "bandits (once the village is a town)" in facts
     plain = world_facts(world(mode="crafts").config)

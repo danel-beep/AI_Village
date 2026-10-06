@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, illness,
+from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
                taxes, threats, tiles, works)
 from .actions import step_move, work_hour
@@ -169,6 +169,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(crafting.observe(world, name))
     obs.update(conflict.observe(world, name))
     obs.update(construction.observe(world, name))
+    obs.update(polity.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -344,6 +345,7 @@ def wake_busy_agents(ctx: Ctx) -> None:
 def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
     governance.end_of_hour(ctx)
+    polity.end_of_hour(ctx)
     progress.end_of_hour(ctx)
     crafting.end_of_hour(ctx)
     for a in w.agents.values():
@@ -521,6 +523,7 @@ def night(ctx: Ctx) -> None:
                      f"until day {o.expires_day}.", visibility="public")
     plots.after_night(ctx)
     construction.after_night(ctx)
+    polity.after_night(ctx)
     family.after_night(ctx)
     works.after_night(ctx)
     taxes.after_night(ctx)
