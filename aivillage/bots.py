@@ -275,29 +275,38 @@ class WorkerBot(Bot):
 
 
     def _keep_warm(self, obs: dict) -> dict | None:
-        """warmth.py: sleep at home; stoke the home fire in the evening; fetch wood in the afternoon."""
+        """warmth.py: sleep under a roof, else by a known fire; keep that fire stoked; fetch wood after noon."""
         w = obs.get("warmth")
         me, t = obs["you"], obs["time"]
         if not w:
             return None
+        here, loc = w["here"], me["location"]
+        if loc == me["home"]:
+            self.home_roof = here["roof"]
+        if here.get("fireplace"):
+            self.fires = {**getattr(self, "fires", {}), loc: here.get("fire_wood", 0)}
+        fires = getattr(self, "fires", {})
+        camp = next((f for f in sorted(fires) if f != me["home"]), None)
+        bed = me["home"] if getattr(self, "home_roof", True) or camp is None else camp
 
         def go(dest: str, why: str) -> dict:
-            return decision("move", {"to": dest}, why) if me["location"] != dest else decision("wait", None, why)
-        if t["hour"] >= t["day_ends_at"] - 4 and me["location"] != me["home"]:
-            return go(me["home"], "a roof for the night")
-        burn, wood, here = w["wood_a_fire_burns_tonight"], me["inventory"].get("wood", 0), w["here"]
-        if not burn or me["satiety"] < 50:
+            return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
+        burn, wood = w["wood_a_fire_burns_tonight"], me["inventory"].get("wood", 0)
+        evening = t["hour"] >= t["day_ends_at"] - 4
+        if evening and loc != bed:
+            return go(bed, "somewhere warm for the night")
+        if evening and here.get("fireplace") and burn and fires[loc] < burn and wood and me["satiety"] >= 50:
+            return decision("stoke", {"wood": min(wood, 2 * burn)}, "keep the fire going tonight")
+        if t["hour"] >= t["day_ends_at"] - 2 and bed != me["home"]:
+            return decision("sleep", None, "sleep by the fire")
+        if not burn or me["satiety"] < 50 or bed not in fires:
             return None
-        if here.get("fireplace") and me["location"] == me["home"]:
-            self.home_wood = here.get("fire_wood", 0)
-            if self.home_wood < burn and wood and t["hour"] >= t["day_ends_at"] - 4:
-                return decision("stoke", {"wood": min(wood, 2 * burn)}, "keep the fire going tonight")
-        short = 2 * burn - getattr(self, "home_wood", 0) - wood
+        short = 2 * burn - fires[bed] - wood
         if short > 0 and 12 <= t["hour"] < t["day_ends_at"] - 5 and getattr(self, "wood_fail_day", 0) != t["day"]:
-            if obs.get("last_error") and me["location"] == "forest":
+            if obs.get("last_error") and loc == "forest":
                 self.wood_fail_day = t["day"]  # not mine to cut: do without
                 return None
-            if me["location"] == "forest" and obs["here"]["resources"].get("wood"):
+            if loc == "forest" and obs["here"]["resources"].get("wood"):
                 return decision("work", {"resource": "wood"}, "firewood for the night")
             return go("forest", "fetch firewood")
         return None
