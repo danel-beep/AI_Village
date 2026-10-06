@@ -253,6 +253,35 @@ def contribute(ctx: Ctx, a: Agent, p: Project, items: dict) -> dict:
     return useful
 
 
+def _split_by_work(cfg: dict) -> bool:
+    return _w(cfg).get("reward_split") == "contribution"
+
+
+def reward_pool(w: World, reward: int) -> int:
+    return reward * sum(1 for o in w.agents.values() if o.status != "dead")
+
+
+def reward_shares(w: World, p: Project, reward: int) -> dict[str, int]:
+    """Coins each villager gets when `p` is done. "everyone" (default): `reward` to every living villager.
+    "contribution" (`works.reward_split`, the crafts mode): the same pool (`reward` x the living) shared by what
+    each one gave (items, coins and hours, as counted in `contributors`); the idle get nothing (economy audit:
+    a bridge paid 20 to each of 6-7 villagers out of 10 who never brought a log)."""
+    alive = {n for n, o in w.agents.items() if o.status != "dead"}
+    if not reward:
+        return {}
+    if not _split_by_work(w.config):
+        return {n: reward for n in sorted(alive)}
+    given = {n: c for n, c in p.contributors.items() if n in alive and c > 0}
+    total, pool = sum(given.values()), reward_pool(w, reward)
+    if not total:
+        return {}
+    shares = {n: pool * c // total for n, c in given.items()}
+    rest = pool - sum(shares.values())  # largest remainders first, then by name
+    for n in sorted(given, key=lambda n: (-(pool * given[n] % total), n))[:rest]:
+        shares[n] += 1
+    return {n: c for n, c in sorted(shares.items()) if c}
+
+
 def maybe_finish(ctx: Ctx, p: Project) -> None:
     if remaining(p):
         return
@@ -260,10 +289,9 @@ def maybe_finish(ctx: Ctx, p: Project) -> None:
     p.done = True
     w.works.quiet_since = w.day
     reward = cfg.get("projects", {}).get(p.id, {}).get("reward_coins_each", 0)
-    if reward:
-        for other in w.agents.values():
-            if other.status != "dead":
-                ops.mint_coins(w, other, reward)
+    shares = reward_shares(w, p, reward)
+    for n, c in shares.items():
+        ops.mint_coins(w, w.agents[n], c)
     helped = sorted(p.contributors, key=lambda n: (-p.contributors[n], n))
     idle = sorted(n for n, o in w.agents.items() if o.status == "active" and n not in p.contributors)
     text = f"{p.name} is finished!"
@@ -271,7 +299,11 @@ def maybe_finish(ctx: Ctx, p: Project) -> None:
         w.works.levels[p.structure] = max(level(w, p.structure), p.level or 1)
         apply_level(w, p.structure)
         text += " " + describe_effect(cfg, p.structure, level(w, p.structure)).capitalize()
-    if reward:
+    if reward and _split_by_work(cfg):
+        text += (f" The reward of {reward_pool(w, reward)} coins is shared by contribution: "
+                 + (", ".join(f"{n} {c}" for n, c in sorted(shares.items(), key=lambda x: (-x[1], x[0])))
+                    or "nobody") + ".")
+    elif reward:
         text += f" Every villager receives {reward} coins."
     if helped:
         text += " Built by: " + ", ".join(f"{n} ({p.contributors[n]})" for n in helped) + "."
@@ -313,8 +345,16 @@ def board(world: World) -> list[dict]:
     return [{"id": p.id, "name": p.name, "needs": p.needs, "contributed": p.contributed,
              "still_needs": remaining(p), "helpers": dict(p.contributors),
              **({"structure": p.structure, "level": p.level, "started_by": p.proposer, "since_day": p.opened_day}
-                if p.structure else {})}
+                if p.structure else {}), **_reward_note(world, p)}
             for p in open_projects(world)]
+
+
+def _reward_note(world: World, p: Project) -> dict:
+    """Shared by contribution, the reward is a rule people can act on, so the board says it."""
+    reward = world.config.get("projects", {}).get(p.id, {}).get("reward_coins_each", 0)
+    if not reward or not _split_by_work(world.config):
+        return {}
+    return {"reward_when_done": f"{reward_pool(world, reward)} coins, shared by how much each one gave"}
 
 
 def observe(world: World, name: str) -> dict:

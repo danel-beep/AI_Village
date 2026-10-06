@@ -6,7 +6,7 @@ Each profession has a limited number of places: ceil(`spare` x villagers x the p
 - `change_trade(profession)` at the square takes a free place of another trade: skill starts again from 0,
   and the next change is possible after `change_cooldown_days`;
 - whoever has not worked at their own trade (gathered its goods, made its recipes, sown or harvested its
-  crops) for `idle_days` days loses the place at dawn and becomes a laborer (`LABORER`: no trade goods,
+  crops, buying inputs for its recipes) for `idle_days` days loses the place at dawn and becomes a laborer (`LABORER`: no trade goods,
   free goods and village work only) until they take a free place again;
 - the law "revoke_place" (governance.py) takes a person's place by vote.
 
@@ -91,6 +91,17 @@ def _on_event(ctx: Ctx, ev: Event, names: list[str]) -> None:
 ops.EVENT_HOOKS.append(_on_event)
 
 
+def note_supply(world: World, a: Agent, items: dict) -> None:
+    """Getting inputs for one's own trade's recipes (buying ore and wood as a smith) is work at the trade too:
+    a smith waiting for ore no longer loses the place for days without a forge (economy audit, item 6)."""
+    cfg = world.config
+    if not enabled(cfg) or a.profession == LABORER or not items:
+        return
+    inputs = {k for r in cfg["recipes"].values() if r.get("profession") == a.profession for k in r["inputs"]}
+    if inputs & {k for k, n in items.items() if n > 0}:
+        a.trade_day = world.day
+
+
 # ---------- actions ----------
 
 class ChangeTradeArgs(BaseModel):
@@ -168,6 +179,6 @@ def facts(cfg: dict) -> str:
     return (f"- Trade places: each trade has a limited number of places ({caps}); \"trade_places\" shows how many "
             f"are taken. change_trade at the square takes a free place in another trade (skill starts from zero; "
             f"next change after {p['change_cooldown_days']} days). Whoever does no work at their trade (gathering "
-            f"its goods, making its recipes, sowing or harvesting its crop) for {p['idle_days']} days loses the "
-            f"place at dawn and is a laborer (free goods and village work only) until taking a free place. The "
+            f"its goods, making its recipes, sowing or harvesting its crop, getting inputs for its recipes) for {p['idle_days']} days loses the "
+            f"place at dawn and is a laborer ({labor.laborer_text(cfg)}) until taking a free place. The "
             f"law revoke_place takes a person's place by vote.")

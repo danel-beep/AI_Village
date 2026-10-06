@@ -10,7 +10,10 @@ with the trader as the only partner. This module makes neighbours necessary thro
 - skill: hours worked at your own trade raise your level (`skill_levels`), each level gives `skill_bonus`
   more units per hour, so specialists get better than anyone else could be;
 - a limited trader: each day he buys at most `trader_buys_per_day` of each item from the whole village and
-  sells at most `trader_sells_per_day` (per 5 villagers), first come first served.
+  sells at most `trader_sells_per_day` (per 5 villagers), first come first served;
+- one purse per trade: with `trader_coins_per_trade` he also spends at most that many coins a day (per 5
+  villagers) on the goods of one trade, so the miner's stone, ore and gold share one budget instead of
+  three item limits (the economy audit: three limits made miners 4.5x richer than anyone else).
 
 With village stages on (progress.py, the «С нуля» mode) the trader comes once a market square stands
 (`feature:trader`): until then there are no trader prices or limits in the observation, so the only trade is
@@ -62,9 +65,17 @@ def may_gather(cfg: dict, a: Agent, resource: str) -> str | None:
     if not _own_trade(cfg):
         return None
     owners = trade_of(cfg, resource)
+    if owners and a.profession == "laborer" and resource in cfg["labor"].get("laborer_goods", []):
+        return None  # a laborer without a place gathers these too, at the base rate (no skill)
     if owners and a.profession not in owners:
         return f"only a {' or a '.join(owners)} can gather {resource}"
     return None
+
+
+def laborer_text(cfg: dict) -> str:
+    """What a villager without a trade place may do, for the rules line."""
+    extra = cfg["labor"].get("laborer_goods") or []
+    return f"free goods, {', '.join(extra)} and village work" if extra else "free goods and village work only"
 
 
 def free_goods(cfg: dict, a: Agent, here: list[str]) -> list[str]:
@@ -137,26 +148,57 @@ def quota(cfg: dict, item: str, side: str) -> int | None:
     return math.ceil(base * population.resource_scale(cfg))
 
 
+def purse_of(cfg: dict, item: str) -> str | None:
+    """The trade whose purse pays for `item` (its first owner in `professions`), None for goods nobody owns."""
+    return (trade_of(cfg, item) or [None])[0]
+
+
+def coins_left(world: World, trade: str | None) -> int | None:
+    """Coins the trader will still pay today for the goods of `trade` (None = no purse for it)."""
+    cfg = world.config
+    per = cfg["labor"].get("trader_coins_per_trade")
+    if not enabled(cfg) or not per or trade is None:
+        return None
+    cap = math.ceil(per * population.resource_scale(cfg))
+    return max(0, cap - world.trader_day.get("spent", {}).get(trade, 0))
+
+
 def trader_left(world: World, item: str, side: str) -> int | None:
     q = quota(world.config, item, side)
-    if q is None:
-        return None
-    done = world.trader_day["bought" if side == "buy" else "sold"].get(item, 0)
-    return max(0, q - done)
+    left = None if q is None else max(0, q - world.trader_day["bought" if side == "buy" else "sold"].get(item, 0))
+    purse = coins_left(world, purse_of(world.config, item)) if side == "buy" else None
+    if purse is None:
+        return left
+    from . import pricing  # pricing imports works, which imports actions
+    n, cap = 0, 99 if left is None else left
+    while n < cap and pricing.total(world, item, "sell", n + 1) <= purse:
+        n += 1
+    return n
 
 
-def trader_deal(world: World, item: str, qty: int, side: str) -> None:
-    """Check and count a deal. side "buy": the trader buys from a villager (villager sells);
+def trader_deal(world: World, item: str, qty: int, side: str, coins: int = 0) -> None:
+    """Check and count a deal. side "buy": the trader buys from a villager (villager sells) for `coins`;
     "sell": the trader sells to a villager. Raises ActionError when today's limit is reached."""
     left = trader_left(world, item, side)
     if left is None:
         return
     if qty > left:
         what = "buy" if side == "buy" else "sell"
+        trade = purse_of(world.config, item) if side == "buy" else None
+        purse = coins_left(world, trade)
+        if purse is not None:
+            goods = ", ".join(world.config["professions"][trade])
+            raise ActionError(f"today the trader will buy only {left} more {item}: he spends at most "
+                              f"{purse} more coins on {trade} goods ({goods}) today for the whole village; "
+                              f"it resets at dawn")
         raise ActionError(f"today the trader will {what} only {left} more {item} (limit {quota(world.config, item, side)}"
                           f" a day for the whole village; it resets at dawn)")
     book = world.trader_day["bought" if side == "buy" else "sold"]
     book[item] = book.get(item, 0) + qty
+    trade = purse_of(world.config, item) if side == "buy" else None
+    if coins_left(world, trade) is not None:
+        spent = world.trader_day.setdefault("spent", {})
+        spent[trade] = spent.get(trade, 0) + coins
 
 
 def workshop_trades(ctx: Ctx, owned: list[tuple[str, str]]) -> None:
@@ -225,6 +267,9 @@ def facts(cfg: dict) -> str:
         lines.append("- The trader deals in limited amounts each day for the whole village (first come, first "
                      "served; resets at dawn): \"trader_today\" shows how many of each item he will still buy "
                      "and still has for sale today.")
+    if lab.get("trader_coins_per_trade"):
+        lines.append("- He spends a limited number of coins a day on the goods of each trade, shared by all "
+                     "its goods (a miner's stone, ore and gold come out of one purse).")
     return "\n".join(lines)
 
 

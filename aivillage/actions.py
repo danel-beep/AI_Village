@@ -464,6 +464,9 @@ def accept(ctx: Ctx, a: Agent, args: OfferIdArgs) -> None:
         raise ActionError(f"you do not have {fmt_items(o.want)}")
     _transfer_bundle(sender, a, o.give)
     _transfer_bundle(a, sender, o.want)
+    from . import places  # places imports the action registry
+    places.note_supply(ctx.world, a, o.give)
+    places.note_supply(ctx.world, sender, o.want)
     del ctx.world.offers[o.id]
     ctx.emit("trade", f"{sender.name} and {a.name} traded: {fmt_items(o.give)} for {fmt_items(o.want)}.",
              actor=a.name, location=a.location, visibility="location", to=[sender.name], offer=o.id, partner=sender.name)
@@ -504,6 +507,8 @@ def buy(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     pricing.trader_sold(ctx.world, args.item, args.qty)
     ops.burn_coins(ctx.world, a, cost)
     ops.mint(ctx.world, a.inventory, args.item, args.qty)
+    from . import places
+    places.note_supply(ctx.world, a, {args.item: args.qty})
     ctx.emit("buy", f"{a.name} bought {args.qty} {args.item} from the trader for {cost} coins.", actor=a.name,
              location=a.location, visibility="location")
 
@@ -515,7 +520,7 @@ def sell(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
         raise ActionError("the trader is at the market")
     _need(a.inventory, {args.item: args.qty})
     coins = _price(ctx, args.item, "sell", args.qty)
-    labor.trader_deal(ctx.world, args.item, args.qty, "buy")
+    labor.trader_deal(ctx.world, args.item, args.qty, "buy", coins)
     pricing.trader_bought(ctx.world, args.item, args.qty)
     ops.burn(ctx.world, a.inventory, args.item, args.qty)
     ops.mint_coins(ctx.world, a, coins)
