@@ -29,11 +29,11 @@ DecideFn = Callable[[str, dict], dict]
 
 
 class JsonlLog:
-    def __init__(self, path: str | Path | None):
+    def __init__(self, path: str | Path | None, append: bool = False):
         self.f = None
         if path:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-            self.f = open(path, "w", encoding="utf-8")
+            self.f = open(path, "a" if append else "w", encoding="utf-8")
 
     def write(self, rec: dict) -> None:
         if self.f:
@@ -50,7 +50,8 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         on_tick: Callable[[World, list], None] | None = None,
         on_night: Callable[[World, int], dict] | None = None,
         on_record: Callable[[dict], None] | None = None, meta: dict | None = None,
-        max_cost: float = 0.0) -> dict:
+        max_cost: float = 0.0, checkpoint: Callable[[World], None] | None = None,
+        resume_header: dict | None = None) -> dict:
     """Drive the world for `days` days. Returns summary stats.
 
     `on_night(world, day)` runs after each day ends; whatever it returns is logged as a `diary` record
@@ -58,8 +59,11 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
     (the live server streams them). `meta` goes into the header; who plays whom (`brains`: villager -> model
     id or "bot:<kind>") is read from `decide.agents` / `decide.bots` when not given, and LLM token use and cost
     are logged as a `usage` record after every night and at the end (aivillage/scorecard.py reads both).
-    `max_cost` (USD, 0 = no limit): stop early once the LLM villagers together have spent this much."""
-    log = JsonlLog(log_path)
+    `max_cost` (USD, 0 = no limit): stop early once the LLM villagers together have spent this much.
+    `checkpoint(world)` runs before every tick, when the world, the log and the villagers' memory agree
+    (aivillage/saves.py saves there); it may raise to stop the run. `resume_header`: the world was loaded from a
+    save (aivillage/saves.py), so append to the log at `log_path` and only hand its old header to `on_record`."""
+    log = JsonlLog(log_path, append=resume_header is not None)
     meta = {"brains": brains_of(decide), **(meta or {})}
     llm = getattr(decide, "agents", None) or {}
 
@@ -68,11 +72,17 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         if on_record:
             on_record(rec)
 
-    emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
+    if resume_header is not None:
+        if on_record:
+            on_record(resume_header)
+    else:
+        emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
     stats: Counter = Counter()
     end_day = world.day + days
     try:
         while world.day < end_day:
+            if checkpoint:
+                checkpoint(world)
             asked = engine.waiting_agents(world)
             observations = [(name, engine.observe(world, name)) for name in asked]
             # All agents think at the same time: a slow model does not slow the others down.

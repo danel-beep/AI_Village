@@ -22,7 +22,7 @@
     b.style.cssText = 'background:#34403b;color:#e8efe9;border:0;border-radius:20px;padding:7px 12px;' +
       'font:600 13px system-ui,sans-serif;cursor:pointer';
     b.onclick = () => {
-      if (!info.finished && !confirm('Остановить эту деревню и настроить новую? Лог сохранится.')) return;
+      if (!info.finished && !confirm('Остановить эту деревню и настроить новую? Она сохранится: продолжить можно с начального экрана.')) return;
       post('/api/stop').then(() => location.reload(), e => alert(e.message));
     };
     const bar = document.getElementById('rp-bar');
