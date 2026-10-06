@@ -12,9 +12,9 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (chronicle, clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor,
-               land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage, taxes, threats,
-               tiles, works)
+from . import (animals, chronicle, clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness,
+               labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
+               taxes, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -65,6 +65,7 @@ def new_world(config: dict | None = None) -> World:
     for pid, spec in cfg["projects"].items():
         w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]), structure=spec.get("structure"),
                                   level=1 if spec.get("structure") else 0, proposer="council")
+    animals.setup(w)
     progress.setup(w)
     for a in w.agents.values():
         a.busy_until = w.tick + wake_offset(w, a.name)
@@ -151,6 +152,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))
     obs.update(threats.observe(world, name))
+    obs.update(animals.observe(world, name))
     obs.update(land.observe(world, name))
     obs.update(debts.observe(world, name))
     obs.update(labor.observe(world, name))
@@ -351,6 +353,7 @@ def end_of_hour(ctx: Ctx) -> None:
     for f in list(w.fires.values()):
         burn_for(ctx, f, 1)
     threats.end_of_hour(ctx)
+    animals.end_of_hour(ctx)  # hunt parties; herds move and breed on the day's last hour
     illness.end_of_hour(ctx, rng_for(w, "illness"))
     for o in list(w.offers.values()):
         if o.expires_tick <= w.tick:

@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import clock, crises, engine, graves, labor, mapgen, modes, plots, threats, tiles, works
+from . import animals, clock, crises, engine, graves, labor, mapgen, modes, plots, threats, tiles, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -155,6 +155,7 @@ def view(world: World) -> dict:
             "plots": plots.view(world),
             "crises": crises.view(world),  # active world crises (crises.py)
             "threats": threats.view(world),  # raids, beasts, travelers here or warned (threats.py)
+            **animals.view(world),  # animals.py: herds per place and open hunt parties (animals on)
             "graves": graves.view(world),  # graves.py: who is buried where
             **({"labor": lab} if (lab := labor.view(world)) else {}),  # labor.py: skills, trader's day
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
@@ -330,7 +331,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
-    off = frozenset(world.config.get("disabled_actions") or ())
+    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")
