@@ -40,12 +40,18 @@ DRAMA = {
     "election_day": 2, "say": 2, "build": 2, "craft": 1, "plant": 1, "sell": 1, "buy": 1, "order": 1,
     # property and conflict (land.py, conflict.py)
     "fight": 9, "arson_seen": 9, "set_fire": 9, "land_bought": 5, "land_sold": 5, "land_offer": 2,
+    # debt book (debts.py)
+    "debt_collected": 8, "debt_seized": 7, "pledge_forfeited": 7, "debt_claim": 6, "debt_rejected": 6, "debt_forgiven": 5,
+    "promise": 4, "debt_transferred": 4,
     "dice": 4,
     # village works and treasury (works.py, governance.py)
     "embezzlement_found": 9, "embezzle": 7, "work_started": 4, "fund_project": 3, "audit_clean": 2, "build_work": 1,
 }
 DRAMATIC = 3  # a day's highlights are these first; lower scores only fill a quiet day
 TITLES = {
+    "debt_collected": "Мэр взыскал долг", "debt_seized": "Долг взыскан", "pledge_forfeited": "Залог пропал", "debt_claim": "Жалоба мэру",
+    "debt_rejected": "Мэр отказал", "debt_forgiven": "Долг прощён", "promise": "Расписка",
+    "debt_transferred": "Долг перепродан",
     "fight": "Драка", "arson_seen": "Поджог", "set_fire": "Поджог", "land_bought": "Купил землю",
     "land_sold": "Продал землю", "dice": "Игра в кости", "land_offer": "Продаёт землю",
     "embezzlement_found": "Мэр украл из казны", "embezzle": "Тайно взял из казны", "work_started": "Новая стройка",

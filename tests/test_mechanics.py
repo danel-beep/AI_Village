@@ -145,6 +145,7 @@ def test_offer_with_coins_and_expiry(w):
 
 
 def test_lend_repay_and_default(w):
+    w.config["debts"]["auto_collect"] = False  # automatic collection is tested in test_debts.py
     put(w, "Anna", "square")
     put(w, "Boris", "square")
     act(w, "Anna", "lend", to="Boris", coins=10, repay_coins=12, due_day=2)

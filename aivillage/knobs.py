@@ -118,6 +118,23 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
 
+    # --- debts (aivillage/debts.py) ---
+    {"key": "debt_collection", "path": "debts.collection", "group": "Долги", "type": "toggle",
+     "label": "Мэр может взыскивать долги",
+     "hint": "Должник не вернул вовремя: заимодавец просит мэра, мэр решает, забрать ли монеты у должника."},
+    {"key": "debt_auto_collect", "path": "debts.auto_collect", "group": "Долги", "type": "toggle",
+     "label": "Просроченные долги взыскиваются сами",
+     "hint": "Каждую ночь после срока у должника забирают часть монет, потом вещей (еду никогда), "
+             "и часть новых доходов, пока долг не закрыт."},
+    {"key": "debt_seize_pct", "path": "debts.seize_pct", "group": "Долги", "type": "range",
+     "label": "Сколько можно забрать за раз", "min": 10, "max": 100, "step": 10, "unit": "%",
+     "hint": "Доля монет и вещей должника за ночь и доля каждого его дохода. 50% не оставляет его ни с чем."},
+    {"key": "debt_collect_fee", "path": "debts.collect_fee_pct", "group": "Долги", "type": "range",
+     "label": "Доля мэра (в казну) со взысканного", "min": 0, "max": 50, "step": 5, "unit": "%"},
+    {"key": "debt_late_fee", "path": "debts.late_fee_pct", "group": "Долги", "type": "range",
+     "label": "Пеня за просрочку в ночь", "min": 0, "max": 30, "step": 5, "unit": "%",
+     "hint": "0: долг не растёт. Рекомендуем 0 для честного прогона, 10 для жёсткого."},
+
     # --- word of mouth (aivillage/reputation.py) ---
     {"key": "mishear_number", "path": "reputation.mishear_number", "group": "Слухи", "type": "range", "scale": 0.01,
      "label": "Слух искажает числа", "min": 0, "max": 100, "step": 5, "unit": "%",
