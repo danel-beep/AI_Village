@@ -40,6 +40,7 @@ class Agent:
     rumors: list[dict] = field(default_factory=list)
     # labor.py: hours of work done today (reset at dawn) and hours ever worked at one's own trade (skill)
     worked_today: int = 0
+    earned_since_tax: int = 0  # coins from the trader and council orders since the last tax day (taxes.py)
     skill_hours: int = 0
     harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
     # dice.py: an open challenge {"to", "stake", "expires_tick"}
@@ -108,6 +109,10 @@ class Order:
     status: str = "open"  # open | fulfilled | expired
     fulfilled_by: str | None = None
     by: str = ""  # a villager's own order (post_order): the coins are held by the board until delivery
+    payer: str = ""  # "treasury": the mayor's purchase for a village project (taxes.py), coins held by the board
+    project: str = ""  # the project a treasury order's goods go to
+    delivered: dict[str, dict[str, int]] = field(default_factory=dict)  # part deliveries: who -> items
+    paid: int = 0  # coins of the reward paid out so far (part deliveries)
 
 
 @dataclass
@@ -188,6 +193,10 @@ class Governance:
     # and who took them (mayor -> coins).
     hidden: int = 0
     embezzled: dict[str, int] = field(default_factory=dict)
+    # Treasury spending (taxes.py): the last day the treasury paid for something, and hours of build_work
+    # per villager since the last surplus payout.
+    last_spent_day: int = 0
+    work_hours: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Governance":

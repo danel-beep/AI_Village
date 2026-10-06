@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import handbook, market, reputation
+from . import handbook, market, reputation, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -124,13 +124,12 @@ def world_facts(cfg: dict) -> str:
                      "\"you.not_edible\": raw goods you carry that are not food, and what they go into.")
     lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
                  "SELL to the trader at b coins.")
-    lines.append(f"- Tax: {cfg['tax_amount']} coins every {cfg['tax_every_days']} days. If you cannot pay, it takes "
-                 f"all your coins and you are locked out of your house for {cfg['eviction_days']} days.")
+    lines.append(taxes.facts(cfg))
     lines.append(f"- steal succeeds {cfg['steal_awake_target_success']:.0%} of the time against an awake person and always "
                  f"against a sleeping one; awake people nearby notice it with {cfg['steal_notice_chance']:.0%} chance; "
                  f"at most {cfg['max_steal_qty']} per attempt.")
     lines.append(debts.fact(cfg))
-    lines.append("- Orders on the board pay the whole reward to the first person who delivers.")
+    lines.append(taxes.orders_fact(cfg))
     if rep := reputation.fact(cfg):
         lines.append(rep)
     fam = cfg.get("family")

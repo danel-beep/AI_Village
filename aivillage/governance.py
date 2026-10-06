@@ -28,7 +28,8 @@ from .ops import Ctx
 from .registry import ACTIONS, ActionError
 from .state import Agent, LawProposal, World
 
-NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary")
+NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax")
+TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enabled (taxes.py)
 LAWS = NUMBER_LAWS + ("exile", "payout", "grant")
 
 
@@ -62,7 +63,14 @@ def law(world: World, name: str) -> int:
         return world.governance.laws[name]
     if name == "tax":
         return cfg["tax_amount"]
+    if name in TAX_RATES:
+        t = cfg.get("taxes") or {}
+        return t.get("sales_pct" if name == "sales_tax" else "wealth_pct", 0) if t.get("enabled") else 0
     return _g(cfg)["start"].get(name, 0) if enabled(cfg) else 0
+
+
+def _rates_on(cfg: dict) -> bool:
+    return bool((cfg.get("taxes") or {}).get("enabled"))
 
 
 def tax_amount(world: World) -> int:
@@ -101,7 +109,9 @@ def tick_time(cfg: dict, tick: int) -> str:
 def describe_law(p: LawProposal) -> str:
     if p.law in NUMBER_LAWS:
         unit = {"tax": "coins per villager every tax day", "theft_fine": "coins per reported theft",
-                "mayor_salary": "coins per day for the mayor"}[p.law]
+                "mayor_salary": "coins per day for the mayor",
+                "sales_tax": "percent of coins got from the trader and council orders",
+                "wealth_tax": "percent of coins above the threshold, every tax day"}[p.law]
         return f"{p.law} = {p.value} {unit}"
     if p.law == "exile":
         return f"exile {p.person}"
@@ -118,7 +128,7 @@ def observe(world: World, name: str) -> dict:
         "treasury": g.coins if g.mayor == name else books(world),
         **({"treasury_books": books(world), "you_took_unnoticed": g.embezzled.get(name, 0)}
            if g.mayor == name and treasury_cfg(cfg).get("embezzle") else {}),
-        "laws": {k: law(world, k) for k in NUMBER_LAWS},
+        "laws": {k: law(world, k) for k in NUMBER_LAWS if k not in TAX_RATES or _rates_on(cfg)},
         "next_election_day": next_election_day(cfg, world.day),
         "election_today": is_election_day(cfg, world.day),
         "candidates": dict(g.candidates), "your_vote": g.votes.get(name),
@@ -138,7 +148,8 @@ def facts(cfg: dict) -> str:
     g = _g(cfg)
     return (f"- Government: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
-            "(tax, theft_fine, mayor_salary, exile, payout, grant); everyone votes with vote_law; a law passes when "
+            "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
+            + "exile, payout, grant); everyone votes with vote_law; a law passes when "
             "more than half of all villagers vote yes. Tax goes to the village treasury. Witnesses and victims of a "
             "theft, attack or arson can report_theft to make the culprit pay the theft_fine."
             + (" The mayor holds the treasury and can embezzle from it; anyone can audit_treasury at the square, "
@@ -202,13 +213,14 @@ def vote(ctx: Ctx, a: Agent, args: VoteArgs) -> None:
 
 
 class ProposeArgs(BaseModel):
-    law: Literal["tax", "theft_fine", "mayor_salary", "exile", "payout", "grant"]
-    value: int | None = Field(None, description="coins, for tax/theft_fine/mayor_salary/grant")
+    law: Literal["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "payout", "grant"]
+    value: int | None = Field(None, description="coins, for tax/theft_fine/mayor_salary/grant; percent, for "
+                              "sales_tax/wealth_tax")
     person: str | None = Field(None, description="for exile/grant")
 
 
 @ACTIONS.action("propose_law", "Mayor only: put a law to the vote. tax/theft_fine/mayor_salary need value "
-                "(coins); exile needs person; grant needs person and value (paid from the treasury); payout "
+                "(coins), sales_tax/wealth_tax need value (percent; where World facts list them); exile needs person; grant needs person and value (paid from the treasury); payout "
                 "splits the treasury equally.", ProposeArgs,
                 available=lambda c, a: enabled(c.cfg) and c.world.governance.mayor == a.name)
 def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
@@ -220,6 +232,8 @@ def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
     if len(g.proposals) >= gc["max_open_proposals"]:
         raise ActionError(f"at most {gc['max_open_proposals']} proposals can be open at once")
     value, person = args.value, None
+    if args.law in TAX_RATES and not _rates_on(ctx.cfg):
+        raise ActionError(f"this village has no {args.law}")
     if args.law in NUMBER_LAWS or args.law == "grant":
         lo, hi = gc["limits"][args.law]
         if value is None or not lo <= value <= hi:

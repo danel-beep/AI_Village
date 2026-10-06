@@ -13,7 +13,7 @@ from typing import Any
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor, land, mapgen,
-               market, ops, plots, pricing, reputation, seasons, threats, tiles, works)
+               market, ops, plots, pricing, reputation, seasons, taxes, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -108,7 +108,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     beds = plant_info(world, loc)
     obs = {
         "time": {"day": world.day, "hour": world.hour, "minute": world.minute, "day_ends_at": cfg["day_end_hour"],
-                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": governance.tax_amount(world),
+                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": taxes.bill(world, a)["total"],
                  **seasons.time_info(cfg, world.day)},
         "you": {
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
@@ -155,6 +155,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(dice.observe(world, name))
     obs.update(market.observe(world, name))
     obs.update(works.observe(world, name))
+    obs.update(taxes.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -478,23 +479,14 @@ def night(ctx: Ctx) -> None:
 
     # Weekly tax
     if (w.day - 1) % cfg["tax_every_days"] == 0:
-        tax = governance.tax_amount(w)
-        for a in w.agents.values():
-            if a.status == "dead":
-                continue
-            if a.coins >= tax:
-                governance.pay_tax(w, a, tax)
-                ctx.emit("tax", f"You paid {tax} coins of tax.", to=[a.name])
-            else:
-                governance.pay_tax(w, a, a.coins)
-                a.evicted_until_day = w.day + cfg["eviction_days"]
-                ctx.emit("evicted", f"{a.name} could not pay the tax and is locked out of their house "
-                         f"for {cfg['eviction_days']} days.", visibility="public")
+        taxes.collect(ctx)
     # Debts
     debts.night(ctx)
     # Orders
     for o in w.orders.values():
-        if o.status == "open" and w.day > o.expires_day:
+        if o.status == "open" and w.day > o.expires_day and o.payer == taxes.TREASURY:
+            taxes.expire(ctx, o)
+        elif o.status == "open" and w.day > o.expires_day:
             o.status = "expired"
             poster = w.agents.get(o.by)
             if poster is not None and poster.status != "dead":  # a villager's order: the held coins come back
@@ -504,12 +496,13 @@ def night(ctx: Ctx) -> None:
     if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
         for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
             tpl = ctx.rng.choice(cfg["order_templates"])
-            o = Order(w.new_id("order"), dict(tpl["needs"]), tpl["reward"], w.day + cfg["order_ttl_days"])
+            o = Order(w.new_id("order"), dict(tpl["needs"]), taxes.council_reward(cfg, tpl), w.day + cfg["order_ttl_days"])
             w.orders[o.id] = o
             ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
                      f"until day {o.expires_day}.", visibility="public")
     plots.after_night(ctx)
     family.after_night(ctx)
     works.after_night(ctx)
+    taxes.after_night(ctx)
     conflict.random_fire(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")

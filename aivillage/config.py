@@ -214,6 +214,28 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "embezzle": True,
         "audit_on_handover": True,
     },
+    # Taxes (aivillage/taxes.py). Off here; the default "crafts" mode turns them on. On a tax day each
+    # villager pays one bill: the flat `tax_amount` (land) + `sales_pct`% of the coins they got from the
+    # trader and council orders since the last tax day + `wealth_pct`% of their coins above `wealth_above`.
+    # Trades between villagers are not taxed. `burn_pct`% of every bill leaves the game, the rest goes to
+    # the treasury (all of it is burned without a government). The mayor can change the rates by law.
+    # Treasury surplus: above `surplus_per_villager` x villagers, after `surplus_idle_days` without any
+    # treasury spending, the excess goes to those who did build_work since the last payout (else to all).
+    "taxes": {
+        "enabled": False,
+        "sales_pct": 10,
+        "wealth_pct": 5,
+        "wealth_above": 100,
+        "burn_pct": 25,
+        "surplus_per_villager": 40,
+        "surplus_idle_days": 7,
+        # treasury_order: the reward per order lies between these multiples of the goods' base value
+        "order_price": [0.5, 2.0],
+    },
+    # Council orders (taxes.py). With `enabled`, an order's reward is `reward_mult` x the base value of
+    # what it needs (the template's own reward is ignored), and anyone can deliver part of it: each
+    # delivery is paid at once, its share of the value. Off = the template reward, all or nothing.
+    "council_orders": {"enabled": False, "reward_mult": 1.6},
     # Order templates the NPC council posts on the board; one is picked at random.
     "order_templates": [
         {"needs": {"bread": 3, "fish_soup": 2}, "reward": 80},
@@ -305,7 +327,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # Actions an exiled villager may not use.
         "exile_bans": ["buy", "sell", "fulfill_order", "vote", "run_for_mayor", "vote_law"],
         # Allowed values for laws that set a number; laws start at "start" (tax: tax_amount).
-        "limits": {"tax": [0, 60], "theft_fine": [0, 50], "mayor_salary": [0, 20], "grant": [1, 200]},
+        "limits": {"tax": [0, 60], "theft_fine": [0, 50], "mayor_salary": [0, 20], "grant": [1, 200],
+                   "sales_tax": [0, 30], "wealth_tax": [0, 20]},
         "start": {"theft_fine": 0, "mayor_salary": 0},
         "crime_memory_days": 7,  # a witnessed theft can be reported for this many days
     },
