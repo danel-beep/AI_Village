@@ -28,9 +28,9 @@ const GenMap = (() => {
       if (pl.box) box[id] = pl.box.map(v => v * T);
       const d = lay.defaults[pl.kind];
       if (d && pl.box) off[id] = [(pl.box[0] - d[0]) * T, (pl.box[1] - d[1]) * T];
-      if (pl.kind in LABEL) labels.push([id, LABEL[pl.kind]]);
+      if (pl.kind in LABEL && !pl.hidden) labels.push([id, LABEL[pl.kind]]);
       const b = pl.box;
-      if (pl.kind === 'square') fill(b, 'cobble');
+      if (pl.kind === 'square') { if (!pl.bare) fill(b, 'cobble'); }   // camp start: grass until something is built
       else if (pl.kind === 'field') { fill(b, 'soil'); for (let y = b[1] + 3; y < b[1] + 6; y++) set(b[0] + 3, y, 'path'); }
       else if (pl.kind === 'forest') fill(b, 'forest');
       else if (pl.kind === 'market' || pl.kind === 'smithy' || pl.kind === 'mine') fill(b, 'block');
@@ -51,11 +51,14 @@ const GenMap = (() => {
       routes[r.a + '|' + r.b] = pts;
       for (let j = 1; j < pts.length; j++) {
         let [x, y] = r.path[j - 1]; const [x1, y1] = r.path[j];
-        for (;;) { const k = kind[x + ',' + y]; if (k !== 'cobble' && k !== 'water' && k !== 'block') set(x, y, 'path');
+        // a camp start's footpath (viewer/pixelmap.js campLayout) is lighter than a road; a road wins over a footpath
+        const kd = r.trail ? 'trail' : 'path';
+        for (;;) { const k = kind[x + ',' + y]; if (k !== 'cobble' && k !== 'water' && k !== 'block' && k !== 'path') set(x, y, kd);
                    if (x === x1 && y === y1) break; x += Math.sign(x1 - x); y += Math.sign(y1 - y); }
       }
     }
     lay.river.dock.x.forEach(x => set(x, lay.river.dock.y, 'dock'));
+    if (lay.places.square && lay.places.square.bare) set(lay.places.square.anchor[0], lay.places.square.anchor[1], 'trail');   // trodden ground at the camp fire
     // Distance in pixels from a water pixel to the nearest bank of its tile (T = open water).
     const wet = (x, y) => { const k = kind[x + ',' + y]; return k === 'water' || k === 'dock' || x < 0 || x >= lay.cols; };
     const bank = (X, Y) => {
@@ -129,7 +132,7 @@ const GenMap = (() => {
       R(g, bx, by, 1, 5, C.leafD); R(g, bx + 2, by + 1, 1, 4, C.leaf); P(g, bx, by - 1, '#7a5030');
     });
     for (const pl of Object.values(lay.places)) {
-      if (!pl.box && pl.kind !== 'waypoint') continue;
+      if ((!pl.box && pl.kind !== 'waypoint') || pl.hidden) continue;   // hidden: a camp start's signpost nobody passed yet
       if (pl.kind === 'waypoint') { // signpost
         const [x, yy] = [pl.anchor[0] * T + 12, pl.anchor[1] * T - 2];
         if (SP(g, 'signpost', x + 1, yy + 12)) continue;
@@ -189,6 +192,18 @@ const GenMap = (() => {
     }
   }
 
-  return { layout, spots, paint, lakeTiles };
+  // Camp start (pixelmap.js campAnchors): a ring of stones with a fire, bedrolls of those without a house site.
+  function camp(g, L, K) {
+    const { C, R, P, blob } = K;
+    for (const [x, y] of L.bedrolls || []) {
+      R(g, x - 7, y - 2, 14, 6, C.k); R(g, x - 6, y - 1, 12, 4, '#8a5a3a'); R(g, x - 6, y - 1, 4, 4, '#c8b48a');
+    }
+    if (!L.campfire) return;
+    const [cx, cy] = L.campfire;
+    for (let i = 0; i < 8; i++) { const a = Math.PI * 2 * i / 8; blob(g, cx + Math.cos(a) * 7, cy + Math.sin(a) * 4, 2, 2, [C.stoneL, C.stone, C.stoneD], null); }
+    R(g, cx - 4, cy - 1, 8, 2, C.woodD); R(g, cx - 2, cy - 4, 4, 4, '#e4572e'); P(g, cx, cy - 6, '#f2c14e'); P(g, cx - 1, cy - 5, '#f2c14e');
+  }
+
+  return { layout, spots, paint, camp, lakeTiles };
 })();
 if (typeof window !== 'undefined') window.GenMap = GenMap;

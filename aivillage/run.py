@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, graves, labor, mapgen, modes, plots, threats, tiles, works
+from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, land, mapgen, modes, plots, pricing, settle, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -131,6 +131,7 @@ def usage_record(agents: dict, tick: int) -> dict:
     return {"type": "usage", "tick": tick,
             "agents": {n: {"model": getattr(ag.client, "model", "?"), "calls": ag.usage.calls,
                            "failures": ag.usage.failures, "prompt_tokens": ag.usage.prompt_tokens,
+                           "cached_tokens": ag.usage.cached_tokens,
                            "completion_tokens": ag.usage.completion_tokens, "cost_usd": round(ag.usage.cost_usd, 6),
                            "by_model": dict(ag.usage.by_model)} for n, ag in sorted(agents.items())}}
 
@@ -144,7 +145,7 @@ def view(world: World) -> dict:
                                 "satiety": a.satiety, "health": a.health, "coins": a.coins,
                                 "profession": a.profession, "inventory": a.inventory,
                                 "busy": max(0, a.busy_until - world.tick) * tm,
-                                "task": (a.task or {}).get("kind")}
+                                "task": (a.task or {}).get("kind"), "hospital_stays": a.hospital_stays}
                        for a in world.agents.values()},
             # chests for the hero page's property list (viewer/hero.js)
             "chests": {c.owner: {"coins": c.coins, "items": c.items, "locked": c.locked} for c in world.chests.values()},
@@ -156,17 +157,32 @@ def view(world: World) -> dict:
             "crises": crises.view(world),  # active world crises (crises.py)
             "threats": threats.view(world),  # raids, beasts, travelers here or warned (threats.py)
             **animals.view(world),  # animals.py: herds per place and open hunt parties (animals on)
+            **transport.view(world),  # transport.py: riding and pack animals, wild ones per place (transport on)
             "graves": graves.view(world),  # graves.py: who is buried where
             **({"labor": lab} if (lab := labor.view(world)) else {}),  # labor.py: skills, trader's day
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
             "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
             "works": works.view(world),  # village structures and open projects (works.py)
             **construction.view(world),  # building sites and common buildings (construction.py)
+            **honors.view(world),  # honors.py: the honor board (notes and titles), when not empty
+            **hire.view(world),  # hire.py: hired outsiders and where they are, open jobs (hiring on)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
+            **({"known": k} if (k := explore.view(world)) is not None else {}),  # explore.py: places someone knows
+            **settle.view(world),  # settle.py: house sites taken, trails walked (camp start)
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
-                    for l in world.locations.values() if l.slots}}
+                    for l in world.locations.values() if l.slots},
+            # for the viewer's object panels (viewer/inspect.js): the square's order board, trader prices
+            "orders": [{"id": o.id, "needs": o.needs, "reward": o.reward, "until": o.expires_day}
+                       for o in world.orders.values() if o.status == "open"],
+            "market": market_prices(world)}
+
+
+def market_prices(world: World) -> dict:
+    """What the NPC trader charges ("buy") and pays ("sell") now, same as actions._price (pricing.py)."""
+    return {item: [pricing.price(world, item, "buy"), pricing.price(world, item, "sell")]
+            for item, info in world.config["items"].items() if info.get("tradable", True)}
 
 
 def read_log(path: str | Path) -> Iterable[dict]:
@@ -181,7 +197,7 @@ def replay(path: str | Path) -> World:
     recs = read_log(path)
     header = next(recs)
     assert header["type"] == "header" and header["version"] == LOG_VERSION
-    world = engine.new_world(header["config"])
+    world = start_of(header)
     if world.hash() != header["hash"]:
         raise AssertionError("initial world differs (engine or config changed)")
     for rec in recs:
@@ -193,6 +209,11 @@ def replay(path: str | Path) -> World:
         if world.hash() != rec["hash"]:
             raise AssertionError(f"replay diverged at tick {rec['tick']}")
     return world
+
+
+def start_of(header: dict) -> World:
+    """The world a log starts from: built from its config, or given whole (a scenario run, aivillage/scenario.py)."""
+    return World.from_dict(header["start"]) if "start" in header else engine.new_world(header["config"])
 
 
 def bots_decider(world: World, kinds: list[str], seed: int) -> DecideFn:
@@ -294,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, ag in agents.items():
         u = ag.usage
         print(f"  {name:8} {ag.client.model:30} calls={u.calls} fail={u.failures} "
-              f"tokens={u.prompt_tokens}+{u.completion_tokens} cost=${u.cost_usd:.4f}"
+              f"tokens={u.prompt_tokens}+{u.completion_tokens} cached={u.cached_tokens} cost=${u.cost_usd:.4f}"
               + (f" answered_by={u.by_model}" if len(u.by_model) > 1 else ""))
     from .llm import _GATES
     for model, g in _GATES.items():
@@ -332,7 +353,10 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
-    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config)
+    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config) \
+        | transport.hidden_actions(world.config) \
+        | hire.hidden_actions(world.config) | construction.hidden_actions(world.config) \
+        | land.hidden_actions(world.config) | settle.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")
@@ -340,7 +364,9 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     for name, m in models.items():
         client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
-                             character=character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name))
+                             character=character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name),
+                             own_goals=bool(world.config.get("own_goals", True)),
+                             memory=world.config.get("llm_memory", "day"))
     return out
 
 

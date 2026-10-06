@@ -12,9 +12,9 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, clock, conflict, construction, crises, debts, dice, family, governance, graves, handbook, illness,
-               labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
-               taxes, threats, tiles, works)
+from . import (addressed, animals, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
+               labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, settle, spoilage,
+               taxes, theft, threats, tiles, transport, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -66,7 +66,9 @@ def new_world(config: dict | None = None) -> World:
         w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]), structure=spec.get("structure"),
                                   level=1 if spec.get("structure") else 0, proposer="council")
     animals.setup(w)
+    transport.setup(w)
     progress.setup(w)
+    settle.setup(w)
     for a in w.agents.values():
         a.busy_until = w.tick + wake_offset(w, a.name)
     return w
@@ -100,7 +102,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     ctx = Ctx(world, rng_for(world, "observe"))
     loc = world.locations[a.location]
     cfg = world.config
-    people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {})}
+    people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {}),
+               **seen_hunger(cfg, o), **conflict.seen_gear(cfg, o)}
               for o in world.agents.values()
               if o.name != name and o.status == "active" and o.location == a.location]
     chest = world.chests[f"chest_{name}"]
@@ -108,16 +111,16 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
                     **({"items": c.items, "coins": c.coins} if ops.can_act(a) and
                        (c.owner == name or name in c.shared_with) else {})}
                    for c in world.chests.values() if c.location == a.location]
-    every = cfg["tax_every_days"]
     beds = plant_info(world, loc)
     obs = {
         "time": {"day": world.day, "hour": world.hour, "minute": world.minute, "day_ends_at": cfg["day_end_hour"],
-                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": taxes.bill(world, a)["total"],
+                 **taxes.time_info(world, a),
                  **seasons.time_info(cfg, world.day)},
         "you": {
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
             "satiety": a.satiety, "health": a.health, "coins": a.coins, "inventory": dict(a.inventory),
             "tool_wear": a.tool_wear, "sick": world.day < a.sick_until_day,
+            **graves.lives_left(cfg, a),
             "evicted": world.day < a.evicted_until_day, "task": a.task,
             "your_chest": {"items": chest.items, "coins": chest.coins, "locked": chest.locked,
                            "shared_with": chest.shared_with},
@@ -138,7 +141,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "debts": debts.board(world),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": works.board(world),
-            "trader_prices": pricing.prices(world),
+            "trader_prices": pricing.prices(world) if labor.trader_here(world) else {},
             "recipes": cfg["recipes"],
             "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
                           for o in world.agents.values()],
@@ -154,6 +157,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(threats.observe(world, name))
     obs.update(animals.observe(world, name))
     obs.update(land.observe(world, name))
+    luxury.show_goods(world, obs)
     obs.update(debts.observe(world, name))
     obs.update(labor.observe(world, name))
     obs.update(graves.observe(world, name))
@@ -161,17 +165,38 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(market.observe(world, name))
     obs.update(works.observe(world, name))
     obs.update(taxes.observe(world, name))
+    obs.update(taxes.board(world))
     obs.update(places.observe(world, name))
     obs.update(chronicle.observe(world, name))
+    obs.update(honors.observe(world, name))
     obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
+    obs.update(crafting.observe(world, name))
+    obs.update(conflict.observe(world, name))
     obs.update(construction.observe(world, name))
+    obs.update(polity.observe(world, name))
+    obs.update(transport.observe(world, name))
+    obs.update(hire.observe(world, name))
+    theft.observe(world, name, obs)
+    obs.update(explore.observe(world, name))
+    obs.update(settle.observe(world, name))
+    obs.update(addressed.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
         a.inbox.clear()
         a.last_error = None
     return obs
+
+
+def seen_hunger(cfg: dict, o) -> dict:
+    """What others see of `o`'s hunger: {"starving": True} at 0 satiety, {"hungry": True} below the line."""
+    below = cfg.get("hungry_seen_below", 0)
+    if not below:
+        return {}
+    if o.satiety <= 0:
+        return {"starving": True}
+    return {"hungry": True} if o.satiety < below else {}
 
 
 def plant_info(world: World, loc) -> dict:
@@ -275,6 +300,8 @@ def continue_task(ctx: Ctx, a: Agent) -> None:
         t["hours_left"] -= 1
         if t["hours_left"] <= 0 or got == 0:
             a.task = None
+    elif t["kind"] == "craft":
+        crafting.continue_task(ctx, a)
     else:  # unknown task kinds never block an agent forever
         a.task = None
 
@@ -284,7 +311,7 @@ def deliver_mail(ctx: Ctx) -> None:
     due = [m for m in w.mail if m.deliver_tick <= w.tick]
     w.mail = [m for m in w.mail if m.deliver_tick > w.tick]
     for m in due:
-        ctx.emit("letter", f'Letter from {m.sender}: "{m.text}"', actor=m.sender, to=[m.to])
+        ctx.emit("letter", f'Letter from {m.sender}: "{m.text}"', actor=m.sender, to=[m.to], text_raw=m.text)
         interrupt(w, m.to)
 
 
@@ -304,7 +331,7 @@ WAKE_RULES: dict[str, str] = {
     "whisper": "direct", "letter": "direct", "offer": "direct", "trade": "direct", "decline": "direct",
     "give": "direct", "lend": "direct", "gift": "direct",
     "steal_attempt": "direct", "witness": "direct", "robbed": "direct", "take_shared": "direct",
-    "fire": "heard", "death": "heard", "order_delivered": "direct",
+    "fire": "heard", "death": "heard", "order_delivered": "direct", "feast": "direct",
     "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
     "inheritance": "direct",
     "fight": "direct", "arson_seen": "direct", "land_offer": "direct", "land_sold": "direct",
@@ -339,7 +366,9 @@ def wake_busy_agents(ctx: Ctx) -> None:
 def end_of_hour(ctx: Ctx) -> None:
     w, cfg = ctx.world, ctx.cfg
     governance.end_of_hour(ctx)
+    polity.end_of_hour(ctx)
     progress.end_of_hour(ctx)
+    crafting.end_of_hour(ctx)
     for a in w.agents.values():
         if a.status != "active":
             continue
@@ -355,6 +384,7 @@ def end_of_hour(ctx: Ctx) -> None:
         burn_for(ctx, f, 1)
     threats.end_of_hour(ctx)
     animals.end_of_hour(ctx)  # hunt parties; herds move and breed on the day's last hour
+    transport.end_of_hour(ctx)  # riders' pace; animals' upkeep on the day's last hour
     illness.end_of_hour(ctx, rng_for(w, "illness"))
     for o in list(w.offers.values()):
         if o.expires_tick <= w.tick:
@@ -364,6 +394,7 @@ def end_of_hour(ctx: Ctx) -> None:
     check_health(ctx)
     family.after_hour(ctx)
     spoilage.end_of_hour(ctx)
+    hire.end_of_hour(ctx)  # jobs: guard hours, deadlines, unpaid shares; hired outsiders work or leave
 
 
 def burn_for(ctx: Ctx, f: Fire, hours: int) -> None:
@@ -424,7 +455,7 @@ def check_health(ctx: Ctx) -> None:
         if a.status != "active" or a.health > 0:
             continue
         a.task, a.asleep = None, False
-        if cfg["death_mode"] == "death":
+        if cfg["death_mode"] == "death" or 0 < cfg.get("lives", 0) <= a.hospital_stays + 1:
             a.status = "dead"
             graves.bury(ctx, a)
             for n in wake_targets(w, ctx.events[-1]):  # the hour's wake-up pass is over: wake them here
@@ -434,8 +465,9 @@ def check_health(ctx: Ctx) -> None:
         for k, v in list(a.inventory.items()):
             ops.burn(w, a.inventory, k, v - v // 2)
         a.status, a.status_until_day = "hospital", w.day + cfg["hospital_days"]
+        a.hospital_stays += 1
         ctx.emit("hospital", f"{a.name} collapsed and was taken to the hospital for {cfg['hospital_days']} days.",
-                 visibility="public")
+                 visibility="public", stays=a.hospital_stays)
 
 
 def night(ctx: Ctx) -> None:
@@ -448,7 +480,7 @@ def night(ctx: Ctx) -> None:
     for a in w.agents.values():
         if a.status != "active":
             continue
-        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"])
+        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"] - seasons.night_hunger(cfg, w.day))
         if a.satiety == 0:
             a.health = max(0, a.health - cfg["starving_health_loss_night"])
         elif (a.location == a.home and w.day >= a.evicted_until_day
@@ -506,7 +538,7 @@ def night(ctx: Ctx) -> None:
                 ops.mint_coins(w, poster, o.reward)
                 ctx.emit("order_expired", f"Nobody delivered your order {o.id}; your {o.reward} coins are back.",
                          to=[poster.name], order=o.id)
-    if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
+    if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"] and taxes.orders_open(w):
         for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
             tpl = ctx.rng.choice(cfg["order_templates"])
             o = Order(w.new_id("order"), dict(tpl["needs"]), taxes.council_reward(cfg, tpl), w.day + cfg["order_ttl_days"])
@@ -514,6 +546,8 @@ def night(ctx: Ctx) -> None:
             ctx.emit("order", f"New order on the board ({o.id}): {fmt_items(o.needs)} for {o.reward} coins, "
                      f"until day {o.expires_day}.", visibility="public")
     plots.after_night(ctx)
+    construction.after_night(ctx)
+    polity.after_night(ctx)
     family.after_night(ctx)
     works.after_night(ctx)
     taxes.after_night(ctx)

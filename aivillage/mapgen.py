@@ -33,6 +33,8 @@ import math
 import random
 from collections import deque
 
+from . import settle
+
 # Footprint of each landmark in tiles, matching the viewer art (viewer/pixelmap.js draws the same
 # pictures, shifted): box (w, h), the anchor (where villagers stand, relative to the box), tiles that
 # block roads, and the reserved area (box plus margins and decor) other things may not overlap.
@@ -272,8 +274,14 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     room = max(grow, math.ceil((n + lots - 5) / 4))  # lots for sale need room at the edges
     size = MAP_SIZES[p["size"]]
     ring, wild = size["ring"], bool(size["wilds"])
-    cols, rows = 44 + 4 * room + 2 * ring, 32 + 4 * room + 2 * ring
-    p = {**p, "spread": p["spread"] + grow}
+    # camp start (settle.py): no houses yet, villagers pick house sites; places further apart, a wider valley
+    camp = settle.active(cfg)
+    sc = (cfg.get("settle") or {}) if camp else {}
+    bonus = int(sc.get("spread_bonus", 0))
+    cols, rows = 44 + 4 * room + 2 * ring + 2 * bonus, 32 + 4 * room + 2 * ring + 2 * bonus
+    p = {**p, "spread": p["spread"] + grow + bonus}
+    gap = int(sc.get("zone_gap", 0))
+    zones: list[tuple[int, int]] = []  # anchors of resource places, kept `gap` tiles apart in a camp start
     g = Grid(cols, rows)
     places: dict[str, dict] = {}
 
@@ -303,7 +311,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
                       for dy in (-1, 0, 1))
 
     def put(pid: str, kind: str, spec: dict, near: tuple[int, int] | None, dmin: int, dmax: int,
-            tries: int = 400) -> None:
+            tries: int = 400, zone: bool = False) -> None:
         w, h = spec["box"]
         ax, ay = spec["anchor"]
         extra = spec.get("extra_rows", 0)
@@ -316,6 +324,8 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             anchor = (x + ax, y + ay)
             if near is not None and not dmin <= abs(anchor[0] - near[0]) + abs(anchor[1] - near[1]) <= dmax:
                 continue
+            if zone and gap and any(abs(anchor[0] - z[0]) + abs(anchor[1] - z[1]) < gap for z in zones):
+                continue
             area = rect(x - 1, y - 1, w + 2, h + 2 + extra)
             if not g.free(rect(x, y, w, h + extra)) or anchor in g.reserved or not g.free([anchor]):
                 continue
@@ -327,25 +337,34 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             if kind == "lake":
                 g.water.update(lake_tiles(x, y, w, h))
             places[pid] = {"kind": kind, "box": [x, y, w, h], "anchor": list(anchor)}
+            if zone:
+                zones.append(anchor)
             return
         raise MapError(f"no room for {pid}")
 
     put("square", "square", LANDMARKS["square"], (cx, cy), 0, 6)
     sq = tuple(places["square"]["anchor"])
+    if camp:
+        zones.append(sq)
+        zones.append(river_anchor)
     put("market", "market", LANDMARKS["market"], sq, 4, 10)
     put("smithy", "smithy", LANDMARKS["smithy"], sq, 5, 14)
     for lid in ("forest", "field", "mine"):
         if lid in base:  # the field exists only in old configs: farming is private now
-            put(lid, lid, LANDMARKS[lid], sq, 7, p["spread"])
-    lo, hi = p["patches"]
+            put(lid, lid, LANDMARKS[lid], sq, 7 + bonus // 2, p["spread"], zone=camp)
+    lo, hi = sc.get("patches") or p["patches"]
     kinds = list(PATCHES)
     count: dict[str, int] = {}
-    for _ in range(rng.randint(lo, hi) + n // 8):
-        kind = kinds[rng.randrange(len(kinds))]
+    if camp:  # every kind of patch before any repeats: groves (game, wood), ponds and quarries in different parts
+        rng.shuffle(kinds)
+    for i in range(rng.randint(lo, hi) + n // 8):
+        kind = kinds[i % len(kinds)] if camp else kinds[rng.randrange(len(kinds))]
         count[kind] = count.get(kind, 0) + 1
-        put(kind if count[kind] == 1 else f"{kind}{count[kind]}", kind, PATCH, sq, 6, p["spread"] + 6)
+        far = int(sc.get("rare_bonus", 0)) if kind == "quarry" else 0  # ore lies a little further out
+        put(kind if count[kind] == 1 else f"{kind}{count[kind]}", kind, PATCH, sq, 6 + far, p["spread"] + 6 + far,
+            zone=camp)
     pool = rng.sample(HAMLET_NAMES, len(HAMLET_NAMES))
-    for _ in range(min(len(pool), n // 4 + rng.randint(0, 1))):
+    for _ in range(0 if camp else min(len(pool), n // 4 + rng.randint(0, 1))):
         hname = pool.pop()
         hid = hname.lower().replace(" ", "_")
         put(hid, "hamlet", HAMLET, sq, 9, p["spread"] + 2)
@@ -388,7 +407,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     draft = _roads(g, anchors, edges, step, wp_names[:])
     hub = distances(draft[0], "square")
     for lid in (LANDMARKS.keys() | {"river"}) & set(base):
-        if hub.get(lid, 10 ** 6) > p["max_landmark_hops"]:
+        if hub.get(lid, 10 ** 6) > p["max_landmark_hops"] + camp:
             raise MapError(f"{lid} is {hub.get(lid)} hours from the square")
     g.road.clear()
 
@@ -416,7 +435,10 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     u = p["unfairness"]
     fortune = _fortune(cfg, u, rng)
     taken: dict[str, int] = {}
-    for name in names:
+    if camp:  # nobody has a house yet: everyone sleeps at the camp, house sites wait around the places
+        homes = {name: [settle.camp(cfg)] for name in names}
+        site_near = _house_sites(g, rng, places, cfg, n, p["home_road"])
+    for name in ([] if camp else names):
         options = ["square"] + hamlets
         # fair: the shortest walk to work and market first; unfair: wherever
         options.sort(key=lambda c: (1 - u) * walk(name, c) + 0.5 * taken.get(c, 0) + rng.random() * (0.5 + 2 * u))
@@ -434,7 +456,16 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     neighbors, routes, waypoints = _roads(g, anchors, edges, step, wp_names[:])
     for wid, (name, t) in waypoints.items():
         places[wid] = {"kind": "waypoint", "box": None, "anchor": list(t), "name": name}
-    for name, (around, ) in homes.items():
+    for sid, near in (site_near.items() if camp else ()):  # each house site's own short road to its place
+        path = g.path(tuple(places[sid]["anchor"]), tuple(places[near]["anchor"]))
+        if path is None or len(path) - 1 > 2 * p["home_road"]:
+            del places[sid]
+            continue
+        routes.append({"a": sid, "b": near, "path": corners(path)})
+        g.road.update(path)
+    if camp and sum(1 for pl in places.values() if pl["kind"] == "homesite") < n:
+        raise MapError("too few house sites")
+    for name, (around, ) in ([] if camp else homes.items()):
         hid = f"home_{name}"
         path = g.path(tuple(places[hid]["anchor"]), tuple(places[around]["anchor"]))
         if path is None or len(path) - 1 > 2 * p["home_road"]:
@@ -472,7 +503,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     lo, hi = p["richness"]
     locations: dict[str, dict] = {}
     for pid, pl in places.items():
-        if pl["kind"] == "home":
+        if pl["kind"] in ("home", "homesite"):
             continue
         if pl["kind"] == "waypoint":
             locations[pid] = {"name": pl["name"], "neighbors": neighbors[pid]}
@@ -532,12 +563,21 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     }
     out["map"] = {**cfg.get("map", {}), "procedural": True, "homes": homes, "layout": layout,
                   "start": {n: {"coins": f["coins"], "items": f["items"],
-                                "plot": places[f"home_{n}"]["plot"]} for n, f in fortune.items()}}
+                                **({} if camp else {"plot": places[f"home_{n}"]["plot"]})}
+                            for n, f in fortune.items()}}
+    if camp:
+        out["map"]["camp"] = True
+        out["map"]["sites"] = {sid: {"near": pl["near"], "cells": PLOT_CELLS}
+                               for sid, pl in places.items() if pl["kind"] == "homesite"}
     # the plots engine (plots.py) reads the start from the agents: yard size in cells and house level
     for a in out["agents"]:
-        f, plot = fortune[a["name"]], places[f"home_{a['name']}"]["plot"]
-        yard = plot[2] * plot[3] - HOUSE["box"][0] * HOUSE["box"][1]
-        a.setdefault("plot_cells", max(1, round(PLOT_CELLS * yard / FAIR_YARD)))
+        f = fortune[a["name"]]
+        if camp:  # every house site has the fair yard
+            a.setdefault("plot_cells", PLOT_CELLS)
+        else:
+            plot = places[f"home_{a['name']}"]["plot"]
+            yard = plot[2] * plot[3] - HOUSE["box"][0] * HOUSE["box"][1]
+            a.setdefault("plot_cells", max(1, round(PLOT_CELLS * yard / FAIR_YARD)))
         a.setdefault("house_level", f["house_level"])
     out["map"]["fairness"] = fairness(out)
     return out
@@ -595,6 +635,28 @@ def _fortune(cfg: dict, u: float, rng: random.Random) -> dict:
             stash[rng.choice(goods)] = rng.randint(1, max(1, round(12 * u)))
         level = 1 + (rng.random() < 0.3 * u) + (rng.random() < 0.1 * u)
         out[a["name"]] = {"yard": (size(), size(), size()), "coins": coins, "items": stash, "house_level": level}
+    return out
+
+
+# Places a villager of a camp start may settle by (house sites around them): not the trader's market, the
+# Smithy (only a place name before someone builds a forge), waypoints, lots or hamlets.
+SITE_KINDS = ("square", "river", "forest", "field", "mine") + tuple(PATCHES) + tuple(WILDS)
+
+
+def _house_sites(g: Grid, rng: random.Random, places: dict, cfg: dict, n: int, limit: int) -> dict[str, str]:
+    """Free house sites (kind "homesite") around the places of a camp start; {site id: place id}.
+    Each gets the fair yard; enough for everyone half again, at least `settle.sites_per_place` per place."""
+    near = [pid for pid in places if places[pid]["kind"] in SITE_KINDS]
+    k = max(int((cfg.get("settle") or {}).get("sites_per_place", 3)), math.ceil(1.5 * n / max(1, len(near))))
+    out: dict[str, str] = {}
+    for _ in range(k):  # round by round, so a crowded map still spreads its sites over all places
+        for pid in near:
+            sid = f"site_{len(out) + 1}"
+            if _place_house(g, rng, places, sid, pid, limit):
+                pl = places.pop(f"home_{sid}")
+                places[sid] = {**pl, "kind": "homesite", "near": pid}
+                del places[sid]["owner"]
+                out[sid] = pid
     return out
 
 
@@ -721,12 +783,13 @@ def check(cfg: dict, base_locations: dict | None = None, p: dict | None = None) 
         from .config import DEFAULT_CONFIG
         base_locations = DEFAULT_CONFIG["locations"]
     for lid in (LANDMARKS.keys() | {"river"}) & set(base_locations):
-        if lid not in d or d[lid] > p["max_landmark_hops"]:
+        if lid not in d or d[lid] > p["max_landmark_hops"] + bool(cfg["map"].get("camp")):
             raise MapError(f"{lid} is {d.get(lid)} hours from the square")
-    for a in cfg["agents"]:
+    landmarks_only = bool(cfg["map"].get("camp"))  # camp start: everyone starts at the camp, homes come later
+    for a in ([] if landmarks_only else cfg["agents"]):
         if d[f"home_{a['name']}"] > p["max_home_hops"]:
             raise MapError(f"{a['name']} lives too far")
-    for name, f in fairness(cfg).items():
+    for name, f in ({} if landmarks_only else fairness(cfg)).items():
         if f["work"] is None or f["work"] > p["max_work_hops"]:
             raise MapError(f"{name} lives {f['work']} hours from work")
         if f["market"] is None or f["market"] > p["max_market_hops"]:

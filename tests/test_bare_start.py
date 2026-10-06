@@ -2,7 +2,7 @@
 
 import json
 
-from aivillage import construction, engine, knobs, modes, ops, progress
+from aivillage import construction, engine, knobs, modes, ops, places, progress
 from aivillage.invariants import check
 
 
@@ -22,7 +22,8 @@ def test_camp_start_is_empty():
         assert a.profession == "laborer" and a.coins == 0 and not any(a.inventory.values())
     homes = [p for p in w.plots.values() if p.kind == "home"]
     assert homes and all(p.house == 0 and not p.buildings for p in homes)
-    assert not w.config["places"]["enabled"] and not w.config["labor"]["own_trade_only"]
+    assert not w.config["labor"]["own_trade_only"]
+    assert w.config["places"]["enabled"] and not places.is_open(w) and places.observe(w, "Anna") == {}
 
 
 def test_hamlet_start_is_the_ready_village():
@@ -31,6 +32,12 @@ def test_hamlet_start_is_the_ready_village():
     assert any(a.profession != "laborer" for a in w.agents.values())
     assert all(a.inventory.get("tool") == 1 for a in w.agents.values())
     assert all(p.house >= 1 for p in w.plots.values() if p.kind == "home" and p.owner)
+    assert all(a.coins == 0 for a in w.agents.values())  # no market square yet, so no coins
+
+
+def test_village_start_has_coins():
+    w = world("village", map={"procedural": True, "unfairness": 1.0})
+    assert progress.stage(w) == "village" and sum(a.coins for a in w.agents.values()) > 0
 
 
 def test_other_modes_untouched():
@@ -47,6 +54,12 @@ def test_camp_laborer_gathers_anything_and_builds_a_house():
     assert a.inventory.get("fish", 0) > 0  # no trade rule in a camp
     step(w, {"Anna": ("sell", {"item": "fish", "qty": 1})})
     assert a.coins == 0 and a.inventory.get("fish", 0) > 0  # no market yet
+    a.location = a.home
+    step(w, {"Anna": ("start_building", {"kind": "house"})})
+    assert not construction.sites(w)  # a spot at the camp has no yard: a house site first (settle.py)
+    a.location, a.busy_until, a.task = "river", w.tick, None
+    step(w, {"Anna": ("settle", {})})
+    assert w.locations[a.home].neighbors == ["river"] and a.home in w.locations["river"].neighbors
     a.location = a.home
     ops.mint(w, a.inventory, "wood", 10)
     ops.mint(w, a.inventory, "stone", 4)
@@ -72,3 +85,67 @@ def test_start_stage_knob_only_in_survival():
     r = knobs.to_run({"mode": "survival", "start_stage": "village"})
     assert r["override"]["progress"] == {"enabled": True, "start_stage": "village"}
     assert progress.stage(engine.new_world(r["override"])) == "village"
+
+
+def test_camp_has_clay_near_and_no_village_projects():
+    w = world()
+    assert "clay" in w.locations["mine"].resources and not w.projects
+    assert {"contribute", "build_work"} <= set(progress.locked_actions(w))
+    t = world("town")
+    assert t.projects and "contribute" not in progress.locked_actions(t)
+
+
+def test_camp_has_wild_grain_and_shows_the_site_price_of_a_house():
+    # final run 2026-10-06: no grain anywhere before the market square, and the plot showed the old
+    # upgrade_house price (6 wood) while a house site needs the catalog's 8
+    from aivillage import plots
+    for kw in ({}, {"map": {"procedural": True}}):
+        w = world(**kw)
+        assert "grain" in w.locations["forest"].resources
+    a = w.agents["Anna"]
+    a.location = "forest"
+    step(w, {"Anna": ("work", {"resource": "grain"})})
+    assert a.inventory.get("grain", 0) > 0
+    assert plots.observe(w, "Anna")["plot"]["upgrade_house"] is None
+
+
+def test_map_smithy_is_no_free_forge_in_an_empty_start():
+    """Once a yard smithy opened the smith's recipes, the map's Smithy place served everyone for free."""
+    from aivillage import crafting
+    w = world()
+    construction.place(w, "smithy", "home_Boris")
+    step(w, {})
+    assert progress.unlocked(w, "recipe:iron")
+    assert crafting.workshops_at(w, "smithy") == []
+    assert crafting.workshops_at(w, "home_Boris")[0]["owner"] == "Boris"
+    assert crafting.workshops_at(world("village"), "smithy")[0]["kind"] == "smithy"  # a ready village keeps it
+
+
+def test_trade_places_open_with_the_market_square():
+    w = world()
+    w.agents["Anna"].location = "square"
+    step(w, {"Anna": ("change_trade", {"profession": "miner"})})
+    assert w.agents["Anna"].profession == "laborer"  # no market square yet
+    from aivillage import llm
+    assert "- Trade places (once a market_square stands in the village)" in llm.world_facts(w.config)
+    construction.place(w, "market_square", "square")
+    step(w, {})
+    assert places.is_open(w) and places.observe(w, "Anna")["your_place"] == "none (laborer)"
+    w.agents["Anna"].busy_until = w.tick
+    step(w, {"Anna": ("change_trade", {"profession": "miner"})})
+    assert w.agents["Anna"].profession == "miner"
+
+
+def test_a_workshop_owner_keeps_its_trade_with_places_open():
+    """The owner takes the workshop's trade back within the hour: losing it would only zero the skill."""
+    w = world()
+    construction.place(w, "market_square", "square")
+    while w.day < 6:  # days pass, then Boris's smithy stands
+        step(w, {})
+    construction.place(w, "smithy", "home_Boris")
+    step(w, {})
+    assert w.agents["Boris"].profession == "smith"
+    events = []
+    while w.day < 11:  # well past idle_days without work at the trade
+        events += engine.step(w, {})
+    assert w.agents["Boris"].profession == "smith" and not any(e.kind == "place_lost" for e in events)

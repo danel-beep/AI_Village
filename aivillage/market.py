@@ -104,6 +104,8 @@ def buy_sale(ctx: Ctx, a: Agent, args: SaleIdArgs) -> None:
     ops.move_coins(a, seller, s.price)
     for k, v in s.items.items():
         ops.mint(w, a.inventory, k, v)
+    from . import places  # places imports labor, which the actions use
+    places.note_supply(w, a, s.items)
     del w.sales[s.id]
     ctx.emit("trade", f"{seller.name} and {a.name} traded: {fmt_items(s.items)} for {s.price} coins.",
              actor=a.name, visibility="public", to=[seller.name], sale=s.id, partner=seller.name)
@@ -193,7 +195,8 @@ def facts(cfg: dict) -> str:
     c = _c(cfg)
     where = "from anywhere" if c["remote"] else f"at the {cfg['locations'][c['place']]['name']}"
     orders = "; villagers' orders can be delivered from anywhere too" if c["remote"] else ""
-    return (f"- Market board: anyone can list items for sale (they are held by the board, {c['sale_hours']} h "
+    from .governance import opens_note  # governance -> actions -> market: import here
+    return (f"- Market board{opens_note(cfg, 'action:post_sale')}: anyone can list items for sale (they are held by the board, {c['sale_hours']} h "
             f"by default) and buy a listing {where}; the coins go to the seller{orders}. \"for_sale\" shows the "
             f"cheapest listings. \"last_seen\" is where you last saw each villager.")
 

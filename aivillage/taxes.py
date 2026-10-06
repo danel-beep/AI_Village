@@ -15,6 +15,9 @@ reward to whoever raced to it first. Now, by world rules only:
 - council orders pay `reward_mult` x the base value of what they need and take part deliveries: every
   delivery is paid at once, its share of the order's value, so villagers can fill one order together.
 
+With village stages on (progress.py, the «С нуля» mode) there is no tax and no council order until a town hall
+stands (`feature:taxes`, `feature:council_orders`): tax days pass without a bill and the board gets no orders.
+
 State: `Agent.earned_since_tax`, `Governance.last_spent_day` / `work_hours`, `Order.payer` / `project` /
 `delivered` / `paid`.
 """
@@ -23,13 +26,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import chronicle, governance, ops, works
+from . import chronicle, debts, governance, ops, progress, works
 from .actions import ItemMap, _items_known
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Order, World
 
 TREASURY = "treasury"
+TAXES = "feature:taxes"  # progress.DEFAULT_UNLOCKS: a town_hall
+COUNCIL_ORDERS = "feature:council_orders"
+progress.DEFAULT_UNLOCKS.setdefault(COUNCIL_ORDERS, {"building": "town_hall"})  # the council posts with a town hall
 
 
 def enabled(cfg: dict) -> bool:
@@ -42,6 +48,24 @@ def _t(cfg: dict) -> dict:
 
 def council_on(cfg: dict) -> bool:
     return bool(cfg.get("council_orders", {}).get("enabled"))
+
+
+def due(world: World) -> bool:
+    """Is there a tax at all yet? False before a town hall when village stages are on."""
+    return progress.unlocked(world, TAXES)
+
+
+def orders_open(world: World) -> bool:
+    """Does the council post orders on the board yet? (engine.night)"""
+    return progress.unlocked(world, COUNCIL_ORDERS)
+
+
+def time_info(world: World, a: Agent) -> dict:
+    """`next_tax_day` and `tax` (the bill so far) for the observation's `time`; {} while there is no tax."""
+    if not due(world) or governance.polity_on(world.config):  # polity.py shows each polity's own tax
+        return {}
+    every = world.config["tax_every_days"]
+    return {"next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": bill(world, a)["total"]}
 
 
 # ---------- the tax bill ----------
@@ -67,7 +91,7 @@ def bill(world: World, a: Agent) -> dict:
 def record_income(world: World, a: Agent, n: int) -> None:
     """Coins `a` got from outside the village (the trader, council orders): the base of the sales tax."""
     chronicle.earned(world, a, n)
-    if enabled(world.config):
+    if enabled(world.config) and due(world):
         a.earned_since_tax += n
 
 
@@ -88,6 +112,8 @@ def pay(world: World, a: Agent, n: int) -> int:
 def collect(ctx: Ctx) -> None:
     """Tax day: every living villager pays their bill; who cannot pay gives all coins and is evicted."""
     w, cfg = ctx.world, ctx.cfg
+    if not due(w) or governance.polity_on(cfg):  # polity.py taxes each polity's own members
+        return
     if governance.voluntary(cfg):
         return write_bills(ctx)
     for a in w.agents.values():
@@ -159,7 +185,7 @@ ops.EVENT_HOOKS.append(_on_event)
 def after_night(ctx: Ctx) -> None:
     """Pay out a treasury surplus that nobody spent for `surplus_idle_days`."""
     w, cfg = ctx.world, ctx.cfg
-    if not (enabled(cfg) and governance.enabled(cfg)):
+    if not (enabled(cfg) and governance.enabled(cfg) and due(w)):
         return
     t, g = _t(cfg), w.governance
     alive = governance.voters(w)
@@ -320,18 +346,56 @@ def treasury_order(ctx: Ctx, a: Agent, args: TreasuryOrderArgs) -> None:
 # ---------- what villagers see ----------
 
 def observe(world: World, name: str) -> dict:
-    if not enabled(world.config):
+    if not enabled(world.config) or not due(world):
         return {}
     a = world.agents[name]
     return {"tax_bill": bill(world, a), "earned_since_tax": a.earned_since_tax}
 
 
+def board(world: World) -> dict:
+    """`tax_board` (voluntary laws, config `laws.tax_board`): for the last `tax_board_rounds` tax days, per treasury,
+    who paid their tax bill, who has not yet, and whose bill is overdue. Read from the debt book's tax bills; no
+    state of its own, nothing follows from it by rule."""
+    cfg = world.config
+    laws = cfg.get("laws") or {}
+    if not governance.voluntary(cfg) or not laws.get("tax_board"):
+        return {}
+    owner = {d: f"{p['name']} ({pid})" for pid, p in world.polities.items() for d in p.get("bills", [])}
+    rounds: dict[tuple[int, str], dict] = {}
+    for d in world.debts.values():
+        if d.kind != "tax" or d.lender != debts.TREASURY:
+            continue
+        r = rounds.setdefault((d.day, owner.get(d.id, "village treasury")),
+                              {"paid": [], "not_paid_yet": {}, "overdue": {}})
+        if d.status == "open":
+            r["not_paid_yet"][d.borrower] = d.coins_owed
+        elif d.status == "defaulted":
+            r["overdue"][d.borrower] = d.coins_owed
+        elif d.status == "repaid":
+            r["paid"].append(d.borrower)
+    days = sorted({day for day, _ in rounds}, reverse=True)[:int(laws.get("tax_board_rounds", 2))]
+    out = [{"tax_day": day, "to": to, **{k: v for k, v in r.items() if v}}
+           for (day, to), r in sorted(rounds.items(), key=lambda x: (-x[0][0], x[0][1])) if day in days]
+    return {"tax_board": out} if out else {}
+
+
 def facts(cfg: dict) -> str:
+    if governance.polity_on(cfg):
+        board = (" \"tax_board\" lists, for the last tax days, who paid their tax bill, who has not yet and whose bill "
+                 "is overdue." if governance.voluntary(cfg) and (cfg.get("laws") or {}).get("tax_board") else "")
+        return (f"- Tax{governance.opens_note(cfg, TAXES)}: only members of a polity pay, what their polity's tax law "
+                f"says.{board}")
+    return _facts(cfg).replace("- Tax:", f"- Tax{governance.opens_note(cfg, TAXES)}:", 1)
+
+
+def _facts(cfg: dict) -> str:
     if governance.voluntary(cfg):
         days = (cfg.get("laws") or {}).get("bill_days", 3)
         base = (f"- Tax: every {cfg['tax_every_days']} days. Nobody takes it: each villager gets a tax bill in the "
                 f"debt book (board.debts, lender treasury), due in {days} days, and pays it with pay_bill (in part or "
-                "in full) or leaves it unpaid. Bills, payments and unpaid bills are public; there is no eviction.")
+                "in full) or leaves it unpaid. Bills, payments and unpaid bills are public; there is no eviction."
+                + (" \"tax_board\" lists, for the last tax days, who paid their tax, who has not yet and whose bill "
+                   "is overdue." if (cfg.get("laws") or {}).get("tax_board") else ""))
     else:
         base = (f"- Tax: every {cfg['tax_every_days']} days. If you cannot pay, it takes all your coins and you are "
                 f"locked out of your house for {cfg['eviction_days']} days.")
@@ -355,6 +419,6 @@ def facts(cfg: dict) -> str:
 def orders_fact(cfg: dict) -> str:
     if not council_on(cfg):
         return "- Orders on the board pay the whole reward to the first person who delivers."
-    return (f"- Council orders pay {cfg['council_orders']['reward_mult']}x the base value of the goods. Anyone can "
+    return (f"- Council orders{governance.opens_note(cfg, COUNCIL_ORDERS)} pay {cfg['council_orders']['reward_mult']}x the base value of the goods. Anyone can "
             "deliver part of a council or treasury order: each delivery is paid at once, its share of the "
             "order's value. A villager's own order pays the whole reward to the first person who delivers it all.")

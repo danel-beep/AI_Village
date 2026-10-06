@@ -68,7 +68,7 @@ def test_gold_glut_and_floor(w):
     act(w, "Dmitri", "sell", item="gold", qty=2)
     assert price(w, "gold", "sell") < full
     w.trader_stock["gold"] = 1000
-    assert price(w, "gold", "sell") == int(12 * 0.5 * 0.3)  # never below the floor
+    assert price(w, "gold", "sell") == round(12 * 0.5 * 0.3)  # never below the floor (nearest coin)
     # buying from him takes it out of his stock
     w.agents["Anna"].location = "market"
     ops.mint_coins(w, w.agents["Anna"], 50)
@@ -136,3 +136,34 @@ def test_save_keeps_trader_stock(w):
     from aivillage.state import World
     w.trader_stock = {"gold": 3}
     assert World.from_dict(w.to_dict()).trader_stock == {"gold": 3}
+
+
+def test_prices_round_to_the_nearest_coin(w):
+    # crafts: fish is worth 3 and the trader pays half, 1.5 -> 2 (cut down, as the old modes still do, it was 1)
+    assert price(w, "fish", "sell") == 2 and price(w, "ore", "sell") == 3 and price(w, "berries", "buy") == 2
+    old = engine.new_world({"seed": 1, "crises": {"enabled": False}})
+    assert engine.observe(old, "Anna")["board"]["trader_prices"]["fish"]["sell"] == 1
+
+
+def test_one_big_sale_slides_like_small_ones(w):
+    small = crafts_world()
+    for x in (w, small):
+        x.agents["Dmitri"].location = "market"
+        gift(x, "Dmitri", ore=6)
+    first = price(w, "ore", "sell")
+    coins = w.agents["Dmitri"].coins
+    act(w, "Dmitri", "sell", item="ore", qty=6)
+    lot = w.agents["Dmitri"].coins - coins
+    assert lot < 6 * first  # each unit he takes lowers the price of the next, inside one lot too
+    coins = small.agents["Dmitri"].coins
+    for _ in range(3):
+        act(small, "Dmitri", "sell", item="ore", qty=2)
+    assert abs(small.agents["Dmitri"].coins - coins - lot) <= 2  # the same ore in three lots: rounding apart
+    assert w.trader_stock["ore"] == small.trader_stock["ore"] == 6
+    # buying a lot back walks the price up again as his stock shrinks
+    w.agents["Anna"].location = "market"
+    ops.mint_coins(w, w.agents["Anna"], 100)
+    unit = price(w, "ore", "buy")
+    coins = w.agents["Anna"].coins
+    act(w, "Anna", "buy", item="ore", qty=2)  # the trader sells 2 a day here
+    assert coins - w.agents["Anna"].coins >= 2 * unit and price(w, "ore", "buy") > unit

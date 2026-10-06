@@ -11,6 +11,10 @@ Owners trade land between themselves: `sell_land(lot, to, price)` offers it to o
 they `buy_land(lot)` from anywhere before the offer runs out, the coins go to the seller and the
 buildings go with the land.
 
+With `land.claim: "first"` nobody sells the empty lots: whoever stands on one first takes it for free
+(`claim_land`) and there is no court; with `claim_jump` a lot with nothing built on it is taken by anyone
+standing there while its owner's household is away. `give_land(lot, to)` hands a lot over for nothing (any mode).
+
 The hand-made map has a few lots in `config.locations`; a generated map (mapgen.py) lays out its
 own, about one per two villagers (`land.lots`), so land is scarce. Numbers: config `land`.
 """
@@ -46,6 +50,28 @@ def setup(world: World) -> None:
                                     price=int(lot["price"]))
 
 
+def first_come(cfg: dict) -> bool:
+    """Empty lots are taken, not bought (config land.claim == "first")."""
+    return cfg.get("land", {}).get("claim") == "first"
+
+
+def hidden_actions(cfg: dict) -> frozenset[str]:
+    """Actions to leave out of the handbook: claim_land unless empty lots are taken first come."""
+    return frozenset() if enabled(cfg) and first_come(cfg) else frozenset({"claim_land"})
+
+
+def claimable(world: World, plot: Plot, name: str) -> bool:
+    """Can `name`, standing on this lot, claim it? An empty one, or (claim_jump) one with nothing built whose
+    household is not there."""
+    if not first_come(world.config) or plot.kind != "lot" or plot.owner == name:
+        return False
+    if not plot.owner:
+        return True
+    if not world.config["land"].get("claim_jump") or plot.buildings or name in plots.household(world, plot):
+        return False
+    return not any(world.agents[o].location == plot.home for o in plots.household(world, plot) if o in world.agents)
+
+
 def lots(world: World) -> list[Plot]:
     return [p for p in world.plots.values() if p.kind == "lot"]
 
@@ -67,7 +93,7 @@ def _avail_buy(ctx: Ctx, a: Agent) -> bool:
     if not enabled(ctx.cfg):
         return False
     here = ctx.world.plots.get(a.location)
-    return bool(here and here.kind == "lot" and not here.owner) or \
+    return bool(here and here.kind == "lot" and not here.owner and not first_come(ctx.cfg)) or \
         any(p.sale and p.sale["to"] == a.name for p in lots(ctx.world))
 
 
@@ -94,6 +120,8 @@ def buy_land(ctx: Ctx, a: Agent, args: BuyArgs) -> None:
         ctx.emit("land_sold", f"{seller.name} sold {name} to {a.name} for {price} coins.", actor=a.name,
                  visibility="public", lot=plot.home, seller=seller.name, buyer=a.name, price=price, to=[seller.name])
         return
+    if first_come(ctx.cfg):
+        raise ActionError(f"nobody sells {name}: an empty lot is taken with claim_land while standing on it")
     if a.location != plot.home:
         raise ActionError(f"go to {plot.home} first: land is bought on the spot")
     if a.coins < plot.price:
@@ -128,6 +156,53 @@ def sell_land(ctx: Ctx, a: Agent, args: SellArgs) -> None:
              actor=a.name, to=[buyer.name], lot=plot.home, price=args.price)
 
 
+@ACTIONS.action("claim_land", "Take the lot you stand on as your own, for nothing: an empty one, or one with nothing "
+                "built on it while its owner's household is away. Nobody judges land disputes.",
+                available=lambda c, a: enabled(c.cfg) and a.location in c.world.plots
+                and claimable(c.world, c.world.plots[a.location], a.name))
+def claim_land(ctx: Ctx, a: Agent, args) -> None:
+    w = ctx.world
+    if not enabled(ctx.cfg) or not first_come(ctx.cfg):
+        raise ActionError("land is not taken for free in this village")
+    plot = _lot(ctx, None, a)
+    name = w.locations[plot.home].name
+    if plot.owner == a.name:
+        raise ActionError("this lot is already yours")
+    if not claimable(w, plot, a.name):
+        held = "something is built on it" if plot.buildings else "its owner's household is here"
+        raise ActionError(f"{name} belongs to {plot.owner} and {held}")
+    old = plot.owner
+    plot.owner, plot.sale = a.name, None
+    text = f"{a.name} took {name} ({plot.cells} cells) as their own"
+    text += f"; {old} held it, nothing was built on it." if old else "."
+    ctx.emit("land_claimed", text, actor=a.name, location=plot.home, visibility="public", lot=plot.home,
+             cells=plot.cells, **({"from_owner": old, "to": [old]} if old else {}))
+
+
+class GiveLandArgs(BaseModel):
+    lot: str = Field(description="id of a lot you own")
+    to: str = Field(description="who gets it")
+
+
+@ACTIONS.action("give_land", "Hand a lot you own to someone for nothing, from anywhere. The buildings on it go "
+                "with the land.", GiveLandArgs,
+                available=lambda c, a: enabled(c.cfg) and any(p.owner == a.name for p in lots(c.world)))
+def give_land(ctx: Ctx, a: Agent, args: GiveLandArgs) -> None:
+    w = ctx.world
+    plot = _lot(ctx, args.lot, a)
+    if plot.owner != a.name:
+        raise ActionError(f"{args.lot} is not yours")
+    to = _agent(ctx, args.to)
+    if to.name == a.name:
+        raise ActionError("it is already yours")
+    if to.status != "active":
+        raise ActionError(f"{to.name} cannot take land now")
+    plot.owner, plot.sale = to.name, None
+    ctx.emit("land_given", f"{a.name} gave {w.locations[plot.home].name} ({plot.home}, {plot.cells} cells, "
+             f"{len(plot.buildings)} buildings) to {to.name}.", actor=a.name, visibility="public", lot=plot.home,
+             to=[to.name], receiver=to.name)
+
+
 # ---------- observation, prompt ----------
 
 def observe(world: World, name: str) -> dict:
@@ -141,8 +216,9 @@ def observe(world: World, name: str) -> dict:
     if mine:
         out["your_lots"] = [{"id": p.home, "cells": p.cells, "free_cells": p.cells - plots.used_cells(cfg, p),
                              "buildings": [plots._building_obs(cfg, b) for b in p.buildings]} for p in mine]
-    out["land_for_sale"] = [{"id": p.home, "name": world.locations[p.home].name, "cells": p.cells, "price": p.price}
-                            for p in lots(world) if not p.owner]
+    free = [{"id": p.home, "name": world.locations[p.home].name, "cells": p.cells,
+             **({} if first_come(cfg) else {"price": p.price})} for p in lots(world) if not p.owner]
+    out["land_free" if first_come(cfg) else "land_for_sale"] = free
     out["land_owners"] = {p.home: p.owner for p in lots(world) if p.owner}
     offers = [{"lot": p.home, "from": p.owner, "price": p.sale["price"], "cells": p.cells}
               for p in lots(world) if p.sale and p.sale["to"] == name and p.sale["expires_tick"] > world.tick]
@@ -153,10 +229,20 @@ def observe(world: World, name: str) -> dict:
 
 def facts(cfg: dict) -> str:
     sale = [(lid, s["lot"]) for lid, s in cfg["locations"].items() if s.get("lot")]
+    if first_come(cfg):
+        listed = ", ".join(f"{lid} ({lot['cells']} cells)" for lid, lot in sale)
+        jump = (" A lot with nothing built on it can be taken the same way by anyone standing there while its "
+                "owner's household is away." if cfg["land"].get("claim_jump") else "")
+        return (f"- Land: there is no common field. Nobody sells the empty lots: whoever stands on one first takes it "
+                f"for free with claim_land: {listed}. Nobody judges land disputes.{jump} A lot you own works like "
+                "your yard (build, plant, collect; others can steal from it). sell_land offers your lot to someone "
+                "for coins, give_land hands it over for nothing.")
     listed = ", ".join(f"{lid} ({lot['cells']} cells, {lot['price']} coins)" for lid, lot in sale)
-    return (f"- Land: there is no common field. Empty lots can be bought with buy_land while standing on them: "
+    from .governance import opens_note  # governance -> actions -> land: import here
+    return (f"- Land: there is no common field. Empty lots can be bought{opens_note(cfg, 'action:buy_land')} with "
+            f"buy_land while standing on them: "
             f"{listed}. A lot you own works like your yard (build, plant, collect; others can steal from it). "
-            "sell_land offers your lot to someone for coins.")
+            "sell_land offers your lot to someone for coins, give_land hands it over for nothing.")
 
 
 def expire_offers(world: World) -> None:

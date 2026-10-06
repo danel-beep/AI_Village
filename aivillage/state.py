@@ -29,8 +29,14 @@ class Agent:
     task: dict | None = None
     busy_until: int = 0  # tick at which the current action (or task step) is over; not asked before it
     tool_wear: int = 0
+    tool_wear_by: dict[str, int] = field(default_factory=dict)  # crafting.py: hours of use per tool kind
+    # crafting.py secret recipes: recipes this agent knows beyond the common ones, and lessons offered to it
+    # ({"teacher", "recipe", "price", "expires_tick"})
+    known_recipes: list[str] = field(default_factory=list)
+    lesson_offers: list[dict] = field(default_factory=list)
     status: str = "active"  # active | hospital | dead
     status_until_day: int = 0
+    hospital_stays: int = 0  # times taken to the hospital (config "lives" caps them; the next collapse is death)
     sick_until_day: int = 0
     evicted_until_day: int = 0
     last_error: str | None = None
@@ -44,6 +50,7 @@ class Agent:
     trade_since_day: int = 0  # day the current trade place was taken with change_trade (0 = from the start)
     earned_since_tax: int = 0  # coins from the trader and council orders since the last tax day (taxes.py)
     skill_hours: int = 0
+    feast_day: int = 0  # luxury.py: last day this villager hosted a feast
     harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
     # dice.py: an open challenge {"to", "stake", "expires_tick"}
     dice_offer: dict | None = None
@@ -170,13 +177,14 @@ class Letter:
 @dataclass
 class LawProposal:
     id: str
-    law: str  # tax | theft_fine | mayor_salary | exile | payout | grant
+    law: str  # tax | theft_fine | mayor_salary | exile | payout | grant | title
     proposer: str
     closes_tick: int
     value: int | None = None
     person: str | None = None
     yes: list[str] = field(default_factory=list)
     no: list[str] = field(default_factory=list)
+    text: str | None = None  # title: the title's words (honors.py)
 
 
 @dataclass
@@ -290,8 +298,18 @@ class World:
     progress: dict[str, Any] = field(default_factory=dict)  # progress.py: village stage and opened mechanics
     # spoilage.py: owner -> item -> [[expire_day, qty], ...] oldest first, as of the last dawn
     spoilage: dict[str, dict[str, list]] = field(default_factory=dict)
+    explore: dict[str, list[str]] = field(default_factory=dict)  # explore.py: villager -> places they know
     # construction.py: {"sites": {id: site}, "buildings": [common buildings]}
     construction: dict[str, Any] = field(default_factory=dict)
+    polities: dict[str, Any] = field(default_factory=dict)  # polity.py: polity id -> polity
+    # transport.py: {"animals": {id: animal}, "wild": {loc: {kind: n}}, "pace": {name: credit}, "sold": {kind: n}}
+    transport: dict[str, Any] = field(default_factory=dict)
+    honors: dict[str, Any] = field(default_factory=dict)  # honors.py: honor board notes and titles
+    hire: dict[str, Any] = field(default_factory=dict)  # hire.py: {"jobs": {id: job}, "npcs": [outsider]}
+    # settle.py (camp start): {"camp": [villagers without a house site yet], "homes": {name: site id},
+    # "trails": {"a|b": times walked}}
+    settle: dict[str, Any] = field(default_factory=dict)
+    addressed: dict[str, list] = field(default_factory=dict)  # addressed.py: name -> messages said to them
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -307,6 +325,21 @@ class World:
         d = asdict(self)
         if not d["animals"]:  # animals off: same dict and hash as before the field existed (old logs, saves)
             del d["animals"]
+        if not d["polities"]:  # polities off or none founded: same dict and hash as before the field existed
+            del d["polities"]
+        if not d["transport"]:  # transport off: same dict and hash as before the field existed
+            del d["transport"]
+        for p in d["governance"]["proposals"].values():  # only title laws have a text: same hash as before
+            if p.get("text") is None:
+                del p["text"]
+        if not d["honors"]:  # honor board off or empty: same dict and hash as before the field existed
+            del d["honors"]
+        if not d["hire"]:  # hiring off or unused: same dict and hash as before the field existed
+            del d["hire"]
+        if not d["settle"]:  # no camp start: same dict and hash as before the field existed
+            del d["settle"]
+        if not d["addressed"]:  # nothing said to anyone yet: same dict and hash as before the field existed
+            del d["addressed"]
         return d
 
     @classmethod
@@ -340,7 +373,14 @@ class World:
             chronicle=d.get("chronicle", {}),
             progress=d.get("progress", {}),
             spoilage=d.get("spoilage", {}),
+            explore=d.get("explore", {}),
             construction=d.get("construction", {}),
+            polities=d.get("polities", {}),
+            transport=d.get("transport", {}),
+            hire=d.get("hire", {}),
+            settle=d.get("settle", {}),
+            honors=d.get("honors", {}),
+            addressed=d.get("addressed", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

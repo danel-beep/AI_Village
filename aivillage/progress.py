@@ -57,6 +57,10 @@ DEFAULT_UNLOCKS: dict[str, dict] = {
     "action:treasury_order": {"building": "town_hall"},
     "action:propose_build": {"building": "town_hall"},
     "action:fund_project": {"building": "town_hall"},
+    # village projects (works.py): contributing, working on them and the council's suggestions
+    "action:contribute": {"building": "town_hall"},
+    "action:build_work": {"building": "town_hall"},
+    "feature:works": {"building": "town_hall"},
     "action:buy_land": {"building": "town_hall"},
     "action:sell_land": {"building": "town_hall"},
     # locks are smith's work; dice need a tavern
@@ -232,6 +236,8 @@ def setup(world: World) -> None:
             pre[kind] = max(pre.get(kind, 0), n)
     st["prebuilt"] = pre
     _refresh(world)
+    if not unlocked(world, "feature:works"):  # no town hall yet: the config's starting village projects wait
+        world.projects = {pid: p for pid, p in world.projects.items() if p.proposer != "council"}
 
 
 def _refresh(world: World) -> list[str]:
@@ -256,6 +262,25 @@ def end_of_hour(ctx: Ctx) -> None:
         st["reached"][sid] = w.day
         ctx.emit("village_stage", f"The village is now a {sid}.", visibility="public", stage=sid, index=st["stage"])
     _refresh(w)
+
+
+def _need_text(kind: str, n: int) -> str:
+    base, _, lvl = kind.partition("@")
+    return f"{n} {base}" + (f" (level {lvl}+)" if lvl else "")
+
+
+def facts(cfg: dict) -> str:
+    """The rules line on stages: what each stage needs standing (from the config, the same all run)."""
+    if not enabled(cfg) or len(stages(cfg)) < 2:
+        return ""
+    steps = [f"a {stages(cfg)[0]['id']} at first"]
+    for i in range(1, len(stages(cfg))):
+        needs = " and ".join(_need_text(k, n) for k, n in _needs(cfg, i).items())
+        steps.append(f"a {stages(cfg)[i]['id']} once {needs} stand in it")
+    return ("- Village stages: the village is " + ", ".join(steps) + ". Every building in the village counts, "
+            "whoever owns it; a stage once reached stays. \"village_stage\" shows the stage and what the next one "
+            "still needs. Some buildings and actions open only at a stage or once a building stands; the rules "
+            "above and below say which.")
 
 
 def observe(world: World, name: str) -> dict:

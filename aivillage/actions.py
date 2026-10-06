@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import clock, crises, labor, ops, plots, pricing, seasons, tiles, works
+from . import clock, crafting, crises, labor, ops, plots, pricing, seasons, theft, tiles, works
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer, Order
@@ -122,7 +122,14 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
     if resource in cfg["professions"].get(a.profession, []):
         amount *= cfg["work_profession_multiplier"]
     amount += labor.bonus(cfg, a, resource)
-    using_tool = resource != "water" and ops.count(a.inventory, "tool") > 0
+    if crafting.enabled(cfg):  # many kinds of tools, each fits some resources and wears on its own
+        if crafting.missing_tool(cfg, a, resource):
+            ctx.emit("work", crafting.missing_tool(cfg, a, resource), to=[a.name])
+            return 0
+        tool, mult = crafting.tool_for(cfg, a, resource) if resource != "water" else (None, 1.0)
+        amount, using_tool = crafting.scale(amount, mult), False
+    else:
+        tool, using_tool = None, resource != "water" and ops.count(a.inventory, "tool") > 0
     if using_tool:
         amount *= cfg["work_tool_multiplier"]
     if resource == "water":
@@ -140,6 +147,7 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
                      f"{loc.name}.", actor=a.name,
                      location=loc.id, resource=resource, slot=slot)
     labor.after_work_hour(ctx, a, resource)
+    crafting.wear(ctx, a, tool)
     if using_tool:
         a.tool_wear += 1
         if a.tool_wear >= cfg["tool_durability_hours"]:
@@ -194,6 +202,8 @@ def work(ctx: Ctx, a: Agent, args: WorkArgs) -> None:
         res = mine[0] if mine else (free[0] if free else next(iter(loc.resources)))
     if res not in loc.resources:
         raise ActionError(f"there is no {res} here; available: {', '.join(loc.resources)}")
+    if crafting.enabled(ctx.cfg) and (why := crafting.missing_tool(ctx.cfg, a, res)):
+        raise ActionError(why)
     if why := labor.may_gather(ctx.cfg, a, res):
         free = labor.free_goods(ctx.cfg, a, list(loc.resources))
         raise ActionError(why + (f"; here you can gather: {', '.join(free)}" if free else "; nothing here is yours to gather"))
@@ -216,6 +226,8 @@ class CraftArgs(BaseModel):
                 "by a smith).",
                 CraftArgs)
 def craft(ctx: Ctx, a: Agent, args: CraftArgs) -> None:
+    if crafting.enabled(ctx.cfg):
+        return crafting.craft(ctx, a, args.recipe, args.times)
     r = ctx.cfg["recipes"].get(args.recipe)
     if r is None:
         raise ActionError(f"unknown recipe '{args.recipe}'; known: {', '.join(ctx.cfg['recipes'])}")
@@ -314,9 +326,17 @@ class GiveArgs(BaseModel):
     coins: int = Field(0, ge=0)
 
 
-@ACTIONS.action("give", "Give items and/or coins to a person here. Nothing is asked in return.", GiveArgs)
+@ACTIONS.action("give", "Give items and/or coins to a person here, or anywhere if World facts say gifts are "
+                "carried. Nothing is asked in return.", GiveArgs)
 def give(ctx: Ctx, a: Agent, args: GiveArgs) -> None:
-    other = _agent_here(ctx, a, args.to)
+    other = _agent(ctx, args.to)
+    carried = labor.trade_anywhere(ctx.cfg) and other.location != a.location  # carried like a trade
+    if not carried:
+        other = _agent_here(ctx, a, args.to)
+    elif other.name == a.name:
+        raise ActionError("you cannot do that to yourself")
+    elif other.status != "active":
+        raise ActionError(f"{other.name} cannot receive anything now")
     _items_known(ctx, args.items)
     if not args.items and not args.coins:
         raise ActionError("give what? items and coins are both empty")
@@ -326,8 +346,8 @@ def give(ctx: Ctx, a: Agent, args: GiveArgs) -> None:
     ops.move_items(a.inventory, other.inventory, args.items)
     ops.move_coins(a, other, args.coins)
     what = fmt_items({**args.items, **({"coins": args.coins} if args.coins else {})})
-    ctx.emit("give", f"{a.name} gave {what} to {other.name}.", actor=a.name, location=a.location,
-             visibility="location", to=[other.name])
+    ctx.emit("give", f"{a.name} gave {what} to {other.name}" + (" (carried)." if carried else "."), actor=a.name,
+             location=a.location, visibility="location", to=[other.name], **({"carried": True} if carried else {}))
 
 
 class LendArgs(BaseModel):
@@ -452,6 +472,9 @@ def accept(ctx: Ctx, a: Agent, args: OfferIdArgs) -> None:
         raise ActionError(f"you do not have {fmt_items(o.want)}")
     _transfer_bundle(sender, a, o.give)
     _transfer_bundle(a, sender, o.want)
+    from . import places  # places imports the action registry
+    places.note_supply(ctx.world, a, o.give)
+    places.note_supply(ctx.world, sender, o.want)
     del ctx.world.offers[o.id]
     ctx.emit("trade", f"{sender.name} and {a.name} traded: {fmt_items(o.give)} for {fmt_items(o.want)}.",
              actor=a.name, location=a.location, visibility="location", to=[sender.name], offer=o.id, partner=sender.name)
@@ -472,11 +495,12 @@ class MarketArgs(BaseModel):
     qty: int = Field(1, ge=1, le=100)
 
 
-def _price(ctx: Ctx, item: str, side: str) -> int:
+def _price(ctx: Ctx, item: str, side: str, qty: int) -> int:
+    """Coins for a lot (pricing.total: the stock-driven price slides unit by unit within the lot)."""
     info = ctx.cfg["items"].get(item)
     if info is None or not info.get("tradable", True):
         raise ActionError(f"the trader does not deal in {item}")
-    return pricing.price(ctx.world, item, side)
+    return pricing.total(ctx.world, item, side, qty)
 
 
 @ACTIONS.action("buy", "Buy from the trader at the market (expensive).", MarketArgs,
@@ -484,13 +508,15 @@ def _price(ctx: Ctx, item: str, side: str) -> int:
 def buy(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     if a.location != "market":
         raise ActionError("the trader is at the market")
-    cost = _price(ctx, args.item, "buy") * args.qty
+    cost = _price(ctx, args.item, "buy", args.qty)
     if a.coins < cost:
         raise ActionError(f"that costs {cost} coins, you have {a.coins}")
     labor.trader_deal(ctx.world, args.item, args.qty, "sell")
     pricing.trader_sold(ctx.world, args.item, args.qty)
     ops.burn_coins(ctx.world, a, cost)
     ops.mint(ctx.world, a.inventory, args.item, args.qty)
+    from . import places
+    places.note_supply(ctx.world, a, {args.item: args.qty})
     ctx.emit("buy", f"{a.name} bought {args.qty} {args.item} from the trader for {cost} coins.", actor=a.name,
              location=a.location, visibility="location")
 
@@ -500,15 +526,15 @@ def buy(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
 def sell(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     if a.location != "market":
         raise ActionError("the trader is at the market")
-    price = _price(ctx, args.item, "sell")
     _need(a.inventory, {args.item: args.qty})
-    labor.trader_deal(ctx.world, args.item, args.qty, "buy")
+    coins = _price(ctx, args.item, "sell", args.qty)
+    labor.trader_deal(ctx.world, args.item, args.qty, "buy", coins)
     pricing.trader_bought(ctx.world, args.item, args.qty)
     ops.burn(ctx.world, a.inventory, args.item, args.qty)
-    ops.mint_coins(ctx.world, a, price * args.qty)
+    ops.mint_coins(ctx.world, a, coins)
     from . import taxes  # taxes imports actions
-    taxes.record_income(ctx.world, a, price * args.qty)
-    ctx.emit("sell", f"{a.name} sold {args.qty} {args.item} to the trader for {price * args.qty} coins.",
+    taxes.record_income(ctx.world, a, coins)
+    ctx.emit("sell", f"{a.name} sold {args.qty} {args.item} to the trader for {coins} coins.",
              actor=a.name, location=a.location, visibility="location")
 
 
@@ -598,7 +624,7 @@ def install_lock(ctx: Ctx, a: Agent, args) -> None:
 
 
 class StealArgs(BaseModel):
-    target: str = Field(description="a person here, or 'chest' for the chest here")
+    target: str = Field(description="a person here, or 'chest' for the chest here (or 'treasury' where one is kept)")
     item: str = Field(description="item name or 'coins'")
     qty: int = Field(1, ge=1)
 
@@ -606,33 +632,48 @@ class StealArgs(BaseModel):
 @ACTIONS.action("steal", "Try to steal from a person here or from the chest here. Others may see you.",
                 StealArgs)
 def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
-    cfg = ctx.cfg
+    cfg, w = ctx.cfg, ctx.world
     qty = min(args.qty, cfg["max_steal_qty"])
     if args.item != "coins":
         _items_known(ctx, {args.item: 1})
-    if args.target.lower() == "chest":
+    seen_by: list[str] = []  # the victim who saw who did it (theft.py: owner at home, awake victim)
+    books = None
+    if args.target.lower() == "treasury":
+        found = theft.treasury_here(w, a)
+        if found is None:
+            raise ActionError("there is no treasury here to steal from")
+        if args.item != "coins":
+            raise ActionError("a treasury holds only coins")
+        holder, books, victim_name = found
+        src, success = None, True
+    elif args.target.lower() == "chest":
         chest = _chest_here(ctx, a)
         if chest.owner == a.name:
             raise ActionError("that is your own chest")
         if chest.locked:
             raise ActionError("the chest is locked")
         victim_name, holder, src, success = chest.owner, chest, chest.items, True
+        owner = w.agents.get(chest.owner)
+        if theft.enabled(cfg) and owner and owner.status == "active" and not owner.asleep \
+                and owner.location == a.location and ctx.rng.random() < theft.owner_chance(w):
+            seen_by = [owner.name]
     else:
         victim = _agent_here(ctx, a, args.target)
         victim_name, holder, src = victim.name, victim, victim.inventory
         success = victim.asleep or ctx.rng.random() < cfg["steal_awake_target_success"]
-        if not victim.asleep:
-            # An awake victim always notices the attempt.
-            ctx.emit("steal_attempt", f"{a.name} tried to steal {args.item} from you!", actor=a.name,
-                     to=[victim.name])
+        # An awake victim notices the attempt (always, unless theft.victim_notice_chance says otherwise).
+        if not victim.asleep and (not theft.enabled(cfg) or ctx.rng.random() < theft.victim_chance(w)):
+            seen_by = [victim.name]
+    for v in seen_by:
+        ctx.emit("steal_attempt", f"{a.name} tried to steal {args.item} from you!", actor=a.name, to=[v])
     stock = holder.coins if args.item == "coins" else ops.count(src, args.item)
     qty = min(qty, stock)
-    witnesses = [o.name for o in ctx.world.agents.values()
+    witnesses = [o.name for o in w.agents.values()
                  if o.status == "active" and not o.asleep and o.location == a.location
                  and o.name not in (a.name, victim_name)
-                 and ctx.rng.random() < cfg["steal_notice_chance"] + works.notice_bonus(ctx.world)]
-    for w in witnesses:
-        ctx.emit("witness", f"You saw {a.name} steal {args.item} from {victim_name}!", actor=a.name, to=[w],
+                 and ctx.rng.random() < theft.notice(w, cfg["steal_notice_chance"] + works.notice_bonus(w))]
+    for x in witnesses:
+        ctx.emit("witness", f"You saw {a.name} steal {args.item} from {victim_name}!", actor=a.name, to=[x],
                  thief=a.name, victim=victim_name)
     if not success or qty == 0:
         ctx.emit("steal", f"Your theft from {victim_name} failed.", actor=a.name, to=[a.name],
@@ -643,7 +684,11 @@ def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
     else:
         ops.move_items(src, a.inventory, {args.item: qty})
     ctx.emit("steal", f"You stole {qty} {args.item} from {victim_name}.", actor=a.name, to=[a.name],
-             victim=victim_name, success=True, qty=qty, item=args.item, witnesses=witnesses)
+             victim=victim_name, success=True, qty=qty, item=args.item, witnesses=witnesses,
+             **({"seen_by": seen_by} if seen_by else {}))
+    if books is not None:  # nobody is told; the books still show the coins until an audit
+        theft.take_from_treasury(w, books, qty)
+        return
     # The victim learns about the loss, but not who did it (unless they were awake and present).
     ctx.emit("robbed", f"Someone stole {qty} {args.item} from you.", to=[victim_name], victim=victim_name)
 

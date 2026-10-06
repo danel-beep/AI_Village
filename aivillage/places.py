@@ -6,11 +6,13 @@ Each profession has a limited number of places: ceil(`spare` x villagers x the p
 - `change_trade(profession)` at the square takes a free place of another trade: skill starts again from 0,
   and the next change is possible after `change_cooldown_days`;
 - whoever has not worked at their own trade (gathered its goods, made its recipes, sown or harvested its
-  crops) for `idle_days` days loses the place at dawn and becomes a laborer (`LABORER`: no trade goods,
+  crops, buying inputs for its recipes) for `idle_days` days loses the place at dawn and becomes a laborer (`LABORER`: no trade goods,
   free goods and village work only) until they take a free place again;
 - the law "revoke_place" (governance.py) takes a person's place by vote.
 
 So a villager can want a rival to miss work: that frees a place. No new way to hurt anyone is added.
+With village stages (progress.py) the places open with change_trade (a market square): before that nobody
+sees them and nobody loses a place, so a camp start of laborers is unchanged until then.
 State: `Agent.trade_day` (last day of work at the trade; gathering is counted in `labor.after_work_hour`), `Agent.trade_since_day` (day the place was taken).
 """
 
@@ -20,7 +22,7 @@ import math
 
 from pydantic import BaseModel
 
-from . import labor, ops, population
+from . import crafting, labor, ops, population, progress
 from .ops import Ctx, Event
 from .registry import ACTIONS, ActionError
 from .state import Agent, World
@@ -31,6 +33,16 @@ SITE = "square"
 
 def enabled(cfg: dict) -> bool:
     return bool(cfg.get("places", {}).get("enabled"))
+
+
+def _workshop_held(cfg: dict) -> bool:
+    """The owner of a workshop takes its trade (crafting.py), so they hold that trade by the workshop."""
+    return crafting.enabled(cfg) and cfg["crafting"].get("owner_takes_trade", True)
+
+
+def is_open(world: World) -> bool:
+    """Places are on and, with village stages, already open (they come with change_trade)."""
+    return enabled(world.config) and progress.unlocked(world, "action:change_trade")
 
 
 def _p(cfg: dict) -> dict:
@@ -91,6 +103,17 @@ def _on_event(ctx: Ctx, ev: Event, names: list[str]) -> None:
 ops.EVENT_HOOKS.append(_on_event)
 
 
+def note_supply(world: World, a: Agent, items: dict) -> None:
+    """Getting inputs for one's own trade's recipes (buying ore and wood as a smith) is work at the trade too:
+    a smith waiting for ore no longer loses the place for days without a forge (economy audit, item 6)."""
+    cfg = world.config
+    if not enabled(cfg) or a.profession == LABORER or not items:
+        return
+    inputs = {k for r in cfg["recipes"].values() if r.get("profession") == a.profession for k in r["inputs"]}
+    if inputs & {k for k, n in items.items() if n > 0}:
+        a.trade_day = world.day
+
+
 # ---------- actions ----------
 
 class ChangeTradeArgs(BaseModel):
@@ -134,20 +157,24 @@ def lose_place(ctx: Ctx, a: Agent, why: str) -> None:
 def after_night(ctx: Ctx) -> None:
     """Dawn: whoever did not work at their trade for `idle_days` days loses the place."""
     w, cfg = ctx.world, ctx.cfg
-    if not enabled(cfg):
+    if not is_open(w):
         return
     idle = _p(cfg).get("idle_days", 0)
     if not idle:
         return
+    # a workshop's owner would take its trade again within the hour, with skill from zero: they keep it instead
+    trades = cfg["crafting"].get("workshops", {}) if _workshop_held(cfg) else {}
+    held = {(o, trades.get(k)) for o, k in crafting.owned_workshops(w)} if trades else set()
     for a in sorted(w.agents.values(), key=lambda x: x.name):
-        if a.status != "dead" and a.profession != LABORER and days_idle(w, a) > idle:
+        if a.status != "dead" and a.profession != LABORER and (a.name, a.profession) not in held \
+                and days_idle(w, a) > idle:
             lose_place(ctx, a, f"no work at the trade for {idle} days")
 
 
 # ---------- what villagers see ----------
 
 def observe(world: World, name: str) -> dict:
-    if not enabled(world.config):
+    if not is_open(world):
         return {}
     a = world.agents[name]
     out = {"trade_places": table(world)}
@@ -163,11 +190,16 @@ def observe(world: World, name: str) -> dict:
 def facts(cfg: dict) -> str:
     if not enabled(cfg):
         return ""
+    from .governance import opens_note
     p = _p(cfg)
-    caps = ", ".join(f"{t} {capacity(cfg, t)}" for t in trades(cfg))
-    return (f"- Trade places: each trade has a limited number of places ({caps}); \"trade_places\" shows how many "
-            f"are taken. change_trade at the square takes a free place in another trade (skill starts from zero; "
-            f"next change after {p['change_cooldown_days']} days). Whoever does no work at their trade (gathering "
-            f"its goods, making its recipes, sowing or harvesting its crop) for {p['idle_days']} days loses the "
-            f"place at dawn and is a laborer (free goods and village work only) until taking a free place. The "
-            f"law revoke_place takes a person's place by vote.")
+    open_goods = not cfg["labor"].get("own_trade_only", True)  # anyone gathers anything: say which goods each trade's skill is for
+    caps = ", ".join(f"{t} {capacity(cfg, t)}" + (f" ({', '.join(g)})" if open_goods and (g := cfg["professions"][t])
+                                                  else "") for t in trades(cfg))
+    laborer = "a laborer again" if open_goods else f"a laborer ({labor.laborer_text(cfg)})"
+    return (f"- Trade places{opens_note(cfg, 'action:change_trade')}: each trade has a limited number of places "
+            f"({caps}); \"trade_places\" shows how many are taken. change_trade at the square takes a free place in "
+            f"another trade (skill starts from zero; next change after {p['change_cooldown_days']} days). Whoever "
+            f"does no work at their trade (gathering its goods, making its recipes, sowing or harvesting its crop, getting inputs for its recipes) "
+            f"for {p['idle_days']} days loses the place at dawn and is {laborer} until taking a free place"
+            f"{' (the owner of a workshop keeps its trade)' if _workshop_held(cfg) else ''}. The law "
+            f"revoke_place takes a person's place by vote.")

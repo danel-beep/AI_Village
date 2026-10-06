@@ -156,7 +156,7 @@ def test_hunted_out_place_gets_strays_only_by_chance():
     assert "river" not in w.animals["herds"]
     w.config["animals"]["stray_chance"] = 1.0
     animals._night(engine.Ctx(w, engine.rng_for(w)), engine.rng_for(w, "x"))
-    assert w.animals["herds"]["river"]["duck"] == 2
+    assert w.animals["herds"]["river"]["duck"] == w.config["animals"]["stray_count"]
 
 
 def test_errors_and_facts_are_plain():

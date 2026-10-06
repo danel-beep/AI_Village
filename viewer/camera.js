@@ -71,11 +71,11 @@ const Camera = (() => {
   // ---------- director: pick the most interesting event and frame it ----------
   // Score per event kind; unknown kinds score 0 and are never chosen. Fights/attacks are matched by name, so new
   // combat events from the engine are picked up without changes here.
-  const DRAMA = { fire: 10, fire_grows: 7, burned_down: 9, extinguish: 8, fire_out: 8, pour_water: 6, death: 10,
+  const DRAMA = { feast: 6, fire: 10, fire_grows: 7, burned_down: 9, extinguish: 8, fire_out: 8, pour_water: 6, death: 10,
     steal: 9, theft: 9, steal_attempt: 8, robbed: 8, witness: 6, caught: 8, report_theft: 6, eviction: 7, hospital: 7,
     wedding: 8, proposal: 7, proposal_refused: 6, divorce: 7, inheritance: 6, exile: 8, elected: 7, law_passed: 6,
     law_proposed: 4, election: 7, starving: 5, run_for_mayor: 4, candidate: 4, election_day: 3, vote: 2, default: 6, lend: 3, trade: 3, give: 3, gift: 3, whisper: 2,
-    gossip: 3, say: 1, offer: 2, set_fire: 9, arson_seen: 9, land_bought: 5, land_sold: 5, land_offer: 2,
+    gossip: 3, praise: 4, title_given: 7, say: 1, offer: 2, set_fire: 9, arson_seen: 9, land_bought: 5, land_sold: 5, land_offer: 2,
     // threats from outside (aivillage/threats.py)
     threat_arrived: 10, beast_attack: 9, plundered: 9, defend: 9, threat_defeated: 9, threat_moves: 6,
     threat_left: 5, threat_warning: 5, help_stranger: 4, chase_stranger: 5 };
@@ -85,7 +85,7 @@ const Camera = (() => {
     hospital: '🏥 В больницу', wedding: '💍 Свадьба', proposal: '💍 Предложение', divorce: '💔 Развод', exile: '⛔ Изгнание',
     elected: '🏛 Выборы', law_passed: '📜 Новый закон', law_proposed: '📜 Закон', run_for_mayor: '🏛 Выборы', candidate: '🏛 Выборы', election_day: '🗳 День выборов', vote: '🗳 Выборы',
     default: '💸 Долг не вернули', election: '🏛 Итоги выборов', starving: '😫 Голод', offer: '💬 Торгуются',
-    say: '💬 Разговор', whisper: '🤫 Шепчутся', decline: '💬 Отказ', lend: '💰 Заём', trade: '🤝 Сделка', give: '🎁 Подарок', gift: '🎁 Подарок', gossip: '🗣 Сплетня',
+    say: '💬 Разговор', whisper: '🤫 Шепчутся', decline: '💬 Отказ', lend: '💰 Заём', trade: '🤝 Сделка', give: '🎁 Подарок', gift: '🎁 Подарок', gossip: '🗣 Сплетня', praise: '🏅 Похвала', title_given: '🏅 Звание',
     set_fire: '🔥 Поджог', arson_seen: '🔥 Поджог', land_bought: '🏡 Купил землю', land_sold: '🏡 Продал землю', land_offer: '🏡 Продаёт землю',
     threat_arrived: '⚠ Беда пришла', beast_attack: '🐺 Зверь нападает', plundered: '🗡 Грабят', defend: '⚔ Отбиваются',
     threat_defeated: '🏆 Отбились', threat_moves: '👣 Идёт к следующему дому', threat_left: '🌲 Ушёл',

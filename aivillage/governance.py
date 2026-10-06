@@ -11,6 +11,11 @@ Rules, in the order an agent meets them:
   exile (person loses market, orders and votes for `exile_days`), payout (treasury split equally),
   grant (coins from the treasury to one person).
 - Witnesses and awake victims of a theft can `report_theft`: the thief pays the theft_fine.
+- With village stages on (progress.py, the «С нуля» mode) there is no government until a town hall stands
+  (`feature:elections`): no election days, announcements or mayor salary, and the observation says so.
+- With polities on (config `polity.enabled`, polity.py) there is no village-wide government at all: the mayor's
+  actions are refused and hidden (`REPLACED`), no elections are held, report_theft carries no village fine.
+  Each polity makes its own laws. The hooks below (`polity_on`, `_polity_guard`) are all this module knows of it.
 
 State lives in `world.governance`; the treasury is `world.governance.coins` (ledger-safe moves only).
 """
@@ -22,7 +27,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import clock, ops
+from . import clock, honors, ops, progress, theft
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -30,13 +35,41 @@ from .state import Agent, LawProposal, World
 
 NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax")
 TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enabled (taxes.py)
-LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant")
+LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant", "title")
+ELECTIONS = "feature:elections"  # progress.DEFAULT_UNLOCKS: a town_hall
+# The village-wide government's actions; with polities on each polity governs itself instead (polity.py).
+REPLACED = ("run_for_mayor", "vote", "propose_law", "vote_law", "embezzle", "audit_treasury", "treasury_order")
+
+
+def opens_when(cfg: dict, key: str) -> str:
+    """"once a town_hall stands in the village" for a mechanic that village stages (progress.py) keep closed at
+    first; "" with progress off or a key with no rule. From the config only, so prompt rules stay the same all run."""
+    if not progress.enabled(cfg):
+        return ""
+    rule = progress.rules(cfg).get(key) or {}
+    parts = []
+    if rule.get("building"):
+        parts.append(f"a {rule['building']} stands in the village")
+    if rule.get("stage"):
+        parts.append(f"the village is a {rule['stage']}")
+    return f"once {' and '.join(parts)}" if parts else ""
+
+
+def opens_note(cfg: dict, key: str) -> str:
+    """opens_when in brackets, for a line of the rules: " (once a town_hall stands in the village)" or ""."""
+    when = opens_when(cfg, key)
+    return f" ({when})" if when else ""
 
 
 # ---------- queries ----------
 
 def enabled(cfg: dict) -> bool:
     return bool(cfg.get("governance", {}).get("enabled"))
+
+
+def polity_on(cfg: dict) -> bool:
+    """Config `polity.enabled`: town halls found polities that govern themselves (polity.py)."""
+    return bool((cfg.get("polity") or {}).get("enabled"))
 
 
 def voluntary(cfg: dict) -> bool:
@@ -69,6 +102,8 @@ def law(world: World, name: str) -> int:
         return world.governance.laws[name]
     if name == "tax":
         return cfg["tax_amount"]
+    if name == "theft_fine" and polity_on(cfg):  # no village-wide fine: polities fine their own members
+        return 0
     if name in TAX_RATES:
         t = cfg.get("taxes") or {}
         return t.get("sales_pct" if name == "sales_tax" else "wealth_pct", 0) if t.get("enabled") else 0
@@ -125,11 +160,20 @@ def describe_law(p: LawProposal) -> str:
         return f"take {p.person}'s trade place"
     if p.law == "grant":
         return f"grant {p.value} coins from the treasury to {p.person}"
+    if p.law == "title":
+        return f"give {p.person} the title \"{p.text}\""
     return "pay out the treasury equally to all villagers"
 
 
 def observe(world: World, name: str) -> dict:
     g, cfg = world.governance, world.config
+    if not progress.unlocked(world, ELECTIONS):
+        return {"mayor": None, "not_yet": "a mayor, elections, laws and a treasury start "
+                + (opens_when(cfg, ELECTIONS) or "later")}
+    if polity_on(cfg):
+        return {"mayor": None, "village_government": "none: each polity (see polities) makes its own laws",
+                "thefts_you_can_report": [{"thief": c["thief"], "victim": c["victim"], "day": c["day"]}
+                                          for c in g.crimes if name in c["known_by"]]}
     return {
         "mayor": g.mayor, "you_are_mayor": g.mayor == name,
         # Only the mayor holds the treasury and sees what is really in it; everyone else sees the books.
@@ -154,10 +198,14 @@ def observe(world: World, name: str) -> dict:
 def facts(cfg: dict) -> str:
     """One line for the model's rules cheat sheet."""
     g = _g(cfg)
-    return (f"- Government: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
+    if polity_on(cfg):
+        from . import polity  # polity imports this module
+        return (polity.facts(cfg) + "\n- Witnesses and victims of a theft, attack or arson can report_theft"
+                + opens_note(cfg, ELECTIONS) + ": everyone learns who did it.")
+    return (f"- Government{opens_note(cfg, ELECTIONS)}: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
-            + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant); everyone votes with vote_law; a law passes when "
+            + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant" + (", title" if honors.enabled(cfg) else "") + "); everyone votes with vote_law; a law passes when "
             "more than half of all villagers vote yes. Tax goes to the village treasury. Witnesses and victims of a "
             "theft, attack or arson can report_theft: the culprit "
             + ("gets a bill for the theft_fine in the debt book (paid with pay_bill or left unpaid)."
@@ -178,6 +226,15 @@ def _exile_guard(ctx: Ctx, a: Agent, action: str) -> str | None:
 
 
 ACTIONS.guards.append(_exile_guard)
+
+
+def _polity_guard(ctx: Ctx, a: Agent, action: str) -> str | None:
+    if action in REPLACED and polity_on(ctx.cfg):
+        return "there is no village-wide government here; each polity makes its own laws (polity_propose)"
+    return None
+
+
+ACTIONS.guards.append(_polity_guard)
 
 
 def _require(ctx: Ctx) -> None:
@@ -226,16 +283,18 @@ def vote(ctx: Ctx, a: Agent, args: VoteArgs) -> None:
 
 class ProposeArgs(BaseModel):
     law: Literal["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "revoke_place", "payout",
-                 "grant"]
+                 "grant", "title"]
     value: int | None = Field(None, description="coins, for tax/theft_fine/mayor_salary/grant; percent, for "
                               "sales_tax/wealth_tax")
-    person: str | None = Field(None, description="for exile/revoke_place/grant")
+    person: str | None = Field(None, description="for exile/revoke_place/grant/title")
+    text: str | None = Field(None, description="for title: the title's words")
 
 
 @ACTIONS.action("propose_law", "Mayor only: put a law to the vote. tax/theft_fine/mayor_salary need value "
                 "(coins), sales_tax/wealth_tax need value (percent; where World facts list them); exile needs "
                 "person; revoke_place needs person (takes their trade place, where World facts list it); grant "
-                "needs person and value (paid from the treasury); payout splits the treasury equally.", ProposeArgs,
+                "needs person and value (paid from the treasury); payout splits the treasury equally; title needs person and "
+                "text (a title on the honor board, where World facts list it).", ProposeArgs,
                 available=lambda c, a: enabled(c.cfg) and c.world.governance.mayor == a.name)
 def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
     _require(ctx)
@@ -250,20 +309,21 @@ def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
         raise ActionError(f"this village has no {args.law}")
     if args.law == "revoke_place" and not (ctx.cfg.get("places") or {}).get("enabled"):
         raise ActionError("trades have no places in this village")
+    text = honors.check_title(ctx, args.text) if args.law == "title" else None
     if args.law in NUMBER_LAWS or args.law == "grant":
         lo, hi = gc["limits"][args.law]
         if value is None or not lo <= value <= hi:
             raise ActionError(f"{args.law} needs value between {lo} and {hi}")
     else:
         value = None
-    if args.law in ("exile", "revoke_place", "grant"):
+    if args.law in ("exile", "revoke_place", "grant", "title"):
         if not args.person:
             raise ActionError(f"{args.law} needs person")
         target = _agent(ctx, args.person)
         if target.status == "dead":
             raise ActionError(f"{target.name} is dead")
         person = target.name
-    p = LawProposal(w.new_id("law"), args.law, a.name, w.tick + clock.hours(ctx.cfg, gc["law_vote_hours"]), value, person, yes=[a.name])
+    p = LawProposal(w.new_id("law"), args.law, a.name, w.tick + clock.hours(ctx.cfg, gc["law_vote_hours"]), value, person, yes=[a.name], text=text)
     g.proposals[p.id] = p
     ctx.emit("law_proposed", f"Mayor {a.name} proposes a law ({p.id}): {describe_law(p)}. Vote with vote_law "
              f"until {tick_time(ctx.cfg, p.closes_tick)}.", actor=a.name, visibility="public", law=p.id)
@@ -404,6 +464,8 @@ def _apply_law(ctx: Ctx, p: LawProposal) -> str:
             return " There is no place to take."
         places.lose_place(ctx, target, "taken by law")
         return ""
+    if p.law == "title":
+        return honors.give_title(ctx, p.person, p.text, "the village")
     if p.law == "grant":
         if target is None or target.status == "dead":
             return " Nobody to pay."
@@ -453,10 +515,13 @@ def _count_election(ctx: Ctx, day: int) -> None:
 
 def new_day(ctx: Ctx) -> None:
     """Called at dawn (world.day is already the new day), before the weekly tax."""
-    if not enabled(ctx.cfg):
+    if not enabled(ctx.cfg) or not progress.unlocked(ctx.world, ELECTIONS):
         return
     w, cfg = ctx.world, ctx.cfg
     g = w.governance
+    if polity_on(cfg):  # no elections, salary or exile: only witnessed crimes are kept for report_theft
+        g.crimes = [c for c in g.crimes if w.day - c["day"] < _g(cfg)["crime_memory_days"]]
+        return
     if is_election_day(cfg, w.day - 1):
         _count_election(ctx, w.day - 1)
     for n, until in list(g.exiled.items()):
@@ -527,6 +592,10 @@ def audit(ctx: Ctx, who: str, actor: str | None = None) -> None:
         return
     knowers = [n for n in voters(w) if n not in g.embezzled]
     for mayor, n in sorted(g.embezzled.items()):
+        if mayor == theft.UNKNOWN:  # theft.py: a thief, not the mayor, took these
+            ctx.emit("embezzlement_found", f"{who}: {n} coins are missing from the treasury; nobody knows who took "
+                     f"them. The books now show {g.coins} coins.", actor=actor, visibility="public", coins=n)
+            continue
         ctx.emit("embezzlement_found", f"{who}: {n} coins are missing from the treasury. They were taken by "
                  f"{mayor} while mayor. The books now show {g.coins} coins.", actor=actor, visibility="public",
                  mayor=mayor, coins=n)

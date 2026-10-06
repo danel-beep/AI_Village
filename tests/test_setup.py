@@ -20,7 +20,7 @@ def test_every_mode_has_a_slider_position_for_every_config_knob():
 def test_to_run_defaults_follow_the_mode_and_answers_win():
     r = knobs.to_run({"mode": "peaceful"})
     assert r["llm"] and r["days"] == 3 and r["override"]["population"] == {"size": 5}
-    assert r["override"]["start_coins"] == 40 and r["override"]["map"]["unfairness"] == 0.1 and r["override"]["map"]["procedural"] is True
+    assert r["override"]["start_coins"] == 40 and r["override"]["map"] == {"unfairness": 0.1, "procedural": True, "size": "normal"}
     r = knobs.to_run({"mode": "lawless", "brains": "bots", "start_coins": 7, "steal_notice_chance": 25,
                       "unfairness": 10, "seasons": False, "fixed_map": True, "villagers": 999})
     o = r["override"]

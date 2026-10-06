@@ -203,7 +203,7 @@ def test_crafts_mode_turns_taxes_on():
     w = engine.new_world({"seed": 1, **world_override("crafts")})
     assert taxes.enabled(w.config) and taxes.council_on(w.config) and w.config["tax_amount"] == 10
     facts = world_facts(w.config)
-    assert "sales_tax" in facts and "Council orders pay 1.6x" in facts
+    assert "sales_tax" in facts and "Council orders pay 1.0x" in facts
 
 
 @pytest.mark.parametrize("seed", range(3))

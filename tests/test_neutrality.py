@@ -38,17 +38,21 @@ def test_villager_prompts_are_neutral_in_every_mode():
     for mode in modes.MODES:
         w, agents = neutral_agents(mode, characters="off")
         a = next(iter(agents.values()))
-        system, user = (m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False)))
+        sent = [m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False))]
+        a.memory = "fresh" if a.memory == "day" else "day"  # both memory layouts
+        sent += [m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False))]
         reflect = llm.REFLECT.format(name=a.name, profession=a.profession, words=llm.DIARY_WORDS, character="")
-        for text in (system, user, reflect):
+        intro = llm.INTRO.format(words=llm.ABOUT_ME_WORDS)
+        for text in (*sent, reflect, reflect + llm.REFLECT_GOALS, intro):
             assert evaluative(text) == [], (mode, evaluative(text))
 
 
 def test_event_and_error_texts_are_neutral():
     """Fuzz bots touch every action; every observation they get (news, errors, board) is scanned."""
-    for mode in ("standard", "crafts"):
+    for mode, kinds in (("standard", ["random", "thief", "worker"]), ("crafts", ["random", "thief", "worker"]),
+                        ("survival", ["random", "thief", "builder"])):
         w = engine.new_world(runconfig.RunConfig(mode=mode, seed=4).world_override())
-        bots = bots_decider(w, ["random", "thief", "worker"], 4)
+        bots = bots_decider(w, kinds, 4)
         found: set[str] = set()
 
         def decide(name, obs, _bots=bots):

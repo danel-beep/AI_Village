@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import ops, seasons, works
+from . import crafting, ops, seasons, theft, works
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Plot, World
@@ -102,7 +102,10 @@ def may_use(world: World, name: str, plot: Plot) -> bool:
 
 
 def plot_here(world: World, a: Agent) -> Plot | None:
-    return world.plots.get(a.location)
+    plot = world.plots.get(a.location)
+    if plot and plot.kind == "home" and plot.owner in (world.settle or {}).get("camp", ()):
+        return None  # a spot at the camp (settle.py): no yard until a house site is taken
+    return plot
 
 
 def own_plot_here(world: World, a: Agent) -> Plot | None:
@@ -266,7 +269,12 @@ def sow(ctx: Ctx, a: Agent, crop: str | None) -> None:
         raise ActionError(f"you need {spec['seed']} {crop} in your inventory as seed")
     ops.burn(ctx.world, a.inventory, crop, spec["seed"])
     b["crop"], b["ripe_day"] = crop, ctx.world.day + spec["days"]
-    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=ops.count(a.inventory, "tool") > 0)
+    if crafting.enabled(ctx.cfg):  # a hoe (or the generic tool) gives the bonus and wears an hour
+        tool = crafting.tool_for(ctx.cfg, a, crop)[0]
+        crafting.wear(ctx, a, tool)
+    else:
+        tool = "tool" if ops.count(a.inventory, "tool") > 0 else None
+    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=tool is not None)
     where = "at home" if plot.kind == "home" else f"at {ctx.world.locations[plot.home].name}"
     ctx.emit("plant", f"{a.name} planted {crop} in a garden bed {where} (ripe on day {b['ripe_day']}).",
              actor=a.name, location=plot.home, visibility="location", resource=crop, building=b["id"],
@@ -346,7 +354,8 @@ def steal_from_plot(ctx: Ctx, a: Agent, args: StealPlotArgs) -> None:
     victim = guards[0] if guards else owner
     witnesses = [o.name for o in w.agents.values()
                  if o.status == "active" and not o.asleep and o.location == a.location
-                 and o.name != a.name and o.name not in guards and ctx.rng.random() < cfg["steal_notice_chance"] + works.notice_bonus(ctx.world)]
+                 and o.name != a.name and o.name not in guards
+                 and ctx.rng.random() < theft.notice(w, cfg["steal_notice_chance"] + works.notice_bonus(w))]
     for x in witnesses:
         ctx.emit("witness", f"You saw {a.name} steal {args.item} from {owner}'s plot!", actor=a.name, to=[x],
                  thief=a.name, victim=owner)
@@ -454,7 +463,8 @@ def observe(world: World, name: str) -> dict:
     mine = next((p for p in world.plots.values() if p.home == a.home and may_use(world, name, p)), None) \
         or next((p for p in world.plots.values() if p.owner == name and p.kind == "home"), None)
     if mine:
-        up = upgrade_cost(cfg, mine)
+        # with construction on, houses are built on a site at the catalog's price (upgrade_house is refused)
+        up = None if _hand_built(cfg) else upgrade_cost(cfg, mine)
         out["plot"] = {
             "home": mine.home, "cells": mine.cells, "free_cells": mine.cells - used_cells(cfg, mine),
             "house_level": mine.house, "buildings": [_building_obs(cfg, b) for b in mine.buildings],
