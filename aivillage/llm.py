@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import chronicle, handbook, market, places, reputation, spoilage, taxes
+from . import chronicle, explore, handbook, market, places, reputation, spoilage, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -113,7 +113,10 @@ def world_facts(cfg: dict) -> str:
     links = cfg.get("map", {}).get("homes")
     homes = ("; ".join(f"home_{n} -> {', '.join(to)}" for n, to in links.items()) if links
              else "every home_<Name> -> square")
-    lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
+    if explore.enabled(cfg):
+        lines[-1:] = [explore.facts(cfg)]  # replaces the gather line: what is where comes with "explored"
+    else:
+        lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
     if clock.tick_minutes(cfg) < 60:
         quick = ", ".join(n for n in clock.quick_actions(cfg) if n != "error")
         lines.append(f"- Time runs in {clock.tick_minutes(cfg)}-minute steps. Quick actions take a quarter of an "

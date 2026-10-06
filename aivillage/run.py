@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import clock, crises, engine, graves, labor, mapgen, modes, plots, threats, tiles, works
+from . import clock, crises, engine, explore, graves, labor, mapgen, modes, plots, threats, tiles, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -163,6 +163,7 @@ def view(world: World) -> dict:
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
+            **({"known": k} if (k := explore.view(world)) is not None else {}),  # explore.py: places someone knows
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
                     for l in world.locations.values() if l.slots}}
 

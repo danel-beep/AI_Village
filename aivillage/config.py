@@ -564,6 +564,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spoilage": {"enabled": False,
                  "days": {"meat": 2, "fish": 2, "milk": 2, "berries": 3, "bread": 3, "fish_soup": 3, "stew": 3,
                           "pancakes": 3, "egg": 4, "honey_cake": 4, "grain": 14}},
+    # Exploration (aivillage/explore.py). Off here: everyone sees the whole map. On: a villager knows the places
+    # they have stood in, plus at the start their home, `center` and every place within `start_radius` roads of it.
+    "explore": {"enabled": False, "center": "square", "start_radius": 1},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
