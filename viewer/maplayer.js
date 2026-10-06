@@ -152,6 +152,23 @@ const MapLayer = (() => {
   // Map pixels of one resource slot (tree [x, y, pine], bed [x, y, w, h], bush/rock [x, y]) for viewer/actors.js.
   const spotOf = (loc, res, slot) => ((spots[loc] || {})[res] || [])[slot];
 
-  return { init, claimTrees, draw, drawTop, spotOf };
+  // The object under a map point, for viewer/inspect.js: {loc, res, slot, box: [x, y, w, h]} or null.
+  // Beds are rectangles; the rest are picked by distance to the middle of their art.
+  const MID = { wood: [16, 18, 14, 32], berries: [8, 10, 9, 16], fish: [2, 0, 9, 18], stone: [8, 10, 8, 16], ore: [8, 10, 8, 16] };
+  function objectAt(wx, wy) {
+    let best = null, bd = Infinity;
+    for (const [loc, rs] of Object.entries(spots)) for (const [res, list] of Object.entries(rs)) (list || []).forEach((s, slot) => {
+      if (!s) return;
+      if (s.length >= 4) {
+        if (wx >= s[0] && wx < s[0] + s[2] && wy >= s[1] && wy < s[1] + s[3]) { bd = 0; best = { loc, res, slot, box: s.slice(0, 4) }; }
+        return;
+      }
+      const [dx, dy, r, size] = MID[res] || [8, 8, 8, 16], d = Math.hypot(wx - s[0] - dx, wy - s[1] - dy);
+      if (d < r && d < bd) { bd = d; best = { loc, res, slot, box: [s[0] + dx - size / 2, s[1] + dy - size / 2, size, size] }; }
+    });
+    return best;
+  }
+
+  return { init, claimTrees, draw, drawTop, spotOf, objectAt };
 })();
 if (typeof window !== 'undefined') window.MapLayer = MapLayer;

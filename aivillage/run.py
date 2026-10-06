@@ -147,7 +147,25 @@ def view(world: World) -> dict:
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
-                    for l in world.locations.values() if l.slots}}
+                    for l in world.locations.values() if l.slots},
+            # for the viewer's object panels (viewer/inspect.js): chests, the square's board and projects, prices
+            "chests": [{"id": c.id, "owner": c.owner, "location": c.location, "items": dict(c.items), "coins": c.coins,
+                        "locked": c.locked} for c in world.chests.values()],
+            "orders": [{"id": o.id, "needs": o.needs, "reward": o.reward, "until": o.expires_day}
+                       for o in world.orders.values() if o.status == "open"],
+            "projects": {p.id: {"name": p.name, "needs": p.needs, "contributed": dict(p.contributed),
+                                "contributors": dict(p.contributors), "done": p.done} for p in world.projects.values()},
+            "market": market_prices(world)}
+
+
+def market_prices(world: World) -> dict:
+    """What the NPC trader charges ("buy") and pays ("sell") now, same formula as actions._price."""
+    cfg, out = world.config, {}
+    for item, info in cfg["items"].items():
+        if info.get("tradable", True):
+            out[item] = [max(1, int(info["value"] * cfg[r] * crises.price_factor(world, item, side)))
+                         for r, side in (("npc_sell_ratio", "buy"), ("npc_buy_ratio", "sell"))]
+    return out
 
 
 def read_log(path: str | Path) -> Iterable[dict]:

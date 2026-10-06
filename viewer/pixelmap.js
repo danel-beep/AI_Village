@@ -724,5 +724,5 @@ const PixelMap = (() => {
   }
 
   const gfx = { C, R, P, blob, rnd };
-  return { init, draw, pick, gfx };
+  return { init, draw, pick, gfx, layout: () => layout, T };
 })();
