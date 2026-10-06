@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import chronicle, handbook, market, places, reputation, spoilage, taxes
+from . import chronicle, crafting, handbook, market, places, reputation, spoilage, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -103,10 +103,12 @@ def world_facts(cfg: dict) -> str:
     food = ", ".join(f"{k} +{v['food']}" for k, v in items.items() if v.get("food"))
     lines = [f"- Food (satiety gained per item): {food}. Nothing else is edible.",
              f"- You lose {cfg['satiety_loss_per_hour']} satiety per hour awake and {cfg['satiety_loss_night']} at night."]
-    for rid, r in cfg["recipes"].items():
+    for rid, r in ({} if crafting.enabled(cfg) else cfg["recipes"]).items():
         ins = " + ".join(f"{n} {k}" for k, n in r["inputs"].items())
         who = f", only a {r['profession']}" if r["profession"] else ""
         lines.append(f"- Craft {rid}: {ins} -> {r['output']} (at {r['where']}{who}).")
+    if crafting.enabled(cfg):
+        lines += crafting.facts(cfg)
     res = "; ".join(f"{lid}: {', '.join(l['resources'])}" for lid, l in cfg["locations"].items() if l.get("resources"))
     lines.append(f"- Gather with work at: {res}. Your profession gathers its goods {cfg['work_profession_multiplier']}x faster.")
     roads = "; ".join(f"{lid} -> {', '.join(l['neighbors'])}" for lid, l in cfg["locations"].items())

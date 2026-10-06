@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import clock, crises, labor, ops, plots, pricing, seasons, tiles, works
+from . import clock, crafting, crises, labor, ops, plots, pricing, seasons, tiles, works
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer, Order
@@ -122,7 +122,14 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
     if resource in cfg["professions"].get(a.profession, []):
         amount *= cfg["work_profession_multiplier"]
     amount += labor.bonus(cfg, a, resource)
-    using_tool = resource != "water" and ops.count(a.inventory, "tool") > 0
+    if crafting.enabled(cfg):  # many kinds of tools, each fits some resources and wears on its own
+        if crafting.missing_tool(cfg, a, resource):
+            ctx.emit("work", crafting.missing_tool(cfg, a, resource), to=[a.name])
+            return 0
+        tool, mult = crafting.tool_for(cfg, a, resource) if resource != "water" else (None, 1.0)
+        amount, using_tool = crafting.scale(amount, mult), False
+    else:
+        tool, using_tool = None, resource != "water" and ops.count(a.inventory, "tool") > 0
     if using_tool:
         amount *= cfg["work_tool_multiplier"]
     if resource == "water":
@@ -140,6 +147,7 @@ def work_hour(ctx: Ctx, a: Agent, resource: str) -> int:
                      f"{loc.name}.", actor=a.name,
                      location=loc.id, resource=resource, slot=slot)
     labor.after_work_hour(ctx, a, resource)
+    crafting.wear(ctx, a, tool)
     if using_tool:
         a.tool_wear += 1
         if a.tool_wear >= cfg["tool_durability_hours"]:
@@ -194,6 +202,8 @@ def work(ctx: Ctx, a: Agent, args: WorkArgs) -> None:
         res = mine[0] if mine else (free[0] if free else next(iter(loc.resources)))
     if res not in loc.resources:
         raise ActionError(f"there is no {res} here; available: {', '.join(loc.resources)}")
+    if crafting.enabled(ctx.cfg) and (why := crafting.missing_tool(ctx.cfg, a, res)):
+        raise ActionError(why)
     if why := labor.may_gather(ctx.cfg, a, res):
         free = labor.free_goods(ctx.cfg, a, list(loc.resources))
         raise ActionError(why + (f"; here you can gather: {', '.join(free)}" if free else "; nothing here is yours to gather"))
@@ -216,6 +226,8 @@ class CraftArgs(BaseModel):
                 "by a smith).",
                 CraftArgs)
 def craft(ctx: Ctx, a: Agent, args: CraftArgs) -> None:
+    if crafting.enabled(ctx.cfg):
+        return crafting.craft(ctx, a, args.recipe, args.times)
     r = ctx.cfg["recipes"].get(args.recipe)
     if r is None:
         raise ActionError(f"unknown recipe '{args.recipe}'; known: {', '.join(ctx.cfg['recipes'])}")

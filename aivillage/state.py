@@ -29,6 +29,7 @@ class Agent:
     task: dict | None = None
     busy_until: int = 0  # tick at which the current action (or task step) is over; not asked before it
     tool_wear: int = 0
+    tool_wear_by: dict[str, int] = field(default_factory=dict)  # crafting.py: hours of use per tool kind
     status: str = "active"  # active | hospital | dead
     status_until_day: int = 0
     sick_until_day: int = 0

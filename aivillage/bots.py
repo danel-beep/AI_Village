@@ -169,9 +169,21 @@ class WorkerBot(Bot):
         if loc == me["home"] and "plant" in acts and inv.get("grain", 0) >= 1:
             return decision("plant", None, "sow my garden")
 
+        # Crafting chains on (crafting.py): grind flour for bread, bake it at home, make a stone tool for the trade
+        recipes = obs["board"].get("recipes") or {}  # the LLM stub sees no recipe table
+        if "stone_pick" in recipes:
+            if "flour" in recipes["bread"]["inputs"] and inv.get("grain", 0) >= 3 and inv.get("flour", 0) < 2:
+                return decision("craft", {"recipe": "flour", "times": min(3, (inv["grain"] - 1) // 2)}, "grind")
+            if loc == me["home"] and inv.get("flour", 0) and inv.get("wood", 0) and inv.get("bread", 0) < 4:
+                return decision("craft", {"recipe": "bread", "times": min(inv["flour"], inv["wood"], 3)}, "bake")
+            kit = {"miner": "stone_pick", "woodcutter": "stone_axe"}.get(me["profession"])
+            if kit and not inv.get(kit) and not inv.get("tool") \
+                    and all(inv.get(k, 0) >= n for k, n in recipes[kit]["inputs"].items()):
+                return decision("craft", {"recipe": kit}, "make a tool")
+
         # Cook ahead when at home with ingredients
         if loc == me["home"] and inv.get("bread", 0) + inv.get("fish_soup", 0) < 4:
-            if inv.get("grain", 0) >= 2:
+            if inv.get("grain", 0) >= 2 and "flour" not in recipes.get("bread", {}).get("inputs", {}):
                 return decision("craft", {"recipe": "bread", "times": min(3, inv["grain"] // 2)}, "bake")
             if inv.get("fish", 0) >= 2:
                 return decision("craft", {"recipe": "fish_soup", "times": min(3, inv["fish"] // 2)}, "cook")

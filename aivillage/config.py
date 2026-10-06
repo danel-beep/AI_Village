@@ -564,6 +564,62 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spoilage": {"enabled": False,
                  "days": {"meat": 2, "fish": 2, "milk": 2, "berries": 3, "bread": 3, "fish_soup": 3, "stew": 3,
                           "pancakes": 3, "egg": 4, "honey_cake": 4, "grain": 14}},
+    # Crafting chains and tools (aivillage/crafting.py, docs/specs/survival.md). Off here: recipes and the one
+    # generic `tool` work as before. On, `items` and `recipes` below join the global tables (a recipe here
+    # replaces the one of the same id), recipes may need a workshop where the crafter stands, tools speed up
+    # the resources they fit and wear out, and the owner of a workshop takes its trade (labor.py).
+    "crafting": {
+        "enabled": False,
+        # workshop building kind -> the trade its owner takes ("" = none); built ones come from plots / sources
+        "workshops": {"workbench": "carpenter", "smithy": "smith", "kiln": "potter", "mill": "miller",
+                      "tannery": "tanner", "smokehouse": "", "campfire": ""},
+        "owner_takes_trade": True,
+        "untrained": ["", "none", "laborer"],   # professions that count as "no trade yet"
+        "home_also_at": ["campfire"],           # recipes made "at home" can also be made by a campfire
+        "items": {
+            "clay": {"value": 2}, "meat": {"value": 3, "food": 15}, "hide": {"value": 4}, "hay": {"value": 1},
+            "plank": {"value": 5}, "brick": {"value": 5}, "iron": {"value": 12}, "leather": {"value": 10},
+            "flour": {"value": 3},
+            "stone_axe": {"value": 6}, "stone_pick": {"value": 6}, "iron_axe": {"value": 24},
+            "iron_pick": {"value": 26}, "hoe": {"value": 12}, "fishing_rod": {"value": 6},
+            "smoked_meat": {"value": 9, "food": 35},
+        },
+        # inputs -> output; `building`: a workshop of that kind must stand where the crafter is (None = by hand,
+        # anywhere); `more_at` {kind: output}: the same recipe gives more at that workshop; `hours`: per batch (0 = the whole action fits in one hour).
+        "recipes": {
+            # materials
+            "plank": {"inputs": {"wood": 2}, "output": 1, "more_at": {"workbench": 3}},
+            "brick": {"inputs": {"clay": 2, "wood": 1}, "output": 2, "building": "kiln"},
+            "iron": {"inputs": {"ore": 2, "wood": 1}, "output": 1, "building": "smithy", "hours": 2},
+            "leather": {"inputs": {"hide": 1, "water": 1}, "output": 1, "more_at": {"tannery": 2}},
+            "flour": {"inputs": {"grain": 2}, "output": 1, "more_at": {"mill": 3}},
+            # tools: stone ones by hand, iron ones at the smithy
+            "stone_axe": {"inputs": {"wood": 1, "stone": 2}, "output": 1},
+            "stone_pick": {"inputs": {"wood": 1, "stone": 2}, "output": 1},
+            "fishing_rod": {"inputs": {"wood": 2}, "output": 1, "building": "workbench"},
+            "hoe": {"inputs": {"plank": 1, "stone": 1}, "output": 1, "building": "workbench"},
+            "iron_axe": {"inputs": {"plank": 1, "iron": 1}, "output": 1, "building": "smithy"},
+            "iron_pick": {"inputs": {"plank": 1, "iron": 2}, "output": 1, "building": "smithy"},
+            "tool": {"inputs": {"plank": 1, "iron": 1}},  # the generic tool: any resource, x2
+            # food: bread now goes through flour; meat keeps longer smoked
+            "bread": {"inputs": {"flour": 1, "wood": 1}, "output": 1, "where": "home"},
+            "smoked_meat": {"inputs": {"meat": 2, "wood": 1}, "output": 2, "building": "smokehouse"},
+        },
+        # Tools: carried, the one with the highest `multiplier` that fits the resource is used for an hour of
+        # work and wears out after `hours` hours of use. "*" fits everything (`tool`: hours = tool_durability_hours).
+        # `hoe` fits grain: a sower carrying it gets the garden bed's tool bonus.
+        "tools": {
+            "tool": {"fits": ["*"], "multiplier": 2, "hours": None},
+            "stone_axe": {"fits": ["wood"], "multiplier": 1.5, "hours": 12},
+            "stone_pick": {"fits": ["stone", "ore", "clay"], "multiplier": 1.5, "hours": 12},
+            "iron_axe": {"fits": ["wood"], "multiplier": 2.5, "hours": 40},
+            "iron_pick": {"fits": ["stone", "ore", "clay", "gold"], "multiplier": 2.5, "hours": 40},
+            "fishing_rod": {"fits": ["fish"], "multiplier": 2, "hours": 20},
+            "hoe": {"fits": ["grain"], "multiplier": 1, "hours": 30},
+        },
+        # resources nobody gathers with bare hands
+        "needs_tool": ["ore", "gold"],
+    },
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
@@ -585,5 +641,6 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def make_config(override: dict | None = None) -> dict:
+    from . import crafting
     from .population import resolve
-    return resolve(_merge(DEFAULT_CONFIG, override or {}))
+    return crafting.resolve(resolve(_merge(DEFAULT_CONFIG, override or {})))

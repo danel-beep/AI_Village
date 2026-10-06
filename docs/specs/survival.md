@@ -58,6 +58,20 @@ pancakes honey_cake ring`. Added by the plan: raw `clay meat hide hay`; material
 flour`; tools `stone_axe stone_pick iron_axe iron_pick hoe fishing_rod` (`tool` stays as the generic iron
 tool of today's modes); weapons `bow sword`; armor `leather_armor iron_armor`; food `smoked_meat`.
 
+## Crafting (`aivillage/crafting.py`, task 7)
+
+Config `crafting` (off = recipes and the generic `tool` as before). Workshop kinds and the trade their owner
+takes: `workbench` carpenter, `smithy` smith, `kiln` potter, `mill` miller, `tannery` tanner, `smokehouse`,
+`campfire` (no trade; "at home" recipes can also be made by a campfire). A recipe's `building` needs that
+workshop where the crafter stands; `more_at` makes more there. Workshops are found by
+`crafting.workshops_at(world, location) -> [{"kind", "owner", "level", "users"}]`: private yard buildings
+(`Plot.buildings`, used by the owner's household), map locations whose id is a workshop kind (owner None,
+everyone), finished buildings in `world.construction["buildings"]` (`{kind, level, location, owner}`, owner None =
+everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(world, location) -> list`) for buildings kept elsewhere.
+`crafting.makes(cfg, kind)` lists what a workshop kind makes. Workshop recipes register
+`recipe:<id>: {"building": kind}` in `progress.DEFAULT_UNLOCKS`. Log: `craft` events carry `recipe` and
+`amount`; `tool_broke` carries `tool`; `trade_changed` with `profession` and `workshop` when an owner takes a trade.
+
 ## Log fields for the viewer (task 13b)
 
 - `village_stage` events (above).

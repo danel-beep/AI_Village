@@ -12,6 +12,7 @@ Both are computed facts from rules the model already has; switching the hint off
 
 from __future__ import annotations
 
+from . import progress
 from .registry import ACTIONS
 
 INTRO = ("Handbook of this world: everything a villager can do. Every villager has the same list, and so do you; "
@@ -80,6 +81,8 @@ def observe(world, name: str) -> dict:
     can = {}
     for rid, r in cfg["recipes"].items():
         if r.get("profession") and r["profession"] != a.profession:
+            continue
+        if not progress.unlocked(world, f"recipe:{rid}"):
             continue
         times = min((inv.get(k, 0) // n for k, n in r["inputs"].items() if n > 0), default=0)
         if times > 0:
