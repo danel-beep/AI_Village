@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, graves, labor, mapgen, modes, plots, pricing, threats, tiles, works
+from . import animals, clock, construction, crises, engine, graves, hire, labor, mapgen, modes, plots, pricing, threats, tiles, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -162,6 +162,7 @@ def view(world: World) -> dict:
             "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
             "works": works.view(world),  # village structures and open projects (works.py)
             **construction.view(world),  # building sites and common buildings (construction.py)
+            **hire.view(world),  # hire.py: hired outsiders and where they are, open jobs (hiring on)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
@@ -342,7 +343,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
-    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config)
+    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config) \
+        | hire.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

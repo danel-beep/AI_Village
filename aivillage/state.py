@@ -299,6 +299,7 @@ class World:
     # construction.py: {"sites": {id: site}, "buildings": [common buildings]}
     construction: dict[str, Any] = field(default_factory=dict)
     polities: dict[str, Any] = field(default_factory=dict)  # polity.py: polity id -> polity
+    hire: dict[str, Any] = field(default_factory=dict)  # hire.py: {"jobs": {id: job}, "npcs": [outsider]}
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -316,6 +317,8 @@ class World:
             del d["animals"]
         if not d["polities"]:  # polities off or none founded: same dict and hash as before the field existed
             del d["polities"]
+        if not d["hire"]:  # hiring off or unused: same dict and hash as before the field existed
+            del d["hire"]
         return d
 
     @classmethod
@@ -351,6 +354,7 @@ class World:
             spoilage=d.get("spoilage", {}),
             construction=d.get("construction", {}),
             polities=d.get("polities", {}),
+            hire=d.get("hire", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

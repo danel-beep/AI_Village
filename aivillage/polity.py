@@ -20,6 +20,10 @@ Rules, in the order a villager meets them:
   unpaid, said in public); "voluntary" writes a bill in the debt book owed to the polity's treasury, paid with
   pay_bill or left unpaid (public when overdue). Nobody outside a polity pays it. give_to_polity is a gift.
 - One physical coin: a polity's coin name is only what its members call the coins.
+- The treasury holder (the ruler, the most voted councillor, or the member an assembly elects as treasurer) can
+  polity_embezzle: coins leave unnoticed, the books still show them. polity_audit at the town hall, or a change of
+  holder (`audit_on_handover`), makes the shortfall and who took it public. What follows is up to the members
+  (a fine law, a petition, leaving).
 
 Nothing here treats members or non-members, payers or non-payers differently beyond these rules.
 With polities on the village-wide government is off (governance.polity_on / REPLACED).
@@ -27,7 +31,8 @@ With polities on the village-wide government is off (governance.polity_on / REPL
 State: `world.polities[id]` (dict, see `_found`); `coins` is the treasury (counted by invariants).
 Log: public `polity_founded`, `polity_named`, `polity_form`, `polity_leaders`, `polity_joined`, `polity_left`,
 `polity_law_proposed`, `polity_law_passed`, `polity_law_failed`, `polity_petition`, `polity_tax_bills`,
-`polity_tax_short`; private `polity_vote`, `polity_tax`. Spec: docs/specs/survival.md (Polity).
+`polity_tax_short`, `polity_audit_clean`, `polity_embezzlement_found`; private `polity_vote`, `polity_tax`,
+`polity_embezzle`. Spec: docs/specs/survival.md (Polity).
 """
 
 from __future__ import annotations
@@ -48,7 +53,7 @@ FORMS = ("assembly", "council", "ruler")
 TOPICS = ("name", "coin", "form", "leader")
 LAWS = ("tax", "fine", "grant", "payout", "expel")
 ACTION_NAMES = ("join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
-                "give_to_polity")
+                "give_to_polity", "polity_embezzle", "polity_audit")
 for _n in ACTION_NAMES:
     progress.DEFAULT_UNLOCKS.setdefault(f"action:{_n}", {"building": HALL})
 
@@ -108,14 +113,30 @@ def deciders(p: dict) -> list[str]:
 
 
 def form_text(cfg: dict, form: str) -> str:
-    return {"assembly": "every member votes on each law; a law passes with yes from more than half of the members",
+    return {"assembly": "every member votes on each law; a law passes with yes from more than half of the members; "
+                        "the member most voted as leader holds the treasury",
             "council": f"the members elect a council of {_c(cfg)['council_size']}; a law passes with yes from more "
-                       "than half of the council",
-            "ruler": "the members elect one ruler; a law the ruler proposes passes at once"}[form]
+                       "than half of the council; the most voted councillor holds the treasury",
+            "ruler": "the members elect one ruler; a law the ruler proposes passes at once; the ruler holds the "
+                     "treasury"}[form]
 
 
 def _needs_leaders(p: dict) -> bool:
-    return p["form"] in ("council", "ruler")
+    """Every form elects someone: the ruler, the council, or (assembly) the member who holds the treasury."""
+    return p["form"] is not None
+
+
+def seat(p: dict) -> str:
+    return {"council": "council", "ruler": "ruler"}.get(p["form"], "treasurer")
+
+
+def embezzle_on(cfg: dict) -> bool:
+    return bool(_c(cfg).get("embezzle"))
+
+
+def books(p: dict) -> int:
+    """What the polity's books say is in its treasury: real coins plus what its holder took unnoticed."""
+    return p["coins"] + p.get("hidden", 0)
 
 
 def _member(ctx: Ctx, a: Agent) -> dict:
@@ -156,7 +177,8 @@ def _found(ctx: Ctx, hall: dict) -> dict:
     members = [n for n in hall.get("builders", []) if n in w.agents and w.agents[n].status != "dead"
                and of(w, n) is None]
     p = {"id": w.new_id("polity"), "hall": hall["id"], "location": hall["location"], "founded_day": w.day,
-         "name": None, "coin": None, "members": members, "form": None, "rulers": [], "coins": 0,
+         "name": None, "coin": None, "members": members, "form": None, "rulers": [], "keeper": None, "coins": 0,
+         "hidden": 0, "embezzled": {},
          "laws": {"tax": 0}, "options": options, "ballot": {t: {} for t in TOPICS},
          "closes": w.tick + clock.hours(cfg, _c(cfg)["vote_hours"]), "proposals": {}, "petition": {},
          "expelled": {}, "bills": []}
@@ -183,20 +205,24 @@ def _drop(ctx: Ctx, p: dict, name: str) -> None:
         for side in (pr["yes"], pr["no"]):
             if name in side:
                 side.remove(name)
+    keeper = p.get("keeper") == name
+    if keeper:
+        handover(ctx, p, name)
+        p["keeper"] = None
     if name in p["rulers"]:
         p["rulers"].remove(name)
-        if not p["rulers"] and _needs_leaders(p):
-            _open_leaders(ctx, p, f"{name} left the {'council' if p['form'] == 'council' else 'throne'}")
+    if _needs_leaders(p) and (keeper or (p["form"] != "assembly" and not p["rulers"])):
+        p["rulers"] = []  # the whole seat is elected again
+        _open_leaders(ctx, p, f"{name} left")
 
 
 def _open_leaders(ctx: Ctx, p: dict, why: str) -> None:
     w, cfg = ctx.world, ctx.cfg
     p["ballot"]["leader"] = {}
     p["closes"] = w.tick + clock.hours(cfg, _c(cfg)["vote_hours"])
-    who = "a council" if p["form"] == "council" else "a ruler"
-    ctx.emit("polity_leaders", f"{title(p)} has no {'council' if p['form'] == 'council' else 'ruler'} ({why}). Members "
-             f"elect {who} with polity_vote (topic leader) until {_say_time(cfg, p['closes'])}.",
-             visibility="public", polity=p["id"], rulers=[])
+    ctx.emit("polity_leaders", f"{title(p)} has no {seat(p)} ({why}). Members elect a {seat(p)} with polity_vote "
+             f"(topic leader) until {_say_time(cfg, p['closes'])}.", visibility="public", polity=p["id"], rulers=[],
+             keeper=None)
 
 
 class JoinArgs(BaseModel):
@@ -242,7 +268,8 @@ class PolityVoteArgs(BaseModel):
 
 
 @ACTIONS.action("polity_vote", "In your polity's open ballot, vote on its name, the name of its coins, its form "
-                "of government or who leads it (topic leader: a member; a council takes the most voted). You can "
+                "of government or who leads it (topic leader: a member; the ruler, the council (the most voted) or "
+                "an assembly's treasurer). You can "
                 "change your vote until the ballot closes.", PolityVoteArgs,
                 available=lambda c, a: enabled(c.cfg) and bool((of(c.world, a.name) or {}).get("ballot")))
 def polity_vote(ctx: Ctx, a: Agent, args: PolityVoteArgs) -> None:
@@ -298,8 +325,6 @@ def _close_ballot(ctx: Ctx, p: dict) -> None:
             ctx.emit("polity_form", f"{title(p)} chooses its form of government: {win} ({form_text(cfg, win)}; "
                      f"votes: {_tally(counts)}).", visibility="public", polity=p["id"], form=win,
                      votes=dict(counts))
-            if not _needs_leaders(p):
-                b.pop("leader", None)
     if "leader" in b and p["form"] is not None:
         _close_leaders(ctx, p)
     if b:
@@ -317,11 +342,17 @@ def _close_leaders(ctx: Ctx, p: dict) -> None:
     sure = [c for c in ranked if counts[c] > cut]
     tied = sorted(c for c in ranked if counts[c] == cut)
     ctx.rng.shuffle(tied)
-    p["rulers"] = sorted(sure + tied[: k - len(sure)])
+    chosen = sure + tied[: k - len(sure)]  # most voted first
+    keeper, old = chosen[0], p.get("keeper")
+    if old and old != keeper:
+        handover(ctx, p, old)
+    p["keeper"] = keeper
+    p["rulers"] = sorted(chosen) if p["form"] != "assembly" else []
     del p["ballot"]["leader"]
-    who = (f"council: {', '.join(p['rulers'])}" if p["form"] == "council" else f"ruler: {p['rulers'][0]}")
+    who = {"council": f"council: {', '.join(p['rulers'])} (the treasury is held by {keeper})",
+           "ruler": f"ruler: {keeper}"}.get(p["form"], f"treasurer: {keeper}")
     ctx.emit("polity_leaders", f"{title(p)} elects its {who} (votes: {_tally(counts)}).", visibility="public",
-             polity=p["id"], rulers=list(p["rulers"]), votes=dict(counts))
+             polity=p["id"], rulers=list(p["rulers"]), keeper=keeper, votes=dict(counts))
 
 
 # ---------- petitions ----------
@@ -346,7 +377,9 @@ def sign_petition(ctx: Ctx, a: Agent, args: PetitionArgs) -> None:
                  f"({len(signed)} of {need} signatures needed: {', '.join(signed)}).", actor=a.name,
                  visibility="public", polity=p["id"], form=args.form, signed=signed, needed=need)
         return
-    old, p["form"], p["rulers"], p["petition"] = p["form"], args.form, [], {}
+    if p.get("keeper"):
+        handover(ctx, p, p["keeper"])
+    old, p["form"], p["rulers"], p["keeper"], p["petition"] = p["form"], args.form, [], None, {}
     lapsed = sorted(p["proposals"])
     p["proposals"] = {}
     p["ballot"].pop("leader", None)
@@ -354,8 +387,68 @@ def sign_petition(ctx: Ctx, a: Agent, args: PetitionArgs) -> None:
              f"{title(p)} is now a {args.form} ({form_text(ctx.cfg, args.form)}), it was a {old}."
              + (f" Open proposals lapse: {', '.join(lapsed)}." if lapsed else ""), actor=a.name,
              visibility="public", polity=p["id"], form=args.form, old_form=old, signed=signed)
-    if _needs_leaders(p):
-        _open_leaders(ctx, p, "the form changed")
+    _open_leaders(ctx, p, "the form changed")
+
+
+# ---------- the treasury holder: embezzlement and audits ----------
+
+class EmbezzleArgs(BaseModel):
+    coins: int = Field(gt=0, le=100000)
+
+
+@ACTIONS.action("polity_embezzle", "Treasury holder only: quietly take coins from your polity's treasury for "
+                "yourself. Its books still show them until someone runs polity_audit at its town hall or the "
+                "treasury changes hands.", EmbezzleArgs,
+                available=lambda c, a: enabled(c.cfg) and embezzle_on(c.cfg)
+                and (of(c.world, a.name) or {}).get("keeper") == a.name and of(c.world, a.name)["coins"] > 0)
+def polity_embezzle(ctx: Ctx, a: Agent, args: EmbezzleArgs) -> None:
+    p = _member(ctx, a)
+    if not embezzle_on(ctx.cfg):
+        raise ActionError("the treasury cannot be touched in this village")
+    if p.get("keeper") != a.name:
+        raise ActionError(f"{p.get('keeper') or 'nobody yet'} holds the treasury of {title(p)}")
+    n = min(args.coins, p["coins"])
+    if n <= 0:
+        raise ActionError("the treasury is empty")
+    ops.move_coins(_Purse(p), a, n)
+    p["hidden"] = p.get("hidden", 0) + n
+    p.setdefault("embezzled", {})[a.name] = p["embezzled"].get(a.name, 0) + n
+    ctx.emit("polity_embezzle", f"You quietly took {n} {coin_name(p)} from the treasury of {title(p)}. The books "
+             f"still show {books(p)}; {p['coins']} are really there.", actor=a.name, to=[a.name], polity=p["id"],
+             coins=n)
+
+
+def _here(world: World, a: Agent) -> dict | None:
+    return next((p for p in world.polities.values() if p["location"] == a.location), None)
+
+
+@ACTIONS.action("polity_audit", "Count the treasury of the polity whose town hall is here against its books; any "
+                "missing coins and who took them become public.",
+                available=lambda c, a: enabled(c.cfg) and embezzle_on(c.cfg) and _here(c.world, a) is not None)
+def polity_audit(ctx: Ctx, a: Agent, args) -> None:
+    p = _here(ctx.world, a)
+    if p is None:
+        raise ActionError("there is no polity's town hall here")
+    audit(ctx, p, f"{a.name} counted the treasury of {title(p)}", actor=a.name)
+
+
+def audit(ctx: Ctx, p: dict, who: str, actor: str | None = None) -> None:
+    """Compare the treasury with the books; missing coins and the holders who took them become public."""
+    if not p.get("hidden"):
+        ctx.emit("polity_audit_clean", f"{who}: the books are in order, the treasury holds {p['coins']} "
+                 f"{coin_name(p)}.", actor=actor, visibility="public", polity=p["id"], coins=p["coins"])
+        return
+    for name, n in sorted(p["embezzled"].items()):
+        ctx.emit("polity_embezzlement_found", f"{who}: {n} {coin_name(p)} are missing from the treasury of "
+                 f"{title(p)}. They were taken by {name} while holding it. The books now show {p['coins']}.",
+                 actor=actor, visibility="public", polity=p["id"], keeper=name, coins=n)
+    p["hidden"], p["embezzled"] = 0, {}
+
+
+def handover(ctx: Ctx, p: dict, old: str) -> None:
+    """The treasury changes hands: it is counted in public (config polity.audit_on_handover), if anything is missing."""
+    if _c(ctx.cfg).get("audit_on_handover") and p.get("hidden"):
+        audit(ctx, p, f"The treasury of {title(p)} was counted when {old} stopped holding it")
 
 
 # ---------- laws ----------
@@ -578,12 +671,16 @@ def observe(world: World, name: str) -> dict:
     out = []
     for p in world.polities.values():
         row = {"id": p["id"], "name": p["name"], "coin_name": p["coin"], "town_hall_at": p["location"],
-               "members": list(p["members"]), "form": p["form"], "treasury": p["coins"],
+               "members": list(p["members"]), "form": p["form"],
+               # only the holder sees what is really in the treasury; everyone else sees the books
+               "treasury": p["coins"] if p.get("keeper") == name else books(p), "treasury_held_by": p.get("keeper"),
                "tax_per_member": p["laws"].get("tax", 0)}
         if p["form"] == "council":
             row["council"] = list(p["rulers"])
         elif p["form"] == "ruler":
             row["ruler"] = p["rulers"][0] if p["rulers"] else None
+        if p.get("keeper") == name and embezzle_on(cfg):
+            row["treasury_books"], row["you_took_unnoticed"] = books(p), p["embezzled"].get(name, 0)
         if name in p["members"]:
             row["you_are_member"] = True
             if p["ballot"]:
@@ -622,4 +719,7 @@ def facts(cfg: dict) -> str:
             f"council ({form_text(cfg, 'council')}); ruler ({form_text(cfg, 'ruler')}). More than half of the "
             "members can change the form with sign_petition. Laws: tax (per member every tax day), fine, grant, "
             f"payout, expel (no rejoining for {c['expel_days']} days). On tax day members pay their own polity "
-            f"only; {how}. Non-members pay no polity tax.")
+            f"only; {how}. Non-members pay no polity tax."
+            + (" The treasury holder can polity_embezzle (take coins unnoticed: the books still show them); anyone at "
+               "a polity's town hall can polity_audit it, and it is counted whenever the holder changes; then the "
+               "missing coins and who took them become public." if embezzle_on(cfg) else ""))

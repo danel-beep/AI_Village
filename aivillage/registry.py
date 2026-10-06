@@ -54,6 +54,9 @@ class Registry:
         # guard(ctx, actor, action_name) -> reason it is forbidden, or None. Lets rule modules
         # (e.g. governance: exile) forbid actions without touching them.
         self.guards: list[Callable[[Ctx, Agent, str], str | None]] = []
+        # interceptor(ctx, actor, action_name, args) -> True when it dealt with the action itself and the
+        # action must not run (e.g. hire: a guard stops a thief). Runs after the guards and argument checks.
+        self.interceptors: list[Callable[[Ctx, Agent, str, BaseModel], bool]] = []
 
     def forbidden(self, ctx: Ctx, actor: Agent | None, name: str) -> str | None:
         if actor is None:
@@ -93,6 +96,8 @@ class Registry:
         if why:
             raise ActionError(why)
         spec, args = self.parse(name, raw_args)
+        if any(f(ctx, actor, name, args) for f in self.interceptors):
+            return
         spec.apply(ctx, actor, args)
 
     def available(self, ctx: Ctx, actor: Agent) -> list[str]:

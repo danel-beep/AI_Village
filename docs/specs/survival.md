@@ -116,6 +116,37 @@ everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(worl
 `recipe:<id>: {"building": kind}` in `progress.DEFAULT_UNLOCKS`. Log: `craft` events carry `recipe` and
 `amount`; `tool_broke` carries `tool`; `trade_changed` with `profession` and `workshop` when an owner takes a trade.
 
+## Hiring (`aivillage/hire.py`, task 18)
+
+Config `hire` (off; on in `survival`). Contracts between villagers open at `hamlet` (`action:offer_job`,
+`accept_job`, `decline_job`, `end_job`, `pay_job`), outsiders with the `town_hall` (`action:hire_npc`).
+
+- `offer_job(to, task, hours, wage, pay)` from anywhere. `task`: a resource id (every unit the worker gathers
+  with `work` goes to the employer at once), `build` (hours of `construct` on a site the employer owns or
+  started) or `guard` (end-of-hour hours awake at the employer's house). `wage`: items and/or `coins`.
+  `pay`: `before` (moves at `accept_job`, which fails if the employer lacks it) or `after`.
+- One active job per worker. A job ends when its hours are done, by `end_job` (either side), at the deadline
+  (`deadline_days`, the day of signing counts) or when a side dies. Settlement by hours done: paid after, the
+  employer owes the earned share; paid before, the worker owes back the unearned share. Nobody is forced:
+  `pay_job` pays it all; `pay_days` after the end an unpaid share is announced once (`job_unpaid`).
+- `hire_npc(kind, resource?, hours?, days?)` at the town hall (`hire.hall(world)`: where the `town_hall` stands,
+  else `square`). Coins are burned (outsiders take them away). Worker: `npc.worker.per_hour` of the resource per
+  end of hour from the place with the most of it (`tiles.take`, minted to the hirer). Guard: at the hirer's
+  house until the end of `until_day`.
+- Guards (a hired villager awake at the house, or an outsider guard) step in before `steal` (chest or a family
+  member), `steal_from_plot`, `set_fire` at the house and `attack` on the family, through
+  `ACTIONS.interceptors`: combat dice, the guard swings first; the guard wins ties and when the intruder gives
+  up, and then the act does not happen.
+- State `world.hire` = `{"jobs": {id: job}, "npcs": [npc]}` (left out of the world dict while empty).
+  Job: `id employer worker task hours wage pay status(offered|active|owed|closed) day due_day done delivered
+  ended owes owed owed_day`. Observation: `jobs_offered_to_you`, `job_board` (every active or owed job, for
+  everyone), `your_hired_outsiders`, `outsiders_for_hire` (at the town hall).
+- Log: `job_signed`, `job_ended` (done, hours, reason, owes, owed), `job_paid`, `job_unpaid`, `npc_hired`
+  (npc, npc_kind, employer, cost, resource/hours or home/until_day) are public; `job_offer`, `job_progress`,
+  `npc_left` private; `npc_work` log only (npc, employer, resource, amount, location); `guard_fight` at the
+  place (guard, npc, intruder, act, owner, winner, rounds, damage). Tick `view.hire` = `{"npcs": [{"id",
+  "kind", "employer", "location"}], "jobs": [active and owed jobs]}`.
+
 ## Log fields for the viewer (task 13b)
 
 - `village_stage` events (above).
@@ -127,7 +158,7 @@ everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(worl
 
 ## Polity (`aivillage/polity.py`, task 16)
 
-Config `polity` (`enabled`, on in `survival`; `vote_hours`, `law_vote_hours`, `council_size`, `max_open_proposals`,
+Config `polity` (`enabled`, on in `survival`; `embezzle`, `audit_on_handover`, `vote_hours`, `law_vote_hours`, `council_size`, `max_open_proposals`,
 `expel_days`, `limits` for tax/grant/fine, `max_name_len`). In `survival` the `town_hall` may stand at any common
 place (`construction.catalog.town_hall.at = []`), one per place.
 
@@ -141,16 +172,21 @@ place (`construction.catalog.town_hall.at = []`), one per place.
   Deciders: all members (assembly), the council (top `council_size` leader votes), the ruler (passes at once).
 - `sign_petition(form)`: more than half of the members on one form changes it (proposals lapse, leaders elected
   anew). `give_to_polity(coins)`: a gift to a treasury.
+- Treasury holder `keeper`: the ruler, the most voted councillor, or the member an assembly elects (topic `leader`
+  in every form). `polity_embezzle(coins)` moves coins out unnoticed (`hidden`, `embezzled`); observations show
+  the books (`coins + hidden`) to everyone but the holder. `polity_audit` at the polity's town hall, or any change
+  of holder (`audit_on_handover`: leaving, death, re-election, form change), makes it public. Config `embezzle`.
 - Tax day = the village's (`tax_every_days`): `laws.enforcement` auto takes the tax (shortfall public, no
   eviction), voluntary writes a debt-book bill to `treasury` whose id is in the polity's `bills`; `pay_bill` pays it
   into that polity (`debts.BILL_PAYEES`). Non-members pay nothing.
 - With polities on there is no village-wide government: `governance.REPLACED` (mayor, elections, law votes,
   embezzle, audit, treasury_order) are refused and hidden, `taxes.collect` / `time_info` step aside, report_theft
   carries no fine (`governance.polity_on`).
-- State: `world.polities[id]` = `{id, hall, location, founded_day, name, coin, members, form, rulers, coins, laws,
+- State: `world.polities[id]` = `{id, hall, location, founded_day, name, coin, members, form, rulers, keeper, coins, hidden, embezzled, laws,
   options, ballot: {topic: {voter: choice}}, closes, proposals, petition: {member: form}, expelled: {name: day},
   bills}`; `coins` is counted by invariants. Observation `polities` (+ `next_tax_day`).
 - Log (all with `polity`): public `polity_founded` (members, options), `polity_named` (topic, choice, votes),
   `polity_form` (form, votes or old_form/signed), `polity_leaders` (rulers, votes), `polity_joined`, `polity_left`,
   `polity_law_proposed`, `polity_law_passed` (law_kind, value, person, form), `polity_law_failed`, `polity_petition`
-  (form, signed, needed), `polity_gift`, `polity_tax_bills`, `polity_tax_short`; private `polity_vote`, `polity_tax`.
+  (form, signed, needed), `polity_gift`, `polity_tax_bills`, `polity_tax_short`, `polity_audit_clean`, `polity_embezzlement_found` (keeper,
+  coins); private `polity_vote`, `polity_tax`, `polity_embezzle`.

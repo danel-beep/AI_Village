@@ -124,8 +124,8 @@ def test_ruler_decides_alone_and_the_tax_goes_to_the_polity_from_members_only():
 def test_assembly_needs_more_than_half_of_the_members():
     w = world()
     a, b, c, d, *_ = names(w)
-    p = found(w, [a, b, c, d], form="assembly")
-    assert p["form"] == "assembly" and p["rulers"] == [] and "leader" not in p["ballot"]
+    p = found(w, [a, b, c, d], form="assembly", leader=lambda n: d)
+    assert p["form"] == "assembly" and p["rulers"] == [] and p["keeper"] == d  # d holds the treasury, no more
     act(w, a, "polity_propose", law="tax", value=3)
     pid = next(iter(p["proposals"]))
     act(w, b, "polity_vote_law", proposal_id=pid, vote="yes")
@@ -138,7 +138,7 @@ def test_council_proposes_and_votes():
     w = world(polity={"council_size": 2})
     a, b, c, d, e, *_ = names(w)
     p = found(w, [a, b, c, d, e], form="council", leader=lambda n: a if n in (a, b, c) else b)
-    assert p["rulers"] == sorted([a, b])
+    assert p["rulers"] == sorted([a, b]) and p["keeper"] == a
     assert errors(act(w, c, "polity_propose", law="grant", value=1, person=c), c)
     act(w, a, "give_to_polity", coins=10)
     act(w, a, "polity_propose", law="grant", value=4, person=c)
@@ -280,3 +280,35 @@ def test_random_bots_keep_invariants_and_replay_with_polities(tmp_path):
     log = tmp_path / "fuzz.jsonl"
     run(w, bots_decider(w, ["random"], 9), days=3, log_path=log)
     assert w.polities and replay(log).hash() == w.hash()
+
+
+def test_the_treasury_holder_can_embezzle_until_an_audit_at_the_town_hall():
+    w = world()
+    a, b, c, *_ = names(w)
+    p = found(w, [a, b, c], form="ruler", leader=lambda n: a)
+    act(w, b, "give_to_polity", coins=20)
+    assert errors(act(w, b, "polity_embezzle", coins=5), b)  # only the holder
+    events = act(w, a, "polity_embezzle", coins=8)
+    ev = next(e for e in events if e.kind == "polity_embezzle")
+    assert ev.to == [a] and ev.visibility == "private"
+    assert p["coins"] == 12 and w.agents[a].coins == 48
+    row_b = engine.observe(w, b, consume_inbox=False)["polities"][0]
+    row_a = engine.observe(w, a, consume_inbox=False)["polities"][0]
+    assert row_b["treasury"] == 20 and "you_took_unnoticed" not in row_b
+    assert row_a["treasury"] == 12 and row_a["treasury_books"] == 20 and row_a["you_took_unnoticed"] == 8
+    w.agents[c].location = p["location"]
+    events = act(w, c, "polity_audit")
+    found_ev = next(e for e in events if e.kind == "polity_embezzlement_found")
+    assert found_ev.visibility == "public" and found_ev.data["keeper"] == a and found_ev.data["coins"] == 8
+    assert engine.observe(w, b, consume_inbox=False)["polities"][0]["treasury"] == 12 and p["hidden"] == 0
+
+
+def test_a_change_of_holder_counts_the_treasury():
+    w = world()
+    a, b, c, *_ = names(w)
+    p = found(w, [a, b, c], form="assembly", leader=lambda n: a)
+    act(w, b, "give_to_polity", coins=10)
+    act(w, a, "polity_embezzle", coins=4)
+    events = act(w, a, "leave_polity")
+    assert any(e.kind == "polity_embezzlement_found" and e.data["keeper"] == a for e in events)
+    assert p["keeper"] is None and "leader" in p["ballot"]  # a new treasurer is elected
