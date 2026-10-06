@@ -3,7 +3,7 @@
 import json
 
 from aivillage import engine
-from aivillage.llm import CACHE_POINT, LLMAgent, Usage, wire
+from aivillage.llm import CACHE_POINT, DAY_LOG_LINES, LLMAgent, Usage, wire
 from aivillage.run import llm_agents
 
 
@@ -84,3 +84,25 @@ def test_usage_counts_cached_tokens():
     u.add({"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 80}, "completion_tokens": 5})
     u.add({"prompt_tokens": 10})
     assert (u.prompt_tokens, u.cached_tokens) == (110, 80)
+
+
+def test_a_busy_day_keeps_letters_for_the_diary():
+    """A morning letter used to fall out of the 40-line day log before the night diary (Anna, 2026-10-06)."""
+    ag = LLMAgent("Anna", "farmer", Echo())
+
+    def turn(hour, news):
+        obs = {"time": {"hour": hour, "minute": 0}, "you": {"location": "home_Anna"}, "news": news}
+        ag.remember_turn(obs, {"thought": "work", "action": {"name": "work"}})
+
+    turn(8, ['[day 6 08:00] Letter from anonymous: "Boris will kill you today"',
+             '[day 6 08:00] Boris says: "Anna, sell me bread"'])
+    for h in range(9, 21):
+        turn(h, [f"[day 6 {h:02d}:00] Dmitri worked an hour on Well."] * 6)
+    log = "\n".join(ag.day_log)
+    assert len(ag.day_log) <= DAY_LOG_LINES
+    assert "Letter from anonymous" in log and "Anna, sell me bread" in log
+    assert sum("I did work" in l for l in ag.day_log) == 13  # own turns stay before others' news
+    sent = []
+    ag.client.complete = lambda m: sent.append(m) or (json.dumps({"diary": "x", "people": {}}), {})
+    ag.reflect(6)
+    assert "Letter from anonymous" in sent[0][-1]["content"]

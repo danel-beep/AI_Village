@@ -28,7 +28,7 @@ import copy
 from typing import Any
 
 from . import modes, seasons
-from .config import DEFAULT_CONFIG, make_config
+from .config import DEFAULT_CONFIG, _merge, make_config
 
 BOT_MIXES = {
     "mixed": ["worker", "worker", "thief", "worker", "random"],
@@ -106,12 +106,20 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "mode", "group": "Правила", "type": "choice", "label": "Режим экономики", "default": modes.DEFAULT_MODE,
      "options": [[m, v["title"]] for m, v in modes.MODES.items()],
      "about": {m: v["about"] for m, v in modes.MODES.items()},
-     "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах."},
+     "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах. Выбирается один режим: "
+             "«С нуля» (пустая поляна, жители строят деревню сами) и «Дефицит» (готовая деревня, мало еды) "
+             "разные. Чтобы начать с нуля при нехватке еды, выберите «С нуля» и ниже «Еды в мире: мало»."},
     {"key": "start_stage", "path": "progress.start_stage", "group": "Правила", "type": "choice", "mode": "survival",
      "label": "С какой стадии начать", "options": [["camp", "🔥 Лагерь (с нуля)"], ["hamlet", "🛖 Хутор"],
                                                   ["village", "🏘 Деревня"], ["town", "🏰 Посёлок"]],
      "hint": "Лагерь: ни домов, ни денег, ни профессий. Со стадии повыше всё, что нужно для неё, уже построено "
              "и открыто, старт как в «Обычном»."},
+    {"key": "food", "group": "Правила", "type": "choice", "label": "Еды в мире", "default": "mode",
+     "options": [["mode", "🍞 Как в режиме"], ["scarce", "🥖 Мало, как в «Дефиците»"]],
+     "hide_if": {"mode": ["scarcity"]},
+     "hint": "«Мало»: грядка даёт вдвое меньше зерна, рыбы, ягод и дикого зерна вдвое меньше и они медленно "
+             "отрастают, еда у торговца дорогая, все начинают полуголодными. Работает с любым режимом, например "
+             "«С нуля» с нехваткой еды. Дерево, камень и руда не меняются."},
     {"key": "unfairness", "path": "map.unfairness", "group": "Правила", "type": "range", "scale": 0.1,
      "label": "Нечестный старт", "min": 0, "max": 10, "step": 1,
      "hint": "0: у всех одинаковые участки, деньги и дорога до работы. 10: у кого-то большой участок и "
@@ -489,7 +497,7 @@ HINTS = {
 
 # Start-screen layout (viewer/setup.js). MAIN: the few knobs always shown at the top; the rest sit in folded
 # SECTIONS (title, one-line about, keys in order). A knob in neither lands in a section named by its own `group`.
-MAIN = ["brains", "bot_mix", "mode", "start_stage", "villagers", "days"]
+MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, память, свои цели и что жители видят друг о друге.",
      ["characters", "own_goals", "llm_memory", "craft_hint", "summaries", "luxury", "hungry_seen_below",
@@ -704,6 +712,8 @@ def to_run(opts: dict) -> dict:
             if k.get("scale") and not isinstance(v, bool):
                 v = round(v * k["scale"], 6)
             _set(override, k["path"], v)
+    if val["food"] == "scarce" and mode != "scarcity":
+        override = _merge(override, modes.scarce_food(make_config(override)))
     override["population"] = {"size": val["villagers"]}
     override["characters"] = val["characters"]
     if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter
