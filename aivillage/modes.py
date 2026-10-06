@@ -30,12 +30,12 @@ def _food(garden: int, fish: tuple[int, int], berries: tuple[int, int]) -> dict:
 
 MODES: dict[str, dict[str, Any]] = {
     "standard": {
-        "title": "Обычный",
-        "about": "Текущие правила без изменений, точка отсчёта для сравнения.",
+        "title": "Свободный",
+        "about": "Старые правила: каждый может добывать всё, налог плоский. Точка отсчёта для сравнения.",
         "world": {},
     },
     "crafts": {
-        "title": "Ремёсла",
+        "title": "Обычный",
         "about": "Каждый добывает только своё: рыбу ловит рыбак, лес рубит лесоруб, зерно и ягоды собирает фермер, "
                  "камень, руду и золото копает шахтёр; общая только вода, так что еду остальные берут у соседей. Работать можно 6 часов в день, мастерство растёт "
                  "с часами работы. Хлеб и уха готовятся на дровах. Торговец каждый день покупает и продаёт понемногу, на всю деревню. "
@@ -61,6 +61,8 @@ MODES: dict[str, dict[str, Any]] = {
             "tax_amount": 10,
             "taxes": {"enabled": True},
             "council_orders": {"enabled": True},
+            # limited places per trade: no work at your trade for 3 days frees your place (places.py)
+            "places": {"enabled": True},
         },
     },
     "peaceful": {

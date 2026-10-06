@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import handbook, market, reputation, taxes
+from . import handbook, market, places, reputation, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -154,6 +154,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(land.facts(cfg))
     if labor.enabled(cfg):
         lines.append(labor.facts(cfg))
+        if places.enabled(cfg):
+            lines.append(places.facts(cfg))
     lines.append(pricing.tool_fact(cfg))
     if pricing.enabled(cfg):
         lines.append(pricing.facts(cfg))

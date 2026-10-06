@@ -13,7 +13,7 @@ from typing import Any
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor, land, mapgen,
-               market, ops, plots, pricing, reputation, seasons, taxes, threats, tiles, works)
+               market, ops, places, plots, pricing, reputation, seasons, taxes, threats, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -156,6 +156,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(market.observe(world, name))
     obs.update(works.observe(world, name))
     obs.update(taxes.observe(world, name))
+    obs.update(places.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -504,5 +505,6 @@ def night(ctx: Ctx) -> None:
     family.after_night(ctx)
     works.after_night(ctx)
     taxes.after_night(ctx)
+    places.after_night(ctx)
     conflict.random_fire(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")

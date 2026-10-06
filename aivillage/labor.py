@@ -87,6 +87,7 @@ def after_work_hour(ctx: Ctx, a: Agent, resource: str) -> None:
         return
     a.worked_today += 1
     if is_own(cfg, a, resource):
+        a.trade_day = ctx.world.day  # places.py: work at one's own trade keeps the place
         before = level(cfg, a.skill_hours)
         a.skill_hours += 1
         now = level(cfg, a.skill_hours)

@@ -30,7 +30,7 @@ from .state import Agent, LawProposal, World
 
 NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax")
 TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enabled (taxes.py)
-LAWS = NUMBER_LAWS + ("exile", "payout", "grant")
+LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant")
 
 
 # ---------- queries ----------
@@ -115,6 +115,8 @@ def describe_law(p: LawProposal) -> str:
         return f"{p.law} = {p.value} {unit}"
     if p.law == "exile":
         return f"exile {p.person}"
+    if p.law == "revoke_place":
+        return f"take {p.person}'s trade place"
     if p.law == "grant":
         return f"grant {p.value} coins from the treasury to {p.person}"
     return "pay out the treasury equally to all villagers"
@@ -149,7 +151,7 @@ def facts(cfg: dict) -> str:
     return (f"- Government: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
-            + "exile, payout, grant); everyone votes with vote_law; a law passes when "
+            + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant); everyone votes with vote_law; a law passes when "
             "more than half of all villagers vote yes. Tax goes to the village treasury. Witnesses and victims of a "
             "theft, attack or arson can report_theft to make the culprit pay the theft_fine."
             + (" The mayor holds the treasury and can embezzle from it; anyone can audit_treasury at the square, "
@@ -213,15 +215,17 @@ def vote(ctx: Ctx, a: Agent, args: VoteArgs) -> None:
 
 
 class ProposeArgs(BaseModel):
-    law: Literal["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "payout", "grant"]
+    law: Literal["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "revoke_place", "payout",
+                 "grant"]
     value: int | None = Field(None, description="coins, for tax/theft_fine/mayor_salary/grant; percent, for "
                               "sales_tax/wealth_tax")
-    person: str | None = Field(None, description="for exile/grant")
+    person: str | None = Field(None, description="for exile/revoke_place/grant")
 
 
 @ACTIONS.action("propose_law", "Mayor only: put a law to the vote. tax/theft_fine/mayor_salary need value "
-                "(coins), sales_tax/wealth_tax need value (percent; where World facts list them); exile needs person; grant needs person and value (paid from the treasury); payout "
-                "splits the treasury equally.", ProposeArgs,
+                "(coins), sales_tax/wealth_tax need value (percent; where World facts list them); exile needs "
+                "person; revoke_place needs person (takes their trade place, where World facts list it); grant "
+                "needs person and value (paid from the treasury); payout splits the treasury equally.", ProposeArgs,
                 available=lambda c, a: enabled(c.cfg) and c.world.governance.mayor == a.name)
 def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
     _require(ctx)
@@ -234,13 +238,15 @@ def propose_law(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
     value, person = args.value, None
     if args.law in TAX_RATES and not _rates_on(ctx.cfg):
         raise ActionError(f"this village has no {args.law}")
+    if args.law == "revoke_place" and not (ctx.cfg.get("places") or {}).get("enabled"):
+        raise ActionError("trades have no places in this village")
     if args.law in NUMBER_LAWS or args.law == "grant":
         lo, hi = gc["limits"][args.law]
         if value is None or not lo <= value <= hi:
             raise ActionError(f"{args.law} needs value between {lo} and {hi}")
     else:
         value = None
-    if args.law in ("exile", "grant"):
+    if args.law in ("exile", "revoke_place", "grant"):
         if not args.person:
             raise ActionError(f"{args.law} needs person")
         target = _agent(ctx, args.person)
@@ -370,6 +376,12 @@ def _apply_law(ctx: Ctx, p: LawProposal) -> str:
             return f" {p.person} is no longer mayor."
         return f" {p.person} is exiled until day {g.exiled[p.person]}."
     target = w.agents.get(p.person) if p.person else None
+    if p.law == "revoke_place":
+        from . import places  # places imports labor, which imports nothing of governance
+        if target is None or target.status == "dead" or target.profession == places.LABORER:
+            return " There is no place to take."
+        places.lose_place(ctx, target, "taken by law")
+        return ""
     if p.law == "grant":
         if target is None or target.status == "dead":
             return " Nobody to pay."
