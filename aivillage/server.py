@@ -118,6 +118,12 @@ class LiveSim:
             self.error = f"{type(e).__name__}: {e}"
             self._publish({"type": "error", "text": self.error})
         self.finished = True
+        if self.log_path:  # end-of-run scorecard next to the log (aivillage/scorecard.py)
+            try:
+                from . import scorecard
+                scorecard.write(self.log_path)
+            except Exception as e:
+                print(f"scorecard failed: {e}")
         if self.ticks and not self.stopping:  # the last day has no "next morning" to trigger its recap
             last = day_of(self.ticks[-1], self.world.config)[0]
             threading.Thread(target=self._end_of_day, args=(last,), daemon=True).start()
