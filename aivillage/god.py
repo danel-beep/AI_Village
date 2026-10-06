@@ -120,3 +120,44 @@ def lightning(ctx: Ctx, _god, args: PersonArgs) -> None:
     victim.health, victim.harm = 0, "lightning"
     ctx.emit("lightning", f"Lightning strikes {victim.name} at {ctx.world.locations[victim.location].name}!",
              actor=victim.name, location=victim.location, visibility="public", victim=victim.name)
+
+
+class TaxArgs(BaseModel):
+    polity: str | None = Field(None, description="polity id or name; empty: the village-wide tax (no polities)")
+    tax: int | None = Field(None, ge=0, le=1000, description="coins per villager (polity: per member) every tax day")
+    income_pct: int | None = Field(None, ge=0, le=100, description="percent of the coins got from the trader and "
+                                                                   "orders since the last tax day")
+    wealth_pct: int | None = Field(None, ge=0, le=100, description="polity: percent of a member's coins; village: "
+                                                                   "percent of coins above the threshold")
+    every_days: int | None = Field(None, ge=1, le=60, description="polity only: days between tax days")
+
+
+@GOD.action("set_tax", "Change the tax of one polity (its laws), or the village-wide tax when there are no "
+            "polities. Empty fields stay as they are.", TaxArgs)
+def set_tax(ctx: Ctx, _god, args: TaxArgs) -> None:
+    from . import governance, polity
+    if governance.polity_on(ctx.cfg):
+        if not ctx.world.polities:
+            raise ActionError("no polity yet: a town hall founds one")
+        if not args.polity:
+            raise ActionError("pick a polity")
+        p = polity.find(ctx, args.polity)
+        laws = {k: v for k, v in (("tax", args.tax), ("income_tax", args.income_pct),
+                                  ("wealth_tax", args.wealth_pct), ("tax_every", args.every_days)) if v is not None}
+        if not laws:
+            raise ActionError("nothing to change")
+        polity.set_laws(ctx, p, laws)
+        return
+    if args.polity:
+        raise ActionError("this village has no polities")
+    if args.every_days is not None:
+        raise ActionError("the village-wide tax day is set at the start")
+    laws = {k: v for k, v in (("tax", args.tax), ("sales_tax", args.income_pct), ("wealth_tax", args.wealth_pct))
+            if v is not None}
+    if not laws:
+        raise ActionError("nothing to change")
+    ctx.world.governance.laws.update(laws)
+    names = {"tax": "land tax {} coins", "sales_tax": "{}% of income from the trader and orders",
+             "wealth_tax": "{}% of wealth"}
+    ctx.emit("tax_set", "The village tax is now: " + "; ".join(names[k].format(v) for k, v in laws.items()) + ".",
+             visibility="public", laws=dict(laws))

@@ -91,7 +91,7 @@ def bill(world: World, a: Agent) -> dict:
 def record_income(world: World, a: Agent, n: int) -> None:
     """Coins `a` got from outside the village (the trader, council orders): the base of the sales tax."""
     chronicle.earned(world, a, n)
-    if enabled(world.config) and due(world):
+    if (enabled(world.config) or governance.polity_on(world.config)) and due(world):  # polity.py's income_tax
         a.earned_since_tax += n
 
 
@@ -346,7 +346,8 @@ def treasury_order(ctx: Ctx, a: Agent, args: TreasuryOrderArgs) -> None:
 # ---------- what villagers see ----------
 
 def observe(world: World, name: str) -> dict:
-    if not enabled(world.config) or not due(world):
+    # with polities on no world rule taxes anyone: each polity's own laws do (polity.observe shows its bill)
+    if not enabled(world.config) or not due(world) or governance.polity_on(world.config):
         return {}
     a = world.agents[name]
     return {"tax_bill": bill(world, a), "earned_since_tax": a.earned_since_tax}

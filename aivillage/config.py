@@ -402,7 +402,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "council_size": 3,
         "max_open_proposals": 3,
         "expel_days": 7,  # an expelled villager may not join that polity again for this many days
-        "limits": {"tax": [0, 50], "grant": [1, 500], "fine": [1, 200]},
+        # tax laws: income_tax and wealth_tax in percent, tax_every in days (polity.py)
+        "limits": {"tax": [0, 50], "income_tax": [0, 50], "wealth_tax": [0, 20], "tax_every": [1, 14],
+                   "grant": [1, 500], "fine": [1, 200]},
         "max_name_len": 30,
         # The treasury holder (ruler; most voted councillor; an assembly's treasurer) can take coins unnoticed
         # (polity_embezzle) until polity_audit at the town hall or, with audit_on_handover, a change of holder.
