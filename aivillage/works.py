@@ -3,8 +3,7 @@
 Rules, in the order an agent meets them:
 - The mayor can start building or upgrading a structure at any time with `propose_build` (no vote: the
   village votes with its hands). While there is no mayor (or no government), any villager can.
-  If no project is open for `council_idle_days`, the village council suggests the cheapest next one
-  (with village stages on, only once a town hall stands: `feature:council_projects`).
+  If no project is open for `council_idle_days`, the village council suggests the cheapest next one.
 - A project needs items (wood, stone, ...), coins and `labor` (hours of work). Villagers bring items and
   coins with `contribute` and work on it with `build_work` at the square; the mayor can pay from the
   treasury with `fund_project`. Every gift and every hour is public, and the finished project names who
@@ -25,9 +24,6 @@ from . import ops, population, progress
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Project, World
-
-COUNCIL_PROJECTS = "feature:council_projects"
-progress.DEFAULT_UNLOCKS.setdefault(COUNCIL_PROJECTS, {"building": "town_hall"})  # the council sits in the town hall
 
 SITE = "square"
 NOT_ITEMS = ("labor", "coins")
@@ -296,12 +292,12 @@ def after_night(ctx: Ctx) -> None:
         return
     w = ctx.world
     apply_level(w, "well")  # the well refills overnight
+    if not progress.unlocked(w, "feature:works"):  # «С нуля»: no village projects before a town hall
+        return
     if open_projects(w):
         w.works.quiet_since = w.day
         return
     idle = _w(ctx.cfg).get("council_idle_days", 0)
-    if not progress.unlocked(w, COUNCIL_PROJECTS):
-        return
     opts = next_options(w)
     if not idle or not opts or w.day - w.works.quiet_since < idle:
         return

@@ -57,6 +57,10 @@ DEFAULT_UNLOCKS: dict[str, dict] = {
     "action:treasury_order": {"building": "town_hall"},
     "action:propose_build": {"building": "town_hall"},
     "action:fund_project": {"building": "town_hall"},
+    # village projects (works.py): contributing, working on them and the council's suggestions
+    "action:contribute": {"building": "town_hall"},
+    "action:build_work": {"building": "town_hall"},
+    "feature:works": {"building": "town_hall"},
     "action:buy_land": {"building": "town_hall"},
     "action:sell_land": {"building": "town_hall"},
     # locks are smith's work; dice need a tavern
@@ -232,6 +236,8 @@ def setup(world: World) -> None:
             pre[kind] = max(pre.get(kind, 0), n)
     st["prebuilt"] = pre
     _refresh(world)
+    if not unlocked(world, "feature:works"):  # no town hall yet: the config's starting village projects wait
+        world.projects = {pid: p for pid, p in world.projects.items() if p.proposer != "council"}
 
 
 def _refresh(world: World) -> list[str]:

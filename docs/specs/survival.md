@@ -31,7 +31,7 @@ API for other modules:
 - `progress.unlocked(world, key) -> bool`. Keys: `action:<name>`, `recipe:<name>`, `building:<kind>`,
   `law:<name>`, `feature:<name>`. Ask it before anything automatic: `feature:trader` (the trader comes),
   `feature:elections`, `feature:taxes`, `feature:raids`, `feature:council_orders` (taxes.py) and
-  `feature:council_projects` (works.py), both with a town_hall. True when progress is off or the key has no rule.
+  `feature:works` (works.py, village projects), both with a town_hall. True when progress is off or the key has no rule.
   For a rules line, `governance.opens_note(cfg, key)` gives " (once a town_hall stands in the village)" (or "").
 - Register a mechanic's rule by adding to `progress.DEFAULT_UNLOCKS` in that module
   (`DEFAULT_UNLOCKS["action:hunt"] = {"stage": "hamlet"}`), rule = `{"stage": id}` and/or `{"building": kind}`.
@@ -52,6 +52,9 @@ Mode id `survival` («С нуля»). Config `bare_start` (`enabled`, `until_sta
 that stage has every villager at profession `laborer`, house level 0, no coins, items or yard buildings,
 gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode. A start before `coins_from_stage`
 (default `village`, where the market square brings the trader) has no coins either.
+The mode adds a small clay bank at the mine (bricks are reachable on every map size). Village projects
+(`works.py`: `contribute`, `build_work`, the council's suggestions, the config's starting projects) open with
+the town hall (`feature:works`).
 
 ## Building ids
 

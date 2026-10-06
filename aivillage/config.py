@@ -348,6 +348,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
     # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.
+    # Feasts and goods on view (aivillage/luxury.py): a host shares food with everyone awake here (each guest's
+    # feeling about the host: family.on_event.feast); here.people shows the visible_items each person carries.
+    "luxury": {"enabled": False, "min_guests": 2, "min_food_each": 15, "visible_items": ["ring", "spear", "club", "tool"]},
     "family": {
         "feeling_max": 100,
         "friend_at": 30,      # label "friend" at or above, "enemy" at or below -friend_at
@@ -367,7 +370,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "give": ["to", 5], "lend": ["to", 4], "repay": ["lender", 4], "trade": ["both", 2],
             "whisper": ["both", 1], "letter": ["to", 1], "decline": ["to", -1],
             "steal_attempt": ["to", -20], "witness": ["to", -10], "default": ["lender", -15],
-            "fire_out": ["owner", 10], "extinguish": ["owner", 4],
+            "fire_out": ["owner", 10], "extinguish": ["owner", 4], "feast": ["to", 6],
         },
     },
     # Reputation and rumors (aivillage/reputation.py). Each agent keeps its own tally of deeds it saw or
@@ -469,6 +472,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "loot_coins_max": 10,
         "weapons": {"tool": {"attack": 1, "damage": 2}, "club": {"attack": 0, "damage": 3},
                     "spear": {"attack": 2, "damage": 5}},
+        # Weapon tiers and armor (conflict.py, «С нуля» plan task 9). Works only with crafting on (the recipes
+        # are rows of crafting.recipes) and `enabled`. `weapons` join the ones above (club -> spear / bow ->
+        # sword); `hunt` adds to the to-hit roll against animals (animals.py) only. `armor`: the best one worn
+        # takes `block` off every hit its wearer takes (a hit still hurts at least 1), in fights, from big game
+        # and from raiders or the beast. `uses`: fights / hunts / defends an item lasts before it breaks (the
+        # weapon or armor used counts one use each time; items not listed never break). Everyone sees the
+        # weapon and armor of the people next to them (`here.people[].gear`).
+        "gear": {
+            "enabled": True,
+            "weapons": {"bow": {"attack": 1, "damage": 3, "hunt": 5}, "sword": {"attack": 3, "damage": 7}},
+            "hunt": {"spear": 1},
+            "armor": {"leather_armor": {"block": 2}, "iron_armor": {"block": 4}},
+            "uses": {"club": 8, "spear": 15, "bow": 15, "sword": 30, "leather_armor": 12, "iron_armor": 30},
+        },
         # feelings (family.py) and reputation (reputation.py) toward the attacker / arsonist
         "feelings": {"victim": -30, "witness": -10},
         "reputation": {"victim": -5, "witness": -3},
@@ -585,12 +602,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # gets `stray_count` animals from the wild with `stray_chance` a night.
     "animals": {
         "enabled": False, "center": "square", "base_size": 5, "party_hours": 1, "rounds": 4,
-        "flee_after": 3, "flee_share": 0.5, "stray_chance": 0.1, "stray_count": 2, "habitats": {},
-        "items": {"meat": {"value": 4, "food": 25}, "hide": {"value": 3}},
+        "flee_after": 3, "flee_share": 0.5, "stray_chance": 0.5, "stray_count": 3, "habitats": {},
+        "items": {"meat": {"value": 4, "food": 40}, "hide": {"value": 3}},
         "species": {
-            "hare": {"lives_by": "wood", "start": 6, "cap": 10, "breed": 0.5, "min_hunters": 1, "hit_at": 12,
+            "hare": {"lives_by": "wood", "start": 10, "cap": 18, "breed": 0.8, "min_hunters": 1, "hit_at": 11,
                      "loot": {"meat": 1, "hide": 1}},
-            "duck": {"lives_by": "fish", "start": 5, "cap": 8, "breed": 0.4, "min_hunters": 1, "hit_at": 13,
+            "duck": {"lives_by": "fish", "start": 8, "cap": 14, "breed": 0.7, "min_hunters": 1, "hit_at": 12,
                      "loot": {"meat": 1}},
             "deer": {"lives_by": "wood", "biomes": ["deep_forest"], "far": True, "start": 3, "cap": 5, "breed": 0.3,
                      "min_hunters": 2, "hit_at": 10, "hp": 16, "loot": {"meat": 6, "hide": 2}},
@@ -628,6 +645,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "stone_axe": {"value": 6}, "stone_pick": {"value": 6}, "iron_axe": {"value": 24},
             "iron_pick": {"value": 26}, "hoe": {"value": 12}, "fishing_rod": {"value": 6},
             "smoked_meat": {"value": 9, "food": 35},
+            # weapons and armor (combat.gear, conflict.py)
+            "bow": {"value": 10}, "sword": {"value": 40}, "leather_armor": {"value": 25}, "iron_armor": {"value": 60},
             "clothes": {"value": 26},
         },
         # inputs -> output; `building`: a workshop of that kind must stand where the crafter is (None = by hand,
@@ -650,6 +669,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # food: bread now goes through flour; meat keeps longer smoked
             "bread": {"inputs": {"flour": 1, "wood": 1}, "output": 1, "where": "home"},
             "smoked_meat": {"inputs": {"meat": 2, "wood": 1}, "output": 2, "building": "smokehouse"},
+            # weapons and armor (combat.gear): club by hand (above), spear and bow at a workbench, iron at the smithy
+            "spear": {"inputs": {"plank": 1, "stone": 1}, "building": "workbench", "profession": None},
+            "bow": {"inputs": {"plank": 1, "hide": 1}, "output": 1, "building": "workbench"},
+            "leather_armor": {"inputs": {"leather": 3}, "output": 1, "building": "workbench"},
+            "sword": {"inputs": {"iron": 2, "plank": 1}, "output": 1, "building": "smithy", "hours": 2},
+            "iron_armor": {"inputs": {"iron": 4, "leather": 1}, "output": 1, "building": "smithy", "hours": 3},
             # clothes: leather sewn at a weaving shed (construction.py, task 10)
             "clothes": {"inputs": {"leather": 2}, "output": 1, "building": "weaving_shed"},
         },

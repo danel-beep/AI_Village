@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, illness,
+from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, illness,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
                taxes, threats, tiles, works)
 from .actions import step_move, work_hour
@@ -100,7 +100,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     ctx = Ctx(world, rng_for(world, "observe"))
     loc = world.locations[a.location]
     cfg = world.config
-    people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {})}
+    people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {}),
+               **conflict.seen_gear(cfg, o)}
               for o in world.agents.values()
               if o.name != name and o.status == "active" and o.location == a.location]
     chest = world.chests[f"chest_{name}"]
@@ -153,6 +154,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(threats.observe(world, name))
     obs.update(animals.observe(world, name))
     obs.update(land.observe(world, name))
+    luxury.show_goods(world, obs)
     obs.update(debts.observe(world, name))
     obs.update(labor.observe(world, name))
     obs.update(graves.observe(world, name))
@@ -165,6 +167,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
     obs.update(crafting.observe(world, name))
+    obs.update(conflict.observe(world, name))
     obs.update(construction.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
@@ -306,7 +309,7 @@ WAKE_RULES: dict[str, str] = {
     "whisper": "direct", "letter": "direct", "offer": "direct", "trade": "direct", "decline": "direct",
     "give": "direct", "lend": "direct", "gift": "direct",
     "steal_attempt": "direct", "witness": "direct", "robbed": "direct", "take_shared": "direct",
-    "fire": "heard", "death": "heard", "order_delivered": "direct",
+    "fire": "heard", "death": "heard", "order_delivered": "direct", "feast": "direct",
     "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
     "inheritance": "direct",
     "fight": "direct", "arson_seen": "direct", "land_offer": "direct", "land_sold": "direct",

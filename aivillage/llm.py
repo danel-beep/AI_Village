@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import animals, chronicle, construction, crafting, handbook, market, places, reputation, spoilage, taxes
+from . import animals, chronicle, construction, crafting, handbook, luxury, market, places, reputation, spoilage, taxes
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -184,6 +184,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(pricing.facts(cfg))
     if rot := spoilage.facts(cfg):
         lines.append(rot)
+    if feast := luxury.facts(cfg):
+        lines.append(feast)
     if death := graves.facts(cfg):
         lines.append(death)
     if market.enabled(cfg):
@@ -198,6 +200,7 @@ def world_facts(cfg: dict) -> str:
         lines.append(f"- Slow digging: {', '.join(caps)}, whatever your skill and tools.")
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
+    lines += conflict.gear_facts(cfg)
     if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []):
         lines.append(dice.facts(cfg))
     return "\n".join(lines)
