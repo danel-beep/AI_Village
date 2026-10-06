@@ -338,7 +338,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     for name, m in models.items():
         client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
-                             character=character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name))
+                             character=character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name),
+                             own_goals=bool(world.config.get("own_goals", True)))
     return out
 
 

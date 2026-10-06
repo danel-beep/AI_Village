@@ -36,14 +36,19 @@ def collect_texts(records: Iterable[dict]) -> list[str]:
     for rec in records:
         if rec.get("type") == "diary":
             for entry in (rec.get("entries") or {}).values():
-                if isinstance(entry, dict) and isinstance(entry.get("text"), str) and entry["text"].strip():
-                    seen.setdefault(entry["text"], None)
+                for k in ("text", "wants", "plan"):
+                    if isinstance(entry, dict) and isinstance(entry.get(k), str) and entry[k].strip():
+                        seen.setdefault(entry[k], None)
         if rec.get("type") != "tick":
             continue
         for d in (rec.get("decisions") or {}).values():
             for k in ("thought", "say"):
                 if isinstance(d, dict) and isinstance(d.get(k), str) and d[k].strip():
                     seen.setdefault(d[k], None)
+            intro = d.get("intro") if isinstance(d, dict) else None
+            for k in ("about_me", "wants", "plan"):
+                if isinstance(intro, dict) and isinstance(intro.get(k), str) and intro[k].strip():
+                    seen.setdefault(intro[k], None)
         for e in rec.get("events") or []:
             if isinstance(e.get("text"), str) and e["text"].strip():
                 seen.setdefault(e["text"], None)
