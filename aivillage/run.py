@@ -194,7 +194,7 @@ def replay(path: str | Path) -> World:
     recs = read_log(path)
     header = next(recs)
     assert header["type"] == "header" and header["version"] == LOG_VERSION
-    world = engine.new_world(header["config"])
+    world = start_of(header)
     if world.hash() != header["hash"]:
         raise AssertionError("initial world differs (engine or config changed)")
     for rec in recs:
@@ -206,6 +206,11 @@ def replay(path: str | Path) -> World:
         if world.hash() != rec["hash"]:
             raise AssertionError(f"replay diverged at tick {rec['tick']}")
     return world
+
+
+def start_of(header: dict) -> World:
+    """The world a log starts from: built from its config, or given whole (a scenario run, aivillage/scenario.py)."""
+    return World.from_dict(header["start"]) if "start" in header else engine.new_world(header["config"])
 
 
 def bots_decider(world: World, kinds: list[str], seed: int) -> DecideFn:

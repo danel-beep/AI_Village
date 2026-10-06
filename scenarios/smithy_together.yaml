@@ -1,0 +1,34 @@
+# Совместная стройка кузницы. Аудит темпа: в 11 прогонах ИИ ни одной совместной стройки, кузнице нужны
+# двое в один и тот же час. Проверяем: смогут ли двое договориться и работать вместе.
+title: Совместная стройка кузницы
+about: >-
+  «С нуля», хутор уже стоит. У Дмитрия во дворе открыта стройка кузницы, все материалы на месте, нужно 8 часов
+  работы, и час засчитывается, только если в этот час работают двое. Дмитрий и Борис вчера договорились
+  строить вместе. Ждём хотя бы один засчитанный совместный час.
+config:
+  mode: survival
+  seed: 5
+  world:
+    progress: {start_stage: hamlet}
+villagers:
+  Dmitri:
+    location: home
+    memory:
+      notes: "Yesterday I opened the smithy site in my yard and brought all its wood, stone and ore. Boris said he would help me build it."
+  Boris:
+    location: square
+    memory:
+      notes: "Yesterday Dmitri asked me to help him build the smithy in his yard, and I said yes."
+world:
+  sites:
+    - {kind: smithy, by: Dmitri, supplied: true}
+play:
+  days: 1
+  ai: [Dmitri, Boris, Anna]
+  bots: builder
+  max_cost: 0.15
+expect:
+  - {title: совместный час на кузнице засчитан, kind: construct, data: {counted: true}, actors: 2}
+watch:
+  - {title: кузница достроена, kind: building_done, data: {what: smithy}}
+  - {title: часы без напарника (не засчитаны), kind: construct, data: {counted: false}}
