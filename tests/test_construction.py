@@ -69,12 +69,13 @@ def test_house_goes_up_by_materials_and_hours():
     give(w, "Anna", wood=12, stone=10)
     assert not errors(act(w, "Anna", "bring_materials", site_id=s["id"], items={"wood": 20, "stone": 10}))
     assert construction.remaining(s) == {} and ops.count(w.agents["Anna"].inventory, "wood") == 0
-    # alone it does not count; a neighbour joining within the hour makes both hours count, with the team bonus
+    # alone it does not count yet; a neighbour working on it later that day makes both hours count, with the bonus
     w.agents["Boris"].location = "home_Anna"
     act(w, "Anna", "construct", site_id=s["id"])
     assert s["work"] == 0 and len(s["pending"]) == 1
-    engine.step(w, {})  # the next hour: Anna's lone hour is lost
-    together(w, "construct", ["Anna", "Boris"], site_id=s["id"])
+    for _ in range(3):  # hours later, the same day
+        engine.step(w, {})
+    act(w, "Boris", "construct", site_id=s["id"])
     assert s["work"] == 2.5 and s["workers"] == {"Anna": 1.25, "Boris": 1.25}
     for _ in range(3):
         together(w, "construct", ["Anna", "Boris"], site_id=s["id"])
@@ -83,7 +84,13 @@ def test_house_goes_up_by_materials_and_hours():
     assert progress.built(w)["house@2"] == 1
 
 
-def test_work_alone_is_lost_after_the_window():
+def next_day(w):
+    day = w.day
+    while w.day == day:
+        engine.step(w, {})
+
+
+def test_work_alone_is_lost_when_nobody_joins_that_day():
     w = world()
     w.agents["Anna"].location = "square"
     act(w, "Anna", "start_building", kind="market_square")
@@ -92,7 +99,12 @@ def test_work_alone_is_lost_after_the_window():
     engine.step(w, {})
     engine.step(w, {})
     ev = act(w, "Anna", "construct", site_id=s["id"])
-    assert any(e.kind == "site_work_lost" for e in ev) and s["work"] == 0 and len(s["pending"]) == 1
+    assert not any(e.kind == "site_work_lost" for e in ev) and s["work"] == 0 and len(s["pending"]) == 2
+    next_day(w)
+    w.agents["Anna"].location = "square"
+    ev = act(w, "Anna", "construct", site_id=s["id"])
+    lost = next(e for e in ev if e.kind == "site_work_lost")
+    assert lost.text.startswith("2 hour(s)") and s["work"] == 0 and len(s["pending"]) == 1
 
 
 def test_shelter_roof_and_progress_lock():
@@ -162,19 +174,20 @@ def test_fuzz_and_replay_with_construction_and_progress(tmp_path):
     assert evaluative(llm.world_facts(w.config)) == []
 
 
-def test_team_site_shows_who_worked_on_it_within_the_hour():
-    w = world(tick_minutes=15)
+def test_team_site_shows_who_worked_on_it_today():
+    w = world()
     w.agents["Anna"].location = "square"
     act(w, "Anna", "start_building", kind="market_square")
     s = site_of(w, "market_square")
     obs_site = lambda: next(x for x in engine.observe(w, "Boris", consume_inbox=False)["building_sites"]  # noqa: E731
                             if x["id"] == s["id"])
-    assert "worked_on_it_within_the_hour" not in obs_site()
+    assert "worked_on_it_today" not in obs_site() and obs_site()["people_needed_on_the_same_day"] == 2
     act(w, "Anna", "construct", site_id=s["id"])
-    assert obs_site()["worked_on_it_within_the_hour"] == ["Anna"]
-    for _ in range(4):  # the window passes: nobody's hour is waiting any more
+    for _ in range(5):
         engine.step(w, {})
-    assert "worked_on_it_within_the_hour" not in obs_site()
+    assert obs_site()["worked_on_it_today"] == ["Anna"]
+    next_day(w)  # a new day: nobody's hour is waiting any more
+    assert "worked_on_it_today" not in obs_site()
 
 
 def test_upgrade_house_left_out_of_the_handbook_with_construction():
