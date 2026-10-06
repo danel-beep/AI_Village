@@ -117,10 +117,16 @@
       ${err ? `<div class="err">✖ ${esc(tr(err.text))}</div>` : ''}</div>`).join('');
   }
 
-  function diary(n) {
+  // Own goals (config own_goals): "wants" and "plan" ride on each diary entry, the intro on the first decision.
+  const goals = d => (d.wants ? `<div>🎯 Хочет: ${esc(tr(d.wants))}</div>` : '')
+    + (d.plan ? `<div class="muted">План: ${esc(tr(d.plan))}</div>` : '');
+  function diary(n, c) {
     const own = diaries.filter(d => d.at <= i && d.entries[n]).map(d => d.entries[n]).reverse();
-    return own.length ? own.map(d => `<div class="row"><span class="muted">День ${d.day}</span>
-      <div class="thought">${esc(tr(d.text))}</div></div>`).join('')
+    const first = c.hist.find(h => h.d.intro);
+    const intro = first ? `<div class="row"><span class="muted">Перед первым днём</span>
+      ${first.d.intro.about_me ? `<div class="thought">${esc(tr(first.d.intro.about_me))}</div>` : ''}${goals(first.d.intro)}</div>` : '';
+    return own.length || intro ? own.map(d => `<div class="row"><span class="muted">День ${d.day}</span>
+      <div class="thought">${esc(tr(d.text))}</div>${goals(d)}</div>`).join('') + intro
       : '<div class="muted">Пока записей нет: дневник пишется ночью.</div>';
   }
 
@@ -139,7 +145,7 @@
   function render(n) {
     if (!n || !ticks.length || !ticks[i].view.agents[n]) { box.hidden = true; return; }
     const t = ticks[i], v = t.view.agents[n], c = collect(n);
-    const body = tab === 'people' ? people(n, c) : tab === 'hist' ? history(c) : tab === 'diary' ? diary(n)
+    const body = tab === 'people' ? people(n, c) : tab === 'hist' ? history(c) : tab === 'diary' ? diary(n, c)
       : tab === 'stats' ? stats(n, v, c) : now(n, v, c);
     const keep = box.dataset.key === n + tab ? box.scrollTop : 0;  // ticks re-render: don't jump to the top
     box.hidden = false; box.dataset.key = n + tab;

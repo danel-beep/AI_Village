@@ -238,6 +238,26 @@ def by_model(rows: list[dict]) -> dict[str, dict]:
     return dict(sorted(out.items()))
 
 
+def goals(records: list[dict]) -> dict[str, list[tuple[int, str]]]:
+    """Own goals (config `own_goals`): {villager: [(day, what they wrote they want)]}, day 0 = before the first
+    day (the intro on the first decision), then one per night where it changed."""
+    out: dict[str, list[tuple[int, str]]] = {}
+
+    def add(name: str, day: int, wants) -> None:
+        if isinstance(wants, str) and (not out.get(name) or out[name][-1][1] != wants.strip()):
+            out.setdefault(name, []).append((day, wants.strip()))
+    for rec in records:
+        if rec.get("type") == "tick":
+            for name, d in (rec.get("decisions") or {}).items():
+                if isinstance(d, dict) and isinstance(d.get("intro"), dict):
+                    add(name, 0, d["intro"].get("wants"))
+        elif rec.get("type") == "diary":
+            for name, e in (rec.get("entries") or {}).items():
+                if isinstance(e, dict) and "wants" in e:
+                    add(name, rec.get("day", 0), e["wants"])
+    return out
+
+
 def compute(paths: list[str | Path], judge=None) -> dict:
     """Report over logs. `judge`: an llm.Client for lies, or None (lies not measured)."""
     runs, rows = [], []
@@ -246,12 +266,13 @@ def compute(paths: list[str | Path], judge=None) -> dict:
         header = recs[0]
         lies = judge_lies(spoken_turns(recs), judge) if judge is not None else None
         vs = villagers(recs, p, lies)
+        wants = goals(recs)
         cfg = header["config"]
         runs.append({"log": str(p), "seed": cfg.get("seed"), "mode": cfg.get("economy_mode"), "villagers": len(vs), "days": max((v["days"] for v in vs.values()),
                                                                                        default=0),
                      "cost_usd": round(sum(v["cost_usd"] for v in vs.values()), 4)})
         for v in vs.values():
-            rows.append({**v, "log": str(p), "actions": dict(v["actions"])})
+            rows.append({**v, "log": str(p), "actions": dict(v["actions"]), "wants": wants.get(v["name"], [])})
     models = by_model([{**r, "actions": Counter(r["actions"])} for r in rows])
     seeds = sorted({r["seed"] for r in runs if r["seed"] is not None})
     return {"runs": runs, "seeds": seeds, "models": models, "villagers": rows, "lies_judged": judge is not None,
@@ -304,6 +325,14 @@ def to_markdown(rep: dict) -> str:
                    f"{m['cost_usd']:.4f} | {m['cost_per_villager_day']:.5f} |")
     if len(models) == 1:
         out += ["", "Пока все жители на одной модели; когда модели будут разные, эта таблица их сравнит."]
+    if any(v.get("wants") for v in rep["villagers"]):
+        out += ["", "## Чего хотят жители", "",
+                "Свои слова жителя (настройка «Свои цели»): день 0 = перед первым днём, дальше ночи, когда желание "
+                "менялось. «—» = ничего не написал.", ""]
+        for v in rep["villagers"]:
+            if v.get("wants"):
+                out.append(f"- **{v['name']}** ({v['profession']}, {v['model']}): "
+                           + "; ".join(f"день {d}: {w or '—'}" for d, w in v["wants"]))
     if not one:
         out += ["", "## Прогоны", ""]
         out += [f"{i + 1}. `{r['log']}`: seed {r['seed']}, режим {r['mode']}, {r['villagers']} жителей, "
