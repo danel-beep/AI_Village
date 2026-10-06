@@ -51,7 +51,7 @@ MODES: dict[str, dict[str, Any]] = {
             # gold pays at most ~2x other work: cheaper, and the trader pays less the more he holds;
             # it has uses (a ring at the smithy, a level-3 house)
             "items": {"gold": {"value": 12}},
-            "trader_pricing": {"stock_prices": True},
+            "trader_pricing": {"stock_prices": True, "nearest": True},
             "plots": {"house_upgrade": {"3": {"items": {"gold": 2}}}},
             # tools wear out in two to three days of work; everyone starts with one, then buys from the smith
             "start_items": {"tool": 1},
