@@ -52,8 +52,13 @@ class RandomBot(Bot):
         elif name in ("say",):
             args = {"text": r.choice(["hello", "anyone selling bread?", "I need wood", "   "])}
         elif name == "gossip":
-            args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""]),
-                    **({"to": r.choice(people)} if r.random() < 0.5 else {})}
+            heard = [x["id"] for x in obs.get("rumors", []) if "id" in x]
+            if heard and r.random() < 0.5:  # pass on a rumor heard, as is
+                args = {"rumor": r.choice(heard + ["r0.nobody"])}
+            else:
+                args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""])}
+            if r.random() < 0.5:
+                args["to"] = r.choice(people)
         elif name in ("whisper", "letter"):
             args = {"to": r.choice(people), "text": "psst"}
         elif name == "give":

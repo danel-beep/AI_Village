@@ -87,6 +87,20 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "max_steal_qty", "path": "max_steal_qty", "group": "Кражи", "type": "range",
      "label": "Сколько можно унести за раз", "min": 1, "max": 10, "step": 1, "unit": " шт."},
 
+    # --- word of mouth (aivillage/reputation.py) ---
+    {"key": "mishear_number", "path": "reputation.mishear_number", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух искажает числа", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс, что слушатель запомнит другое число («украл 3 монеты» → «украл 6»). 0: слухи передаются точно."},
+    {"key": "mishear_name", "path": "reputation.mishear_name", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Слух путает, о ком речь", "min": 0, "max": 50, "step": 1, "unit": "%",
+     "hint": "Шанс, что слушатель решит, что речь о другом жителе. Рекомендуем 5%."},
+    {"key": "overhear", "path": "reputation.overhear", "group": "Слухи", "type": "range", "scale": 0.01,
+     "label": "Шёпот подслушивают", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hint": "Шанс для каждого рядом услышать шёпот или сплетню на ухо. Рекомендуем 15%."},
+    {"key": "origin_hops", "path": "reputation.origin_hops", "group": "Слухи", "type": "range",
+     "label": "Сколько пересказов помнят автора слуха", "min": 1, "max": 10, "step": 1, "unit": "",
+     "hint": "Дальше слух идёт как «кто-то говорил»."},
+
     # --- crises (aivillage/crises.py) ---
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
      "hint": "Неурожай, засуха, крысы, нехватка у торговца, караван: бьют по жителям неравномерно."},

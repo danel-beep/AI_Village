@@ -257,6 +257,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "score_cap": 10,
         "notes_per_person": 3,
         "rumors_kept": 6,
+        # Word of mouth: hearers learn who started a rumor for this many tellings, then "someone".
+        # Each hearer may mishear: a number in the text changes, or (rarer) the rumor lands on another
+        # villager. Whispers and gossip told to one person are overheard by each bystander with "overhear".
+        "origin_hops": 2,
+        "mishear_number": 0.25,
+        "mishear_name": 0.05,
+        "overhear": 0.15,
         "deltas": {
             "witness": -3,        # saw someone steal
             "steal_attempt": -4,  # caught someone stealing from you
