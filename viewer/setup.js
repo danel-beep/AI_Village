@@ -22,7 +22,7 @@
     b.style.cssText = 'background:#34403b;color:#e8efe9;border:0;border-radius:20px;padding:7px 12px;' +
       'font:600 13px system-ui,sans-serif;cursor:pointer';
     b.onclick = () => {
-      if (!info.finished && !confirm('Остановить эту деревню и настроить новую? Лог сохранится.')) return;
+      if (!info.finished && !confirm('Остановить эту деревню и настроить новую? Она сохранится (продолжить можно с начального экрана), сводка сессии тоже.')) return;
       post('/api/stop').then(() => location.reload(), e => alert(e.message));
     };
     const bar = document.getElementById('rp-bar');
@@ -80,6 +80,8 @@
       #su .vr input, #su .vr select { width:100%; box-sizing:border-box; background:#1d2321; color:#e8efe9;
         border:1px solid #4a5650; border-radius:6px; padding:6px 8px; font:13px system-ui; }
       #su .vr .own { grid-column:1 / -1; }
+      #su .vr select.look { grid-column:1 / 3; }
+      #su .vr .face { width:30px; height:39px; image-rendering:pixelated; align-self:center; }
       #su .vr .hint { grid-column:1 / -1; margin:0; }
       @media (max-width:560px) { #su .vr { grid-template-columns:1fr 1fr; } #su .vr select.ch { grid-column:1 / -1; } }
       #su .vbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
@@ -114,7 +116,7 @@
         <button class="small" id="su-reset">Сбросить к режиму</button>
         <div class="msg" id="su-msg"></div>
       </div>
-      <details id="su-past"><summary>📂 Прошлые прогоны и отчёт о проблеме</summary>
+      <details id="su-past"><summary>📂 Прошлые сессии и отчёт о проблеме</summary>
         <div class="runs" id="su-runs">загружаю…</div>
         <div class="hint" style="margin-top:12px">Что-то пошло не так в последнем прогоне? Опишите, и я соберу файл-отчёт:
           его можно перетащить в чат проекта.</div>
@@ -135,15 +137,16 @@
     const start = Object.assign({}, info.defaults, info.last || {}, saved);
     if (!(start.mode in info.mode_defaults)) start.mode = info.defaults.mode;
     const modeVals = m => info.mode_defaults[m] || {};
-    const follows = k => k.key in modeVals(info.defaults.mode);  // config/action knobs move with the mode
+    const follows = k => !!(k.path || k.action);  // config and action knobs move with the mode
     // Config knobs follow the mode until the user moves them; `touched` keeps what they set by hand.
     let touched = new Set(Object.keys(saved.__touched || {}));
     const values = {};
-    for (const k of knobs) {
-      const fromMode = modeVals(start.mode)[k.key];
-      values[k.key] = follows(k) ? (touched.has(k.key) && k.key in start ? start[k.key] : fromMode)
-                             : (k.key in start ? start[k.key] : k.default);
-    }
+    // A choice with `sets` (random-events preset) moves its sliders like the mode does: mode < preset < hand.
+    const presetVals = () => Object.assign({}, ...knobs.filter(k => k.sets).map(k => k.sets[values[k.key]] || {}));
+    const base = m => Object.assign({}, modeVals(m), presetVals());
+    for (const k of knobs) if (!follows(k)) values[k.key] = k.key in start ? start[k.key] : k.default;
+    for (const k of knobs) if (follows(k))
+      values[k.key] = touched.has(k.key) && k.key in start ? start[k.key] : base(start.mode)[k.key];
 
     const fmt = (k, v) => k.type === 'toggle' ? (v ? 'да' : 'нет')
       : k.type === 'choice' ? '' : (v === null || v === undefined || v === '' ? 'случайно' : v + (k.unit || ''));
@@ -202,17 +205,18 @@
       else for (const b of r.control.children) b.classList.toggle('on', b.dataset.v === String(v));
       if (r.val.isConnected) {
         r.val.textContent = fmt(k, v);
-        r.val.classList.toggle('changed', follows(k) && v !== modeVals(values.mode)[k.key]);
+        r.val.classList.toggle('changed', follows(k) && v !== base(values.mode)[k.key]);
       }
       r.about.textContent = [k.about ? k.about[v] : '', k.hint || ''].filter(Boolean).join(' ');
-      r.el.style.display = k.only && k.only !== values.brains ? 'none' : '';
+      r.el.style.display = (k.only && k.only !== values.brains) || (k.mode && k.mode !== values.mode) ? 'none' : '';
     }
 
     function set(k, v) {
       values[k.key] = v;
       if (follows(k)) touched.add(k.key);
-      if (k.key === 'mode') {  // the mode moves every slider the user has not set by hand
-        for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = modeVals(v)[c.key];
+      if (k.sets) for (const c of Object.keys(k.sets[v] || {})) touched.delete(c);  // the preset takes them back
+      if (k.key === 'mode' || k.sets) {  // the mode / preset moves every slider the user has not set by hand
+        for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = base(values.mode)[c.key];
       }
       knobs.forEach(paint);
       keyLine();
@@ -298,7 +302,24 @@
           showAbout(); remember();
         };
         showAbout();
-        r.append(name, prof, ch, own, about);
+        // Look (viewer/sprites.js): automatic = by the name's sex and the profession; or any of the drawn villagers.
+        const look = document.createElement('select');
+        look.className = 'look'; look.title = 'Внешность';
+        look.add(new Option('🎲 Внешность: авто', ''));
+        const S = window.Sprites, nl = (S && S.LOOKS) || 0;
+        for (let k = 0; k < nl; k++) look.add(new Option(`${S.lookIsFemale(k) ? '👩' : '👨'} Внешность ${k + 1}`, String(k)));
+        look.value = Number.isInteger(v.look) ? String(v.look) : '';
+        const face = document.createElement('canvas');
+        face.className = 'face'; face.width = 20; face.height = 26;
+        const showFace = () => {
+          const g = face.getContext('2d'); g.clearRect(0, 0, face.width, face.height);
+          const sheet = Number.isInteger(v.look) && S && S.ok && S.villager(v.look);
+          face.hidden = !sheet;
+          if (sheet) g.drawImage(sheet, 0, 0, sheet.fw, sheet.fh, (face.width - sheet.fw) / 2, face.height - sheet.fh, sheet.fw, sheet.fh);
+        };
+        look.onchange = () => { if (look.value === '') delete v.look; else v.look = +look.value; showFace(); remember(); };
+        if (S && !S.ok) S.onReady(showFace); else showFace();
+        r.append(name, prof, ch, look, face, own, about);
         list.appendChild(r);
       });
     }
@@ -333,14 +354,27 @@
       });
     };
 
-    fetch('/api/runs').then(r => r.json()).then(d => {
+    // Past sessions (aivillage/session.py): the summary page, plus the replay of the map.
+    fetch('/api/sessions').then(r => r.json()).then(d => {
       const box = $('su-runs');
-      box.textContent = d.runs.length ? '' : 'Прошлых прогонов пока нет.';
-      for (const run of d.runs) {
+      box.textContent = d.sessions.length ? '' : 'Прошлых сессий пока нет.';
+      for (const s of d.sessions.slice(0, 10)) {
+        const line = document.createElement('div');
         const a = document.createElement('a');
-        a.href = '/replay/' + encodeURIComponent(run.name); a.target = '_blank';
-        a.textContent = '▶ ' + run.name.replace('_', ' ');
-        box.appendChild(a);
+        a.href = '/session/' + encodeURIComponent(s.name);
+        a.textContent = '📋 ' + s.name.replace('_', ' ').replace(/-(\d\d)-(\d\d)$/, ':$1');
+        const info = document.createElement('span');
+        info.className = 'hint';
+        info.textContent = ` ${s.villagers} жит., «${s.mode}»` + (s.summary ? `, ${s.days} дн.` + (s.top ? `: ${s.top}` : '') : '') + (s.note ? ' 💬' : '') + ' ';
+        const r = document.createElement('a');
+        r.href = '/replay/' + encodeURIComponent(s.name); r.target = '_blank'; r.textContent = '▶ повтор';
+        line.append(a, info, r);
+        box.appendChild(line);
+      }
+      if (d.sessions.length) {
+        const all = document.createElement('a');
+        all.href = '/sessions'; all.textContent = 'Все сессии →';
+        box.appendChild(all);
       }
     }).catch(() => { $('su-runs').textContent = ''; });
     $('su-report').onclick = () => post('/api/report-last', { note: $('su-note').value }).then(d => {

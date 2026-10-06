@@ -52,8 +52,13 @@ class RandomBot(Bot):
         elif name in ("say",):
             args = {"text": r.choice(["hello", "anyone selling bread?", "I need wood", "   "])}
         elif name == "gossip":
-            args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""]),
-                    **({"to": r.choice(people)} if r.random() < 0.5 else {})}
+            heard = [x["id"] for x in obs.get("rumors", []) if "id" in x]
+            if heard and r.random() < 0.5:  # pass on a rumor heard, as is
+                args = {"rumor": r.choice(heard + ["r0.nobody"])}
+            else:
+                args = {"about": r.choice(people + ["nobody"]), "text": r.choice(["is a thief", "pays debts", ""])}
+            if r.random() < 0.5:
+                args["to"] = r.choice(people)
         elif name in ("whisper", "letter"):
             args = {"to": r.choice(people), "text": "psst"}
         elif name == "give":
@@ -64,6 +69,17 @@ class RandomBot(Bot):
         elif name == "repay":
             debts = [d["id"] for d in obs["board"]["debts"]] or ["debt0"]
             args = {"debt_id": r.choice(debts), "coins": r.randint(1, 5)}
+        elif name == "promise":
+            args = {"to": r.choice(people), "coins": r.randint(1, 9), "due_day": obs["time"]["day"] + r.randint(0, 3),
+                    **({"pledge": {pick_item(): 1}} if r.random() < 0.4 else {}),
+                    **({"note": "for bread"} if r.random() < 0.5 else {})}
+        elif name in ("forgive_debt", "transfer_debt", "demand_debt", "rule_debt"):
+            debts = [d["id"] for d in obs["board"]["debts"]] or ["debt0"]
+            args = {"debt_id": r.choice(debts)}
+            if name == "transfer_debt":
+                args["to"] = r.choice(people)
+            if name == "rule_debt":
+                args["decision"] = r.choice(["collect", "reject", "maybe"])
         elif name == "offer":
             args = {"to": r.choice(people), "give": {pick_item(): 1}, "want": {r.choice(items + ["coins"]): 2}}
         elif name in ("accept", "decline"):
@@ -85,12 +101,48 @@ class RandomBot(Bot):
                                               if name == "sell_land" else {})}
         elif name == "build":
             args = {"kind": r.choice(["garden_bed", "chicken_coop", "cow_pen", "beehive", "fence", "castle"])}
+        elif name == "help_stranger":
+            args = {"item": pick_item()}
+        elif name == "care":
+            args = {"person": r.choice(people), "item": r.choice(["honey", "milk", "fish_soup", "bread"])}
+        elif name == "dice":
+            ch = [c["from"] for c in obs.get("dice_challenges_to_you", [])]
+            args = {"person": r.choice(ch or people + ["nobody"]), "stake": r.choice([5, 5, r.randint(-2, 40)])}
+        elif name == "hunt":
+            args = {"animal": r.choice(list(obs.get("animals_here", {})) + ["hare", "deer", "dragon"])}
         elif name == "steal_from_plot":
             args = {"item": r.choice(["egg", "milk", "honey", "grain", "coins"]), "qty": r.randint(1, 5)}
         elif name == "steal":
             args = {"target": r.choice(people + ["chest"]), "item": r.choice(items + ["coins"]), "qty": 2}
         elif name == "contribute":
-            args = {"project_id": "bridge", "items": {pick_item(): r.randint(1, 3)}}
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["bridge"]
+            args = {"project_id": r.choice(projs), "items": {r.choice([pick_item(), "coins", "labor"]): r.randint(1, 3)}}
+        elif name in ("build_work", "fund_project"):
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
+            args = {"project_id": r.choice(projs), **({"coins": r.randint(-2, 50)} if name == "fund_project" else {})}
+        elif name == "change_trade":
+            args = {"profession": r.choice(["farmer", "fisher", "woodcutter", "miner", "smith", "laborer", "king"])}
+        elif name == "treasury_order":
+            projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
+            args = {"project_id": r.choice(projs), "needs": {r.choice(["wood", "stone", "ore", pick_item()]): r.randint(1, 6)},
+                    "reward": r.randint(-1, 40), "days": r.randint(1, 3)}
+        elif name == "propose_build":
+            args = {"structure": r.choice(["well", "bridge", "watchtower", "wall", "castle"])}
+        elif name == "start_building":
+            args = {"kind": r.choice(list(obs.get("can_start_building_here", {})) + ["castle", "house"])}
+        elif name in ("bring_materials", "construct"):
+            ids = [s["id"] for s in obs.get("building_sites", [])] + ["site0"]
+            args = {"site_id": r.choice(ids), **({"items": {r.choice(["wood", "stone", pick_item()]): r.randint(1, 5)}}
+                                                 if name == "bring_materials" else {})}
+        elif name == "embezzle":
+            args = {"coins": r.randint(-1, 40)}
+        elif name == "post_sale":
+            args = {"items": {pick_item(): r.randint(1, 3)}, "price": r.choice([r.randint(1, 30), 0]),
+                    "hours": r.choice([24, r.randint(1, 100)])}
+        elif name in ("buy_sale", "cancel_listing"):
+            ids = [x["id"] for x in obs.get("for_sale", []) + obs.get("your_sales", [])]
+            ids += [o["id"] for o in obs["board"]["orders"]] + ["sale0"]
+            args = {"sale_id" if name == "buy_sale" else "listing_id": r.choice(ids)}
         elif name == "fulfill_order":
             orders = [o["id"] for o in obs["board"]["orders"]] or ["order0"]
             args = {"order_id": r.choice(orders)}
@@ -99,14 +151,15 @@ class RandomBot(Bot):
         elif name in ("vote", "report_theft"):
             args = {"candidate" if name == "vote" else "person": r.choice(people + ["Nobody"])}
         elif name == "propose_law":
-            args = {"law": r.choice(["tax", "theft_fine", "mayor_salary", "exile", "payout", "grant", "bogus"]),
+            args = {"law": r.choice(["tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax", "exile", "revoke_place", "payout",
+                                     "grant", "bogus"]),
                     "value": r.randint(-5, 70), "person": r.choice(people)}
         elif name == "vote_law":
             props = [p["id"] for p in obs.get("government", {}).get("proposals", [])] or ["law0"]
             args = {"proposal_id": r.choice(props), "vote": r.choice(["yes", "no", "maybe"])}
         if r.random() < 0.05:
             args = {"garbage": [1, 2, 3]}
-        return decision(name, args, thought="random", say="hi" if r.random() < 0.05 else None)
+        return decision(name, args, say="hi" if r.random() < 0.05 else None)
 
 
 class WorkerBot(Bot):
@@ -159,6 +212,22 @@ class WorkerBot(Bot):
         if t["hour"] >= t["day_ends_at"] - 2:
             return decision("sleep") if loc == me["home"] else go(me["home"], "go home")
 
+        # Defend the house we stand in; nurse the sick; feed a traveler from a full pocket
+        if "defend" in acts and me["health"] >= 40:
+            return decision("defend", None, "drive them off")
+        if "care" in acts:
+            cure = next((c for c in ("honey", "milk", "fish_soup") if inv.get(c)), None)
+            sick = [p["name"] for p in here["people"] if p.get("sick")]
+            if cure and sick:
+                return decision("care", {"person": sick[0], "item": cure}, "nurse the sick")
+        if "help_stranger" in acts:
+            food = next((f for f in FOODS if inv.get(f, 0) >= 3), None)
+            if food:
+                return decision("help_stranger", {"item": food}, "feed the traveler")
+        foe = next((x for x in obs.get("threats", []) if x.get("strength") and x.get("where")), None)
+        if foe and me["health"] >= 60:
+            return go(foe["where"], "drive off the " + foe["what"])
+
         # Help with fires
         if obs["fires"]:
             fire = obs["fires"][0]
@@ -191,15 +260,18 @@ class WorkerBot(Bot):
             return decision("sell", {"item": "tool"}) if loc == "market" else go("market", "sell tools")
 
         # Sell surplus (gold is worth the walk sooner)
+        will_buy = (obs.get("trader_today") or {}).get("will_buy") or {}  # crafts: the trader buys a limited amount
         surplus = [k for k, v in inv.items() if (v >= 12 or (k == "gold" and v >= 3))
-                   and k not in FOODS + ["water", "tool"]]
+                   and k not in FOODS + ["water", "tool"] and will_buy.get(k, 1) != 0]
         if surplus:
             k = surplus[0]
             qty = inv[k] if k == "gold" else inv[k] - 4
+            if will_buy.get(k) is not None:
+                qty = min(qty, will_buy[k])
             return decision("sell", {"item": k, "qty": qty}) if loc == "market" else go("market", "sell")
 
         # Work
-        spot = WORK_SPOT[me["profession"]]
+        spot = WORK_SPOT.get(me["profession"], "forest")
         if me["profession"] == "smith" and inv.get("wood", 0) >= 2:
             spot = "mine"
         if loc == spot:
@@ -414,5 +486,42 @@ class HomesteadBot(TraderBot):
         return super().decide(obs)
 
 
+
+class HunterBot(WorkerBot):
+    """Hunts in the daytime (animals.py): joins any hunt party here, starts one for big game when enough
+    people are awake here, else takes small game; eats meat first. Otherwise a WorkerBot."""
+
+    GROUND = "forest"
+    KEEP_MEAT = 6
+
+    def decide(self, obs: dict) -> dict:
+        me, here, t = obs["you"], obs["here"], obs["time"]
+        inv = me["inventory"]
+        if me["satiety"] < 45 and inv.get("meat"):
+            return decision("eat", {"item": "meat"}, "eat meat")
+        day = 8 <= t["hour"] < t["day_ends_at"] - 3
+        if not day or me["health"] < 30 or me["satiety"] < 20 or ("hunt" not in obs["available_actions"] \
+                                                                   and me["location"] == self.GROUND):
+            return super().decide(obs)
+        herd, parties = obs.get("animals_here", {}), obs.get("hunt_parties_here", [])
+        for p in parties:
+            if me["name"] not in p["hunters"] and herd.get(p["animal"]):
+                return decision("hunt", {"animal": p["animal"]}, "join the hunt")
+        if any(me["name"] in p["hunters"] for p in parties):
+            return decision("wait", None, "wait for the others")
+        awake = 1 + sum(1 for p in here["people"] if not p["asleep"])
+        big = [k for k, v in herd.items() if 1 < v["hunters_needed"] <= awake]
+        if big:
+            return decision("hunt", {"animal": big[0]}, "big game, enough of us here")
+        if inv.get("meat", 0) >= self.KEEP_MEAT:
+            return super().decide(obs)
+        small = [k for k, v in herd.items() if v["hunters_needed"] <= 1]
+        if small:
+            return decision("hunt", {"animal": small[0]}, "small game")
+        if me["location"] != self.GROUND:
+            return decision("move", {"to": self.GROUND}, "go hunting")
+        return super().decide(obs)
+
+
 BOT_TYPES = {"random": RandomBot, "worker": WorkerBot, "thief": ThiefBot, "trader": TraderBot, "loner": LonerBot,
-             "homestead": HomesteadBot}
+             "homestead": HomesteadBot, "hunter": HunterBot}

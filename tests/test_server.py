@@ -7,7 +7,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from aivillage import engine  # noqa: E402
+from aivillage import clock, engine  # noqa: E402
 from aivillage.run import bots_decider, replay  # noqa: E402
 from aivillage.server import LiveSim, create_app  # noqa: E402
 
@@ -70,6 +70,26 @@ def test_viewer_scripts_served(tmp_path):
     assert "Dossier" in client.get("/dossier.js").text
     assert client.get("/missing.js").status_code == 404
     assert 'src="dossier.js"' in client.get("/").text
+
+def test_highlight_clips_saved_and_listed(tmp_path):
+    sim, client = make(tmp_path)
+    page = client.get("/").text
+    assert 'src="mp4_muxer.js"' in page and 'src="reel.js"' in page
+    assert "Mp4Muxer" in client.get("/mp4_muxer.js").text and "Reel" in client.get("/reel.js").text
+    assert client.get("/api/clips").json()["clips"] == []
+    saved = client.post("/api/clips/nedelya-1", content=b"\x00\x00\x00\x18ftypmp42",
+                        headers={"Content-Type": "video/mp4"}).json()
+    folder = tmp_path / "videos"
+    assert saved["file"] == "live-nedelya-1.mp4" and saved["folder"] == str(folder)
+    assert (folder / "live-nedelya-1.mp4").read_bytes().endswith(b"ftypmp42")
+    assert client.get("/api/clips").json()["clips"] == [{"key": "nedelya-1", "file": "live-nedelya-1.mp4", "kb": 0}]
+    assert client.get("/clips/live-nedelya-1.mp4").content.endswith(b"ftypmp42")
+    for bad in ("../x", "a b", "x" * 41, "день-1"):
+        assert client.post(f"/api/clips/{bad}", content=b"1").status_code in (400, 404)
+    assert client.post("/api/clips/den-1", content=b"").status_code == 413
+    assert client.get("/clips/..%2Fsettings.json").status_code == 404
+    assert client.get("/clips/live.jsonl").status_code == 404
+
 
 def test_recaps_and_problem_report(tmp_path):
     import zipfile
@@ -177,3 +197,21 @@ def test_god_click_lands_after_the_moment_on_screen(tmp_path):
     landed = {t["god"][0]["name"]: t["tick"] for t in sim.ticks if t["god"]}
     assert landed == {"fire": now + 4, "gift": now}
     replay(tmp_path / "live.jsonl")
+
+
+def test_god_beast_reply_says_when_it_really_comes(tmp_path):
+    # The order lands within the hour, but a beast sent "in 2 days" comes on day+2 at arrive_hour: the reply
+    # must say that time (it used to show only the landing time, so the player looked at the wrong moment).
+    sim, client = make(tmp_path, days=3)
+    sim.running.clear()
+    sim.start()
+    wait(lambda: len(sim.ticks) >= 1)
+    r = client.post("/api/god", json={"name": "beast", "args": {"in_days": 2, "warn": True}}).json()
+    assert r["at"].startswith("day 1") and r["arrives_at"] == "day 3 11:00"
+    client.post("/api/control", json={"cmd": "resume"})
+    wait(lambda: sim.finished, timeout=60)
+    assert sim.error is None
+    t = sim.world.threats[0]
+    assert clock.label(sim.world.config, t["arrive_tick"]) == r["arrives_at"]
+    arrived = [tk for tk in sim.ticks if any(e["kind"] == "threat_arrived" for e in tk["events"])]
+    assert arrived and arrived[0]["view"]["threats"][0]["state"] == "here"

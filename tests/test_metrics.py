@@ -78,7 +78,7 @@ def test_gini_edges():
 
 def test_real_run_consistent(tmp_path):
     log = tmp_path / "run.jsonl"
-    w = engine.new_world({"seed": 3})
+    w = engine.new_world({"seed": 3, "fire_spread_hours": 0})  # exactly the two god fires
     god = {20: [{"name": "fire", "args": {"person": "Anna"}}], 60: [{"name": "fire", "args": {"person": "Boris"}}]}
     stats = run(w, bots_decider(w, ["worker", "thief", "random", "worker"], 3), days=8, god_script=god,
                 log_path=log)
@@ -89,7 +89,7 @@ def test_real_run_consistent(tmp_path):
     assert m["trades"]["count"] == stats.get("trade", 0)
     assert m["thefts"]["attempts"] == stats.get("steal", 0)
     assert m["thefts"]["seen"] + m["thefts"]["unseen"] == m["thefts"]["attempts"]
-    assert m["debts"]["count"] == stats.get("lend", 0)
+    assert m["debts"]["count"] == stats.get("lend", 0) + stats.get("promise", 0)
     assert m["fires"]["count"] == 2 and m["fires"]["put_out"] + m["fires"]["burned"] <= 2
     assert all(0.0 <= g["gini_coins"] <= 1.0 for g in m["gini_by_day"].values())
     assert "Пожары" in out_md.read_text(encoding="utf-8")

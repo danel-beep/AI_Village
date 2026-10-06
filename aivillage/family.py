@@ -13,7 +13,7 @@ Feelings hook in via `ops.EVENT_HOOKS`; the engine calls `after_hour` (estates) 
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import ops
 from .actions import _agent, _agent_here, _own_chest
@@ -107,6 +107,12 @@ class PersonArgs(BaseModel):
     person: str
 
 
+class ProposeArgs(BaseModel):
+    person: str
+    public: bool = Field(True, description="true: the wedding is announced to the whole village; "
+                                           "false: a secret wedding only you two know about")
+
+
 class AnswerArgs(BaseModel):
     person: str
     accept: bool
@@ -130,9 +136,10 @@ def hang_out(ctx: Ctx, a: Agent, args: PersonArgs) -> None:
              visibility="location", to=[other.name])
 
 
-@ACTIONS.action("propose", "Ask someone here to marry you (you share a house and chests). Needs real closeness.",
-                PersonArgs, available=lambda c, a: spouse_of(c.world, a.name) is None)
-def propose(ctx: Ctx, a: Agent, args: PersonArgs) -> None:
+@ACTIONS.action("propose", "Ask someone here to marry you (you share a house and chests). Needs real closeness. "
+                "public: announce the wedding to the village, or keep it secret between you two.",
+                ProposeArgs, available=lambda c, a: spouse_of(c.world, a.name) is None)
+def propose(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
     w, cfg = ctx.world, _cfg(ctx.world)
     other = _agent_here(ctx, a, args.person)
     if spouse_of(w, a.name):
@@ -146,10 +153,11 @@ def propose(ctx: Ctx, a: Agent, args: PersonArgs) -> None:
         raise ActionError(f"you already proposed to {other.name}; wait for the answer")
     if a.coins < cfg["wedding_cost"]:
         raise ActionError(f"a wedding costs {cfg['wedding_cost']} coins, you have {a.coins}")
-    p = Proposal(w.new_id("proposal"), a.name, other.name, w.day + cfg["proposal_ttl_days"])
+    p = Proposal(w.new_id("proposal"), a.name, other.name, w.day + cfg["proposal_ttl_days"], args.public)
     w.kin.proposals[p.id] = p
-    ctx.emit("proposal", f"{a.name} asked {other.name} to marry them!", actor=a.name, location=a.location,
-             visibility="location", to=[other.name])
+    kind = "" if args.public else " in a secret wedding"
+    ctx.emit("proposal", f"{a.name} asked {other.name} to marry them{kind}!", actor=a.name, location=a.location,
+             visibility="location" if args.public else "private", to=[other.name])
 
 
 @ACTIONS.action("answer_proposal", "Accept or refuse someone's marriage proposal (accept: true/false).",
@@ -180,7 +188,7 @@ def answer_proposal(ctx: Ctx, a: Agent, args: AnswerArgs) -> None:
     for q in [q for q in w.kin.proposals.values() if {q.sender, q.to} & {a.name, other.name}]:
         del w.kin.proposals[q.id]
     ops.burn_coins(w, other, cfg["wedding_cost"])
-    m = Marriage(w.new_id("marriage"), [other.name, a.name], other.home, w.day)
+    m = Marriage(w.new_id("marriage"), [other.name, a.name], other.home, w.day, p.public)
     w.kin.marriages[m.id] = m
     a.home = other.home
     for x, y in ((other.name, a.name), (a.name, other.name)):
@@ -190,8 +198,10 @@ def answer_proposal(ctx: Ctx, a: Agent, args: AnswerArgs) -> None:
     floor = cfg["propose_min"] + cfg["wedding_boost"]
     for x, y in ((a.name, other.name), (other.name, a.name)):
         change(w, x, y, max(0, floor - feeling(w, x, y)))
-    ctx.emit("wedding", f"{other.name} and {a.name} are married! They now share {w.locations[m.home].name} "
-             f"and each other's chests.", actor=a.name, visibility="public", to=[other.name], marriage=m.id)
+    secret = "" if m.public else " (a secret wedding: only you two know)"
+    ctx.emit("wedding", f"{other.name} and {a.name} are married{secret}! They now share {w.locations[m.home].name} "
+             f"and each other's chests.", actor=a.name, visibility="public" if m.public else "private",
+             to=[other.name], marriage=m.id)
 
 
 @ACTIONS.action("divorce", "End your marriage: you move back to your own house and chests are no longer shared.",
@@ -204,7 +214,8 @@ def divorce(ctx: Ctx, a: Agent, args) -> None:
     other = spouse_of(w, a.name)
     _end_marriage(w, m)
     change(w, other, a.name, -_cfg(w)["divorce_hurt"])
-    ctx.emit("divorce", f"{a.name} divorced {other}.", actor=a.name, visibility="public", to=[other])
+    ctx.emit("divorce", f"{a.name} divorced {other}.", actor=a.name, visibility="public" if m.public else "private",
+             to=[other])
 
 
 # ---------- inheritance ----------
@@ -227,14 +238,17 @@ def settle_estate(ctx: Ctx, name: str) -> None:
     w.kin.settled.append(name)
     heir = heir_of(w, name)
     m = _marriage(w, name)
+    spouse_of_before = spouse_of(w, name)
     if m:
         _end_marriage(w, m)
     for p in [p for p in w.kin.proposals.values() if name in (p.sender, p.to)]:
         del w.kin.proposals[p.id]
+    own = w.chests[f"chest_{name}"]
+    if _cfg(w).get("pay_debts_first", True):
+        _pay_debts(ctx, a, own)
     if heir is None:
         return
     dst = w.chests[f"chest_{heir}"]
-    own = w.chests[f"chest_{name}"]
     items: dict[str, int] = {}
     for src in (a.inventory, own.items):
         for k, v in list(src.items()):
@@ -243,8 +257,37 @@ def settle_estate(ctx: Ctx, name: str) -> None:
     coins = a.coins + own.coins
     ops.move_coins(a, dst, a.coins)
     ops.move_coins(own, dst, own.coins)
-    ctx.emit("inheritance", f"{heir} inherits from {name}: {fmt_items(items)} and {coins} coins "
-             f"(now in {heir}'s chest).", actor=heir, visibility="public", to=[heir], deceased=name)
+    houses = sorted(h for h, p in w.plots.items() if p.owner == name)
+    for h in houses:
+        w.plots[h].owner, w.plots[h].sale = heir, None
+    places = "".join(f", {w.locations[h].name}" for h in houses)
+    secret = m is not None and not m.public and heir == spouse_of_before
+    ctx.emit("inheritance", f"{heir} inherits from {name}: {fmt_items(items)}, {coins} coins{places} "
+             f"(things now in {heir}'s chest).", actor=heir, visibility="private" if secret else "public",
+             to=[heir], deceased=name, houses=houses)
+
+
+def _pay_debts(ctx: Ctx, a: Agent, own) -> None:
+    """Open debts of the deceased are paid from their coins first (to living lenders, oldest first)."""
+    w = ctx.world
+    gone = set(_cfg(w)["estate_statuses"])
+    for d in sorted(w.debts.values(), key=lambda d: (d.due_day, d.id)):
+        if (d.borrower != a.name or d.status == "repaid" or d.lender not in w.agents  # treasury bills
+                or w.agents[d.lender].status in gone):
+            continue
+        paid = 0
+        for src in (a, own):
+            n = min(src.coins, d.coins_owed - paid)
+            ops.move_coins(src, w.agents[d.lender], n)
+            paid += n
+        if not paid:
+            continue
+        d.coins_owed -= paid
+        if d.coins_owed == 0:
+            d.status = "repaid"
+        ctx.emit("estate_debt", f"{d.lender} got {paid} coins back from {a.name}'s estate"
+                 f"{'' if d.coins_owed == 0 else f' ({d.coins_owed} still unpaid)'}.", to=[d.lender],
+                 deceased=a.name, debt=d.id)
 
 
 # ---------- engine hooks ----------

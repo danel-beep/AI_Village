@@ -169,3 +169,9 @@ def test_loners_survive_a_year_of_crises():
         stats = run(w, bots_decider(w, ["loner"], seed), days=days, check_every_tick=False)
         assert stats.get("crisis", 0) >= 5, stats
         assert stats.get("hospital", 0) == 0 and stats.get("evicted", 0) == 0, stats
+
+
+def test_rats_in_empty_chests_say_nothing_was_eaten():
+    w = world(enabled=False)
+    c = start(w, "rats")
+    assert c["victims"] and "found no food" in c["text"] and "ate" not in c["text"]

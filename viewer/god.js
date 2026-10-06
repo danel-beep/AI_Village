@@ -8,10 +8,17 @@
     treasure: ['💎 Клад', 'Спрятать вещи в месте; можно анонимно подсказать одному жителю.'],
     rumor: ['✉️ Слух', 'Анонимное письмо жителю (правда или ложь).'],
     gift: ['🎁 Подарок', 'Дать жителю вещи/монеты из ниоткуда (минус = отнять).'],
+    raid: ['🗡 Набег бандитов', 'Бандиты грабят сундуки дом за домом, а уходя поджигают дом. Можно предупредить ' +
+           'деревню за несколько дней или напасть внезапно. Если отбиться, бросят добычу.'],
+    beast: ['🐺 Зверь из леса', 'Ест запасы и ранит жителей, пока его не прогонят. С предупреждением или без.'],
+    traveler: ['🧳 Путник', 'Голодный путник на площади. Разведчик, если его не прогнать, наведёт бандитов без предупреждения.'],
   };
   const FIELD = { person: 'кто', to: 'кому', tell: 'подсказать (необязательно)', location: 'где', days: 'дней',
-                  items: 'вещи (wood:2, fish:1)', coins: 'монеты', text: 'текст' };
-  const PEOPLE = new Set(['person', 'to', 'tell']);
+                  items: 'вещи (wood:2, fish:1)', coins: 'монеты', text: 'текст',
+                  target: 'на чей дом (необязательно)', warn: 'предупредить деревню заранее',
+                  scout: 'на самом деле разведчик бандитов', in_days: 'через сколько дней (0: сразу)' };
+  const PEOPLE = new Set(['person', 'to', 'tell', 'target']);
+  const OPTIONAL = new Set(['tell', 'target']);
 
   const css = document.createElement('style');
   css.textContent = `
@@ -45,11 +52,13 @@
     const id = `god-${key}`;
     let ctl;
     if (PEOPLE.has(key)) {
-      ctl = `<select data-k="${key}">${key === 'tell' ? '<option value="">—</option>' : ''}` +
+      ctl = `<select data-k="${key}">${OPTIONAL.has(key) ? '<option value="">—</option>' : ''}` +
         meta.agents.map(n => `<option>${esc(n)}</option>`).join('') + '</select>';
     } else if (key === 'location') {
       ctl = `<select data-k="${key}">` + Object.entries(meta.locations)
         .map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join('') + '</select>';
+    } else if (prop.type === 'boolean') {
+      ctl = `<input type="checkbox" data-k="${key}" data-bool="1"${prop.default ? ' checked' : ''}>`;
     } else if (prop.type === 'integer' || (prop.anyOf || []).some(t => t.type === 'integer')) {
       ctl = `<input type="number" data-k="${key}" data-int="1" value="${prop.default ?? 0}">`;
     } else if (key === 'items') {
@@ -57,6 +66,7 @@
     } else {
       ctl = `<input data-k="${key}" placeholder="${esc(prop.description || '')}">`;
     }
+    if (prop.type === 'boolean') return `<label for="${id}">${ctl.replace('data-k', `id="${id}" data-k`)} ${esc(FIELD[key] || key)}</label>`;
     return `<label for="${id}">${esc(FIELD[key] || key)}</label>${ctl.replace('data-k', `id="${id}" data-k`)}`;
   }
 
@@ -64,6 +74,7 @@
     const args = {};
     for (const el of form.querySelectorAll('[data-k]')) {
       const k = el.dataset.k, v = el.value.trim();
+      if (el.dataset.bool) { args[k] = el.checked; continue; }
       if (v === '' ) continue;
       if (el.dataset.int) args[k] = parseInt(v, 10);
       else if (el.dataset.items) args[k] = Object.fromEntries(v.split(',').map(p => p.split(':').map(s => s.trim()))
@@ -107,8 +118,13 @@
       const shown = typeof ticks !== 'undefined' && ticks.length ? ticks[Math.min(i, ticks.length - 1)].tick : null;
       post('/api/god', { name: form.dataset.name, args: read(form), shown_tick: shown })
         .then(r => { msg.style.color = '#76b041';
-          msg.textContent = `Готово: сработает в ${r.at.replace('day', 'день')}` +
-            (r.lead_minutes ? ` (через ${r.lead_minutes} игровых минут)` : '') + '.'; })
+          const day = s => s.replace('day', 'день');
+          // Raid / beast / traveler: the order lands at r.at, the threat itself comes at r.arrives_at.
+          const who = { raid: 'Бандиты придут', beast: 'Зверь придёт', traveler: 'Путник придёт' }[form.dataset.name];
+          msg.textContent = who && r.arrives_at
+            ? `Готово: ${who} в ${day(r.arrives_at)}` + (read(form).warn ? `, деревню предупредят в ${day(r.at)}` : '') +
+              '. Авто-камера покажет, когда начнётся.'
+            : `Готово: сработает в ${day(r.at)}` + (r.lead_minutes ? ` (через ${r.lead_minutes} игровых минут)` : '') + '.'; })
         .catch(e => { msg.style.color = '#e4572e'; msg.textContent = 'Не вышло: ' + e.message; });
     };
   }

@@ -102,6 +102,11 @@ const MapLayer = (() => {
       if (!v) { P(g, s[0] + 5, s[1] + 12, C.stoneD); P(g, s[0] + 9, s[1] + 13, C.stone); P(g, s[0] + 11, s[1] + 11, C.stoneD); return; }
       blob(g, s[0] + 8, s[1] + 14 - 4 * f, 2 + 4 * f, 1.5 + 3.5 * f, [C.stoneL, C.stone, C.stoneD]);
       if (ore) { P(g, s[0] + 7, s[1] + 13 - 4 * f, ore); if (f > .5) P(g, s[0] + 9, s[1] + 11 - 4 * f, ore); } });
+    // clay mounds on the clay hills of a large map (viewer/mapgen.js) sink as they are dug
+    for (const loc of locs('clay')) amounts(t, loc, 'clay').forEach((v, i) => {
+      const s = spots[loc].clay[i]; if (!s) return; const f = v / capOf(t, loc, 'clay');
+      if (!v) { P(g, s[0] + 6, s[1] + 12, '#7e4426'); P(g, s[0] + 10, s[1] + 13, '#a85f36'); return; }
+      blob(g, s[0] + 8, s[1] + 13 - 3 * f, 2 + 5 * f, 1.5 + 3 * f, ['#e8a878', '#c47a4a', '#8e4e2c'], '#5e3018'); });
     // trees: full, growing sapling, or stump; a tree felled this hour topples
     for (const loc of locs('wood')) {
       const down = felled(t, loc, 'wood'), cap = capOf(t, loc, 'wood');
@@ -152,6 +157,20 @@ const MapLayer = (() => {
   // Map pixels of one resource slot (tree [x, y, pine], bed [x, y, w, h], bush/rock [x, y]) for viewer/actors.js.
   const spotOf = (loc, res, slot) => ((spots[loc] || {})[res] || [])[slot];
 
-  return { init, claimTrees, draw, drawTop, spotOf };
+  // Boxes around the live plants (trees, bushes, beds) per location, for viewer/seasonlayer.js to recolour.
+  function plantBoxes() {
+    const out = [];
+    for (const loc of Object.keys(spots)) {
+      const pts = [];
+      for (const [x, y] of spots[loc].wood || []) pts.push([x - 10, y - 30, x + 42, y + 36]);
+      for (const [x, y] of spots[loc].berries || []) pts.push([x - 2, y - 2, x + 18, y + 18]);
+      for (const [x, y, w, h] of spots[loc].grain || []) pts.push([x - 2, y - 6, x + w + 2, y + h + 2]);
+      if (pts.length) out.push([Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])),
+                                Math.max(...pts.map(p => p[2])), Math.max(...pts.map(p => p[3]))]);
+    }
+    return out;
+  }
+
+  return { init, claimTrees, draw, drawTop, spotOf, plantBoxes };
 })();
 if (typeof window !== 'undefined') window.MapLayer = MapLayer;

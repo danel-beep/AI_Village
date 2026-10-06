@@ -81,6 +81,17 @@ def compute(records: list[dict]) -> dict:
                                        "day": ev["day"], "owed": int(m.group(1)) if m else None,
                                        "due_day": int(m.group(2)) if m else None, "repaid": 0,
                                        "status": "open", "defaulted_day": None}
+            elif kind == "promise":  # an IOU (debts.py): the actor owes data["lender"]
+                debts[data["debt"]] = {"id": data["debt"], "lender": data.get("lender"), "borrower": actor,
+                                       "day": ev["day"], "owed": data.get("coins"), "due_day": data.get("due_day"),
+                                       "repaid": 0, "status": "open", "defaulted_day": None, "kind": "iou"}
+            elif kind == "pledge_forfeited" and data.get("debt") in debts:
+                debts[data["debt"]].update(status="defaulted", defaulted_day=ev["day"])
+            elif kind in ("debt_collected", "debt_seized", "debt_garnished") and data.get("debt") in debts:
+                d = debts[data["debt"]]
+                d["repaid"] += int(data.get("coins") or 0) + int(data.get("goods_value") or 0)
+                if "the debt is closed" in ev["text"]:
+                    d["status"] = "repaid_late"
             elif kind == "repay":
                 m = _REPAY_RE.search(ev["text"])
                 d = debts.get(data.get("debt"))

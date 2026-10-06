@@ -20,14 +20,14 @@ def test_every_mode_has_a_slider_position_for_every_config_knob():
 def test_to_run_defaults_follow_the_mode_and_answers_win():
     r = knobs.to_run({"mode": "peaceful"})
     assert r["llm"] and r["days"] == 3 and r["override"]["population"] == {"size": 5}
-    assert r["override"]["start_coins"] == 40 and r["override"]["map"] == {"unfairness": 0.1, "procedural": True}
+    assert r["override"]["start_coins"] == 40 and r["override"]["map"]["unfairness"] == 0.1 and r["override"]["map"]["procedural"] is True
     r = knobs.to_run({"mode": "lawless", "brains": "bots", "start_coins": 7, "steal_notice_chance": 25,
                       "unfairness": 10, "seasons": False, "fixed_map": True, "villagers": 999})
     o = r["override"]
     assert o["start_coins"] == 7 and o["steal_notice_chance"] == 0.25 and o["map"]["unfairness"] == 1.0
     assert o["seasons"]["enabled"] is False and o["map"]["procedural"] is False
     assert o["population"]["size"] == 60  # clamped to the slider
-    assert o["disabled_actions"] == modes.disabled("lawless")
+    assert set(o["disabled_actions"]) == set(modes.disabled("lawless"))
     assert not r["llm"] and r["bots"] == knobs.BOT_MIXES["mixed"]
 
 
@@ -144,15 +144,21 @@ def test_tick_minutes_from_start_screen(tmp_path, monkeypatch):
     host.stop()
 
 
-def test_fires_fights_land_and_gold_knobs():
+def test_villager_look_from_the_editor():
+    rows = [{"name": "Вера", "profession": "farmer", "look": 13}, {"name": "Петя", "profession": "smith", "look": 99},
+            {"name": "Лев", "profession": "miner", "look": True}]
+    agents = knobs.to_run({"villagers": 3, "roster": rows})["override"]["agents"]
+    assert [a.get("look") for a in agents] == [13, None, None]
+    assert knobs.roster(3, 1, [{"name": "Вера", "profession": "farmer", "look": 13}])[0]["look"] == 13
+
+
+def test_arson_fights_land_and_gold_knobs():
     from aivillage import engine
-    r = knobs.to_run({"brains": "bots", "random_fires": 40, "allow_arson": False, "combat": False, "gold": 50,
-                      "land_price": 12})
+    r = knobs.to_run({"brains": "bots", "allow_arson": False, "combat": False, "gold": 50, "land_price": 12})
     o = r["override"]
-    assert o["random_fires"]["per_day"] == 0.4 and "set_fire" in o["disabled_actions"]
-    assert o["combat"]["enabled"] is False and o["land"]["price_per_cell"] == 12
-    w = engine.new_world({**o, "seed": 2})
-    gold = w.config["locations"]["mine"]["resources"]["gold"]
-    assert gold["start"] == gold["max"] and 35 <= gold["start"] <= 70 and w.config["random_fires"]["per_day"] == 0.4
+    assert "set_fire" in o["disabled_actions"] and o["combat"]["enabled"] is False
+    assert o["land"]["price_per_cell"] == 12
+    gold = engine.new_world({**o, "seed": 2}).config["locations"]["mine"]["resources"]["gold"]
+    assert gold["start"] == gold["max"] and 35 <= gold["start"] <= 70  # the map's unfairness nudges resources
     assert "set_fire" not in knobs.to_run({})["override"].get("disabled_actions", [])
     assert knobs.mode_defaults("standard")["allow_arson"] is True

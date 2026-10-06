@@ -33,11 +33,13 @@ class AgentSpec(Strict):
     bot: str | None = None  # scripted bot kind
     # Private plot at start (aivillage/plots.py); None = config "plots" defaults
     plot_cells: int | None = Field(default=None, ge=0)
-    house_level: int | None = Field(default=None, ge=1)
+    house_level: int | None = Field(default=None, ge=0)
     buildings: list[str] | None = None  # built for free at the start
     # Character hint for an LLM villager (aivillage/llm.py CHARACTERS): a preset key, free text, or
     # "default" for the neutral prompt; None = follow the run's `characters`.
     character: str | None = Field(default=None, max_length=300)
+    # Viewer look (viewer/sprites.js villager sheets v0..v23); None = picked by name and profession.
+    look: int | None = Field(default=None, ge=0, le=23)
 
     @model_validator(mode="after")
     def one_brain(self):
@@ -71,8 +73,8 @@ class RunConfig(Strict):
     # How many villagers: `agents` (or the default five) first, the rest generated (aivillage/population.py).
     villagers: int | None = Field(default=None, ge=1, le=60)
     # LLM villagers without their own `character`: "default" = neutral prompt, "random" = a preset per villager
-    # picked from the seed (aivillage/llm.py CHARACTERS).
-    characters: Literal["default", "random"] = "default"
+    # picked from the seed (aivillage/llm.py CHARACTERS); "off" = everyone neutral, own characters ignored (experiments).
+    characters: Literal["default", "random", "off"] = "default"
     mechanics: Mechanics = Field(default_factory=Mechanics)
     world: dict = Field(default_factory=dict)  # overrides of config.DEFAULT_CONFIG
     god: list[GodEvent] = Field(default_factory=list)
@@ -130,7 +132,7 @@ class RunConfig(Strict):
             out["characters"] = self.characters
         if self.agents is not None:
             out["agents"] = [{"name": a.name, "profession": a.profession,
-                              **a.model_dump(include={"plot_cells", "house_level", "buildings", "character"}, exclude_none=True)}
+                              **a.model_dump(include={"plot_cells", "house_level", "buildings", "character", "look"}, exclude_none=True)}
                              for a in self.agents]
         if self.villagers:
             out["population"] = {**(out.get("population") or {}), "size": self.villagers}

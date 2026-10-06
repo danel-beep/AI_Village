@@ -48,8 +48,12 @@
     list.innerHTML = '';
     msg.textContent = days.length ? 'Нажмите на момент, чтобы перемотать к нему.'
       : 'Хайлайты появятся в конце каждого игрового дня.';
+    if (window.Reel) list.append(Reel.buttons(days.map(lined)));   // weekly reels (viewer/reel.js)
     for (const d of days.slice().reverse()) {
-      list.append(el('h4', { textContent: `День ${d.day}` + (d.partial ? ' · пока идёт' : '') }));
+      const h = el('h4', { textContent: `День ${d.day}` + (d.partial ? ' · пока идёт' : '') });
+      if (typeof Clip !== 'undefined' && Clip.supported() && d.items.length)   // vertical video of the day (viewer/clip.js)
+        h.append(Clip.button({ key: `den-${d.day}`, label: `День ${d.day}`, from: d.day, to: d.day, days: 1, items: lined(d).items }));
+      list.append(h);
       for (const it of d.items) {
         const row = el('div', { className: 'hl' });
         row.append(el('div', { className: 'when', textContent: it.time + (it.who.length ? ' · ' + it.who.join(', ') : '') }),
@@ -59,6 +63,12 @@
       }
     }
   }
+  const lined = d => ({ ...d, items: d.items.map(it => ({ ...it, line: say({ ...it, source: d.source }) })) });
+  async function load() {
+    if (live) try { (await (await fetch('/api/highlights')).json()).highlights.forEach(add); } catch (e) { /* static file */ }
+    return days.map(lined);
+  }
+  window.Highlights = { load, days: () => days.map(lined) };   // for viewer/reel.js
   let toastTimer = 0;
   function show(it) {
     const k = ticks.findIndex(t => t.tick === it.tick);
@@ -78,7 +88,7 @@
     document.querySelectorAll('.rp-panel').forEach(p => p.hidden = true);
     panel.hidden = !panel.hidden;
     if (panel.hidden) return;
-    if (live) try { (await (await fetch('/api/highlights')).json()).highlights.forEach(add); } catch (e) { /* static file */ }
+    await load();
     render();
   };
   window.addEventListener('village-live', e => { if (e.detail.type === 'highlights') add(e.detail); });

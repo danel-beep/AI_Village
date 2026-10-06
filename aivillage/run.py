@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import clock, crises, engine, mapgen, modes, plots, tiles
+from . import animals, clock, construction, crises, engine, graves, labor, mapgen, modes, plots, threats, tiles, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -28,11 +29,11 @@ DecideFn = Callable[[str, dict], dict]
 
 
 class JsonlLog:
-    def __init__(self, path: str | Path | None):
+    def __init__(self, path: str | Path | None, append: bool = False):
         self.f = None
         if path:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-            self.f = open(path, "w", encoding="utf-8")
+            self.f = open(path, "a" if append else "w", encoding="utf-8")
 
     def write(self, rec: dict) -> None:
         if self.f:
@@ -48,15 +49,21 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         log_path: str | Path | None = None, check_every_tick: bool = True,
         on_tick: Callable[[World, list], None] | None = None,
         on_night: Callable[[World, int], dict] | None = None,
-        on_record: Callable[[dict], None] | None = None, meta: dict | None = None) -> dict:
+        on_record: Callable[[dict], None] | None = None, meta: dict | None = None,
+        max_cost: float = 0.0, checkpoint: Callable[[World], None] | None = None,
+        resume_header: dict | None = None) -> dict:
     """Drive the world for `days` days. Returns summary stats.
 
     `on_night(world, day)` runs after each day ends; whatever it returns is logged as a `diary` record
     (outside the engine, so replay ignores it). `on_record` sees every log record as it is written
     (the live server streams them). `meta` goes into the header; who plays whom (`brains`: villager -> model
     id or "bot:<kind>") is read from `decide.agents` / `decide.bots` when not given, and LLM token use and cost
-    are logged as a `usage` record after every night and at the end (aivillage/scorecard.py reads both)."""
-    log = JsonlLog(log_path)
+    are logged as a `usage` record after every night and at the end (aivillage/scorecard.py reads both).
+    `max_cost` (USD, 0 = no limit): stop early once the LLM villagers together have spent this much.
+    `checkpoint(world)` runs before every tick, when the world, the log and the villagers' memory agree
+    (aivillage/saves.py saves there); it may raise to stop the run. `resume_header`: the world was loaded from a
+    save (aivillage/saves.py), so append to the log at `log_path` and only hand its old header to `on_record`."""
+    log = JsonlLog(log_path, append=resume_header is not None)
     meta = {"brains": brains_of(decide), **(meta or {})}
     llm = getattr(decide, "agents", None) or {}
 
@@ -65,11 +72,17 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         if on_record:
             on_record(rec)
 
-    emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
+    if resume_header is not None:
+        if on_record:
+            on_record(resume_header)
+    else:
+        emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
     stats: Counter = Counter()
     end_day = world.day + days
     try:
         while world.day < end_day:
+            if checkpoint:
+                checkpoint(world)
             asked = engine.waiting_agents(world)
             observations = [(name, engine.observe(world, name)) for name in asked]
             # All agents think at the same time: a slow model does not slow the others down.
@@ -94,6 +107,10 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
                     emit({"type": "diary", "day": day, "entries": entries})
             if llm and world.day != day:
                 emit(usage_record(llm, world.tick))
+            if llm and max_cost and sum(ag.usage.cost_usd for ag in llm.values()) >= max_cost:
+                stats["stopped_at_cost_cap"] = 1
+                emit({"type": "stop", "tick": world.tick, "reason": f"cost cap ${max_cost:g} reached"})
+                break
     finally:
         if llm:
             emit(usage_record(llm, world.tick))
@@ -129,13 +146,22 @@ def view(world: World) -> dict:
                                 "busy": max(0, a.busy_until - world.tick) * tm,
                                 "task": (a.task or {}).get("kind")}
                        for a in world.agents.values()},
+            # chests for the hero page's property list (viewer/hero.js)
+            "chests": {c.owner: {"coins": c.coins, "items": c.items, "locked": c.locked} for c in world.chests.values()},
             "kin": {"feelings": world.kin.feelings, "couples": [m.spouses for m in world.kin.marriages.values()]},
             # reputation.py: each villager's own tally of others and the rumors they heard (non-empty only)
             "social": {a.name: {"reputation": a.reputation, "rumors": a.rumors}
                        for a in world.agents.values() if a.reputation or a.rumors},
             "plots": plots.view(world),
             "crises": crises.view(world),  # active world crises (crises.py)
+            "threats": threats.view(world),  # raids, beasts, travelers here or warned (threats.py)
+            **animals.view(world),  # animals.py: herds per place and open hunt parties (animals on)
+            "graves": graves.view(world),  # graves.py: who is buried where
+            **({"labor": lab} if (lab := labor.view(world)) else {}),  # labor.py: skills, trader's day
             "mayor": world.governance.mayor, "treasury": world.governance.coins,
+            "treasury_missing": world.governance.hidden,  # embezzled, not found yet (governance.py)
+            "works": works.view(world),  # village structures and open projects (works.py)
+            **construction.view(world),  # building sites and common buildings (construction.py)
             "fires": list(world.fires), "locations": {l.id: l.name for l in world.locations.values()},
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
@@ -185,8 +211,8 @@ def summary(world: World, stats: dict) -> str:
         chest = world.chests[f"chest_{a.name}"]
         lines.append(f"  {a.name:8} {a.profession:10} {a.status:8} hp={a.health:3} food={a.satiety:3} "
                      f"coins={a.coins:4} chest_coins={chest.coins:3} inv={a.inventory}")
-    keys = ["trade", "give", "steal", "witness", "lend", "repay", "default", "order_done", "contribute",
-            "project_done", "fire_out", "house_burned", "hospital", "evicted", "error"]
+    keys = ["trade", "give", "steal", "witness", "lend", "promise", "repay", "default", "debt_collected", "debt_seized",
+            "order_done", "contribute", "project_done", "fire_out", "house_burned", "hospital", "evicted", "error"]
     lines.append("  events: " + ", ".join(f"{k}={stats.get(k, 0)}" for k in keys))
     return "\n".join(lines)
 
@@ -213,6 +239,9 @@ def main(argv: list[str] | None = None) -> int:
                                                 "standard, peaceful, scarcity, debt, gold_rush, lawless")
     p.add_argument("--tick-minutes", type=int, default=None, choices=clock.ALLOWED,
                    help=f"game minutes per tick (default {clock.RUN_DEFAULT}; 60 = the old hourly turns)")
+    p.add_argument("--max-cost", type=float, default=float(os.environ.get("AIVILLAGE_MAX_COST") or 0),
+                   help="stop the run once LLM villagers have spent this many USD (default: env AIVILLAGE_MAX_COST, "
+                        "0 = no limit)")
     mapgen.add_args(p)
     a = p.parse_args(argv)
 
@@ -236,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.agents:
         override["population"] = {**(override.get("population") or {}), "size": a.agents}
     with_tick_minutes(override, a.tick_minutes)
-    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
+    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness, a.map_size))
     names = sorted(world.agents)
     brains = rc.brains(names)
     # Old-style flags cycle over agents and override the file.
@@ -260,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         fire_at = clock.tick_of(world.config, a.fire_day, world.config["day_start_hour"] + 4)
         god.setdefault(fire_at, []).append({"name": "fire", "args": {"person": victim}})
     on_night = (lambda w, day: night_reflection(w, agents, day)) if agents else None
-    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night)
+    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night, max_cost=a.max_cost)
     print(summary(world, stats))
     for name, ag in agents.items():
         u = ag.usage
@@ -274,6 +303,9 @@ def main(argv: list[str] | None = None) -> int:
     if rc.log:
         from . import scorecard
         print(f"  scorecard: {scorecard.write(rc.log)}")
+        from . import session  # the same end-of-session summary the app saves (aivillage/session.py)
+        session.save(rc.log, ended_by="finished", days_planned=rc.days)
+        print(f"  session: {session.paths(rc.log)['html']}")
     return 0
 
 
@@ -300,7 +332,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
-    off = frozenset(world.config.get("disabled_actions") or ())
+    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

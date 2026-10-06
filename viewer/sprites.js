@@ -21,6 +21,7 @@ const Sprites = (() => {
     if (o.alpha != null) g.globalAlpha = o.alpha;
     if (o.flip) { g.save(); g.translate(dx + dw, dy); g.scale(-1, 1); g.drawImage(img, sx, sy, w, h, 0, 0, dw, dh); g.restore(); }
     else g.drawImage(img, sx, sy, w, h, dx, dy, dw, dh);
+    if (window.Depth) Depth.sprite(g, n, img, sx, sy, w, h, dx, dy, dw, dh, o.flip);   // tall objects hide villagers behind them
     if (o.alpha != null) g.globalAlpha = 1;
     return true;
   }
@@ -52,7 +53,26 @@ const Sprites = (() => {
   // A villager sheet in the layout viewer/actors.js expects: rows down / up / side (facing right), columns stand /
   // step / step. The art has one step per view, so the second step is the first one mirrored (down) or bobbed.
   const LOOKS = 24;
-  function villager(k) {
+  // Which looks are women (by the art in viewer/art/chars1..4.png); the rest are men.
+  const FEMALE_LOOKS = [1, 3, 5, 7, 8, 11, 13, 15, 19, 21, 23];
+  const lookIsFemale = k => FEMALE_LOOKS.includes(k % LOOKS);
+  // Names that do not follow the ending rule below (population.py NAMES, the default five, common Russian ones).
+  const F_NAMES = new Set(['agnes', 'alice', 'beatrice', 'camille', 'edith', 'irene', 'judith', 'mabel', 'ingrid',
+    'astrid', 'ruth', 'esther', 'kate', 'grace', 'rachel', 'hannah', 'sarah', 'deborah', 'любовь', 'нинель', 'ruby', 'lily', 'emily', 'daisy', 'ivy']);
+  const M_NAMES = new Set(['ilya', 'nikita', 'luka', 'foma', 'kuzma', 'savva', 'sasha', 'misha', 'kolya', 'vanya',
+    'илья', 'никита', 'лука', 'фома', 'кузьма', 'савва', 'саша', 'миша', 'коля', 'ваня', 'andrea', 'joshua', 'noah']);
+  // Best guess from a first name: known lists, else names ending in a / я / ia are women's.
+  function femaleName(name) {
+    const n = String(name || '').trim().split(/\s+/)[0].toLowerCase();
+    if (F_NAMES.has(n)) return true;
+    if (M_NAMES.has(n)) return false;
+    return /[aая]$/.test(n);
+  }
+
+  // A villager sheet in the layout viewer/actors.js expects: rows down / up / side (facing right), columns stand /
+  // step / step. The art has one step per view, so the second step is the first one mirrored (down) or bobbed.
+  // `variant` > 0 recolours clothes and hair (a second villager with the same look still looks different).
+  function villager(k, variant = 0) {
     const id = 'v' + (k % LOOKS), poses = ['down', 'step', 'up', 'side'].map(p => id + '_' + p);
     if (!poses.every(has)) return null;
     const fw = 2 * Math.ceil(Math.max(...poses.map(p => size(p)[0])) / 2) + 2, fh = Math.max(...poses.map(p => size(p)[1])) + 1;
@@ -61,12 +81,33 @@ const Sprites = (() => {
     at(0, 0, id + '_down'); at(1, 0, id + '_step'); at(2, 0, id + '_step', { flip: true });
     at(0, 1, id + '_up'); at(1, 1, id + '_up', { bob: 1 }); at(2, 1, id + '_up', { flip: true, bob: 1 });
     at(0, 2, id + '_side'); at(1, 2, id + '_side', { bob: 1 }); at(2, 2, id + '_side');
+    if (variant) recolor(g, c.width, c.height, variant);
     c.fw = fw; c.fh = fh;
     return c;
   }
 
+  // Rotate the hue of strongly coloured pixels (clothes, hair), leaving skin tones, greys and outlines alone.
+  function recolor(g, w, h, variant) {
+    const im = g.getImageData(0, 0, w, h), d = im.data, turn = [.5, .3, .7, .15, .85][(variant - 1) % 5];
+    for (let i = 0; i < d.length; i += 4) {
+      if (!d[i + 3]) continue;
+      const r = d[i] / 255, gg = d[i + 1] / 255, b = d[i + 2] / 255, mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), l = (mx + mn) / 2;
+      if (mx - mn < .18 || l < .12) continue;
+      const s = (mx - mn) / (1 - Math.abs(2 * l - 1));
+      let hh = mx === r ? ((gg - b) / (mx - mn)) % 6 : mx === gg ? (b - r) / (mx - mn) + 2 : (r - gg) / (mx - mn) + 4;
+      hh = ((hh / 6) + 1) % 1;
+      if (hh > .02 && hh < .15) continue;   // skin, blond and brown hair, leather
+      hh = (hh + turn) % 1;
+      const q = (1 - Math.abs(2 * l - 1)) * s * .85, x = q * (1 - Math.abs(((hh * 6) % 2) - 1)), m = l - q / 2, seg = Math.floor(hh * 6);
+      const [r2, g2, b2] = [[q, x, 0], [x, q, 0], [0, q, x], [0, x, q], [x, 0, q], [q, 0, x]][seg];
+      d[i] = (r2 + m) * 255; d[i + 1] = (g2 + m) * 255; d[i + 2] = (b2 + m) * 255;
+    }
+    g.putImageData(im, 0, 0);
+  }
+
   const meta = n => (A.meta || {})[n];
 
-  return { get ok() { return ok; }, has, size, meta, draw, onReady, villager, canvas, pixels, pattern, brawl, LOOKS };
+  return { get ok() { return ok; }, has, size, meta, draw, onReady, villager, canvas, pixels, pattern, brawl, LOOKS,
+           lookIsFemale, femaleName };
 })();
 window.Sprites = Sprites;

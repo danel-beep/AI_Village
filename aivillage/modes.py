@@ -30,9 +30,42 @@ def _food(garden: int, fish: tuple[int, int], berries: tuple[int, int]) -> dict:
 
 MODES: dict[str, dict[str, Any]] = {
     "standard": {
-        "title": "Обычный",
-        "about": "Текущие правила без изменений, точка отсчёта для сравнения.",
+        "title": "Свободный",
+        "about": "Старые правила: каждый может добывать всё, налог плоский. Точка отсчёта для сравнения.",
         "world": {},
+    },
+    "crafts": {
+        "title": "Обычный",
+        "about": "Каждый добывает только своё: рыбу ловит рыбак, лес рубит лесоруб, зерно и ягоды собирает фермер, "
+                 "камень, руду и золото копает шахтёр; общая только вода, так что еду остальные берут у соседей. Работать можно 6 часов в день, мастерство растёт "
+                 "с часами работы. Хлеб и уха готовятся на дровах. Торговец каждый день покупает и продаёт понемногу, на всю деревню. "
+                 "Цены у торговца падают, когда у него много товара. Инструмент изнашивается за 14 часов работы, у всех есть "
+                 "один на старте, дальше их делает кузнец. Остальное как в обычном режиме.",
+        "world": {
+            # the trader sells at most one tool a day (per 5 villagers): tools come from the smith
+            "labor": {"enabled": True, "trader_sells_per_day": {"tool": 1}},
+            # wild berries belong to the farmer's trade too: everyone else eats what neighbours grow and catch
+            "professions": {"farmer": ["grain", "berries"]},
+            # cooking needs firewood: grain is not edible raw, so bread needs a woodcutter too
+            "recipes": {"bread": {"inputs": {"grain": 2, "wood": 1}}, "fish_soup": {"inputs": {"fish": 2, "wood": 1}}},
+            # gold pays at most ~2x other work: cheaper, and the trader pays less the more he holds;
+            # it has uses (a ring at the smithy, a level-3 house)
+            "items": {"gold": {"value": 12}},
+            "trader_pricing": {"stock_prices": True},
+            "plots": {"house_upgrade": {"3": {"items": {"gold": 2}}}},
+            # tools wear out in two to three days of work; everyone starts with one, then buys from the smith
+            "start_items": {"tool": 1},
+            "tool_durability_hours": 14,
+            # tax by income and wealth instead of a flat 20 (taxes.py); council orders pay 1.6x the goods
+            # and take part deliveries
+            "tax_amount": 10,
+            "taxes": {"enabled": True},
+            "council_orders": {"enabled": True},
+            # limited places per trade: no work at your trade for 3 days frees your place (places.py)
+            "places": {"enabled": True},
+            # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
+            "chronicle": {"enabled": True},
+        },
     },
     "peaceful": {
         "title": "Мирный",
@@ -70,13 +103,14 @@ MODES: dict[str, dict[str, Any]] = {
     "debt": {
         "title": "Долговая яма",
         "about": "Налог 12 монет каждые 2 дня (вдвое тяжелее обычного), мало денег на старте, за неуплату выгоняют "
-                 "из дома на 3 дня. Без займов не выжить, а возврат никто не обеспечивает.",
+                 "из дома на 3 дня. Без займов не выжить; просроченный долг растёт на 10% за ночь и взыскивается каждую ночь.",
         "world": {
             "map": {"unfairness": 0.6},  # start fairness of the generated village (mapgen.py)
             "start_coins": 10,
             "tax_every_days": 2,
             "tax_amount": 12,
             "eviction_days": 3,
+            "debts": {"late_fee_pct": 10},  # an unpaid debt grows 10% a night
             # money is the problem: price spikes and caravans matter more than lost food
             "crises": {"kinds": {"shortage": {"weight": 3}, "caravan": {"weight": 3}}},
         },
@@ -104,7 +138,7 @@ MODES: dict[str, dict[str, Any]] = {
     "lawless": {
         "title": "Беззаконие",
         "about": "Кража удаётся почти всегда, свидетели замечают её редко, за раз можно унести "
-                 "10 вещей, замков нет, жаловаться на воров некому.",
+                 "10 вещей, замков нет, жаловаться на воров некому, долги никто не взыскивает.",
         "world": {
             "map": {"unfairness": 0.5},  # start fairness of the generated village (mapgen.py)
             "steal_notice_chance": 0.05,
@@ -113,12 +147,53 @@ MODES: dict[str, dict[str, Any]] = {
             # want gives thieves a motive: frequent crises, rats hit most houses
             "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
                        "kinds": {"rats": {"weight": 3, "share": 0.6}}},
+            "debts": {"auto_collect": False},  # nobody collects debts
         },
-        "disabled": ["install_lock", "report_theft"],
+        "disabled": ["install_lock", "report_theft", "demand_debt", "rule_debt"],
     },
 }
 
-DEFAULT_MODE = "standard"
+# «С нуля»: the village is built by its villagers and climbs stages (progress.py). A start at hamlet or later
+# is the ready village of «Обычный»; a camp start empties it (bare_start below).
+MODES["survival"] = {
+    "title": "С нуля",
+    "about": "Деревню строят сами жители. На старте нет домов, денег, профессий, рынка и кузницы: всё добывается "
+             "руками, карманы пустые. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
+             "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
+             "как в «Обычном».",
+    "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+                                              "animals": {"enabled": True},
+                                              "construction": {"enabled": True}}),
+}
+
+DEFAULT_MODE = "crafts"
+
+
+def bare_start(cfg: dict) -> None:
+    """Empty a full world config (in place) for a camp start: called by engine.new_world. Idempotent.
+
+    Does nothing unless `bare_start.enabled`, progress is on and the start stage is before
+    `bare_start.until_stage`. Then: houses at level 0, no coins, empty pockets and yards, everyone a
+    laborer who may gather anything by hand, no trade places."""
+    from . import progress
+    b = cfg.get("bare_start") or {}
+    if not b.get("enabled") or b.get("applied") or not progress.enabled(cfg):
+        return
+    ids = progress.stage_ids(cfg)
+    start = cfg["progress"].get("start_stage", 0)
+    idx = ids.index(start) if isinstance(start, str) else int(start)
+    until = b.get("until_stage")
+    if until in ids and idx >= ids.index(until):
+        return
+    cfg["start_coins"] = 0
+    cfg["start_items"] = {k: 0 for k in cfg.get("start_items", {})}
+    for st in cfg["map"].get("start", {}).values():  # mapgen's unfair start: yards stay, coins and stashes go
+        st["coins"], st["items"] = 0, {}
+    for a in cfg["agents"]:
+        a.update(profession="laborer", house_level=0, buildings=[])
+    cfg["labor"]["own_trade_only"] = False
+    cfg["places"]["enabled"] = False
+    b["applied"] = True
 
 
 def check(mode: str) -> None:
