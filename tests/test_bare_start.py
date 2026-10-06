@@ -100,3 +100,15 @@ def test_camp_has_wild_grain_and_shows_the_site_price_of_a_house():
     step(w, {"Anna": ("work", {"resource": "grain"})})
     assert a.inventory.get("grain", 0) > 0
     assert plots.observe(w, "Anna")["plot"]["upgrade_house"] is None
+
+
+def test_map_smithy_is_no_free_forge_in_an_empty_start():
+    """Once a yard smithy opened the smith's recipes, the map's Smithy place served everyone for free."""
+    from aivillage import crafting
+    w = world()
+    construction.place(w, "smithy", "home_Boris")
+    step(w, {})
+    assert progress.unlocked(w, "recipe:iron")
+    assert crafting.workshops_at(w, "smithy") == []
+    assert crafting.workshops_at(w, "home_Boris")[0]["owner"] == "Boris"
+    assert crafting.workshops_at(world("village"), "smithy")[0]["kind"] == "smithy"  # a ready village keeps it

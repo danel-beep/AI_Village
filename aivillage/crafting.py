@@ -16,8 +16,8 @@ Off, nothing changes: `cfg["recipes"]` and the one generic `tool` work as in eve
   (labor.workshop_trades, checked every hour).
 
 Workshops are found in private yards (`Plot.buildings`, owner = plot owner), in fixed map locations whose id
-is a workshop kind (today's `smithy`, owner None), in `world.construction["buildings"]` (construction.py:
-{kind, level, location, owner}) and in any `WORKSHOP_SOURCES` a later module appends
+is a workshop kind (today's `smithy`, owner None; not with `map_workshops` off: an empty «С нуля» start), in
+`world.construction["buildings"]` (construction.py: {kind, level, location, owner}) and in any `WORKSHOP_SOURCES` a later module appends
 (`fn(world, location) -> [{"kind", "owner", "level", "users"?}]`; `users` None = everyone).
 Observation (on): `tools` (wear left), `workshops_here`, `crafts_here`. Prompt facts: `facts(cfg)`.
 State: `Agent.tool_wear_by` (hours of use per tool kind; the generic `tool` keeps `Agent.tool_wear`).
@@ -111,7 +111,7 @@ def workshops_at(world: World, location: str) -> list[dict]:
     cfg = world.config
     kinds = _c(cfg).get("workshops", {})
     out: list[dict] = []
-    if location in kinds and location in world.locations:
+    if location in kinds and location in world.locations and _c(cfg).get("map_workshops", True):
         out.append({"kind": location, "owner": None, "level": 1, "users": None})
     plot = world.plots.get(location)
     if plot is not None and plot.owner:

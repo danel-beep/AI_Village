@@ -43,6 +43,7 @@ API for other modules:
 - Unlocks are sticky; the stage never drops. Starting at a later stage, the buildings that stage and the
   earlier ones require count as standing (`world.progress.prebuilt`).
 - Observation (progress on): `village_stage: {stage, next_stage, next_stage_needs_standing: {kind: "have/need"}}`.
+  Rules line `progress.facts(cfg)`: what each stage needs standing (from the config).
 - Log: public event `village_stage` with `stage` (id) and `index`. State `world.progress`
   (`stage`, `reached: {id: day}`, `unlocked: [keys]`).
 
@@ -79,7 +80,9 @@ not added up). `raw_instead` maps crafted materials to raw ones when crafting is
 - Actions: `start_building(kind)` (here: own yard for "home" kinds, a common place for "village" ones),
   `bring_materials(site_id, items)`, `construct(site_id)` (one hour). With `min_workers` > 1 an hour counts only
   while that many different villagers worked on the site within the window (same day); lone hours older than the
-  window are lost (`site_work_lost`). `upgrade_house` is refused while construction is on.
+  window are lost (`site_work_lost`). `upgrade_house` is refused while construction is on and left out of the handbook
+  (`construction.hidden_actions`). A site with `min_workers` > 1 shows `worked_on_it_within_the_hour`: [names] in
+  `building_sites` while someone's hour there still waits for co-workers.
 - Unlock keys: `building:<kind>` and `building:<kind>@<level>` (registered in `progress.DEFAULT_UNLOCKS`).
 - Finished "home" buildings are plot building dicts with `level` (`house` sets `plot.house`); "village" ones are
   `world.construction["buildings"]` (`{id, kind, level, location, owner: None, built_day, builders}`), counted
@@ -110,7 +113,7 @@ takes: `workbench` carpenter, `smithy` smith, `kiln` potter, `mill` miller, `tan
 workshop where the crafter stands; `more_at` makes more there. Workshops are found by
 `crafting.workshops_at(world, location) -> [{"kind", "owner", "level", "users"}]`: private yard buildings
 (`Plot.buildings`, used by the owner's household), map locations whose id is a workshop kind (owner None,
-everyone), finished buildings in `world.construction["buildings"]` (`{kind, level, location, owner}`, owner None =
+everyone; not in an empty start: `crafting.map_workshops` off), finished buildings in `world.construction["buildings"]` (`{kind, level, location, owner}`, owner None =
 everyone, else the owner's household), and `crafting.WORKSHOP_SOURCES` (`fn(world, location) -> list`) for buildings kept elsewhere.
 `crafting.makes(cfg, kind)` lists what a workshop kind makes. Workshop recipes register
 `recipe:<id>: {"building": kind}` in `progress.DEFAULT_UNLOCKS`. Log: `craft` events carry `recipe` and

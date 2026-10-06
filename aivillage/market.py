@@ -193,7 +193,8 @@ def facts(cfg: dict) -> str:
     c = _c(cfg)
     where = "from anywhere" if c["remote"] else f"at the {cfg['locations'][c['place']]['name']}"
     orders = "; villagers' orders can be delivered from anywhere too" if c["remote"] else ""
-    return (f"- Market board: anyone can list items for sale (they are held by the board, {c['sale_hours']} h "
+    from .governance import opens_note  # governance -> actions -> market: import here
+    return (f"- Market board{opens_note(cfg, 'action:post_sale')}: anyone can list items for sale (they are held by the board, {c['sale_hours']} h "
             f"by default) and buy a listing {where}; the coins go to the seller{orders}. \"for_sale\" shows the "
             f"cheapest listings. \"last_seen\" is where you last saw each villager.")
 
