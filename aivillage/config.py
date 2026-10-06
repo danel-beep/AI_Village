@@ -38,6 +38,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
             "propose_build", "fund_project", "embezzle", "start_building", "bring_materials",
             "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care",
+            "join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
+            "give_to_polity", "polity_embezzle", "polity_audit",
             "take_animal", "leave_animal", "lend_animal", "return_animal", "give_animal", "feed_animal", "buy_animal")},
         "error": 15,  # a failed action only costs a quarter hour
     },
@@ -347,6 +349,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
                    "sales_tax": [0, 30], "wealth_tax": [0, 20]},
         "start": {"theft_fine": 0, "mayor_salary": 0},
         "crime_memory_days": 7,  # a witnessed theft can be reported for this many days
+    },
+    # Polities (aivillage/polity.py), off by default; on in the «С нуля» mode. A finished town_hall founds a polity:
+    # its builders are the first members, anyone may join_polity / leave_polity. Members vote for its name, the
+    # name of its coins (one physical coin, a treasury per polity) and its form of government; each further
+    # town_hall founds another polity. With polities on, the village-wide mayor, elections and law votes are off:
+    # each polity makes its own laws the way its form says, and taxes only its members (laws.enforcement: auto
+    # takes the tax, voluntary writes a bill in the debt book).
+    "polity": {
+        "enabled": False,
+        "vote_hours": 24,  # a founding or leader ballot closes this many hours after it opens (or later, until a vote)
+        "law_vote_hours": 24,
+        "council_size": 3,
+        "max_open_proposals": 3,
+        "expel_days": 7,  # an expelled villager may not join that polity again for this many days
+        "limits": {"tax": [0, 50], "grant": [1, 500], "fine": [1, 200]},
+        "max_name_len": 30,
+        # The treasury holder (ruler; most voted councillor; an assembly's treasurer) can take coins unnoticed
+        # (polity_embezzle) until polity_audit at the town hall or, with audit_on_handover, a change of holder.
+        "embezzle": True,
+        "audit_on_handover": True,
     },
     # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
     # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.

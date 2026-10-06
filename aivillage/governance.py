@@ -13,6 +13,9 @@ Rules, in the order an agent meets them:
 - Witnesses and awake victims of a theft can `report_theft`: the thief pays the theft_fine.
 - With village stages on (progress.py, the «С нуля» mode) there is no government until a town hall stands
   (`feature:elections`): no election days, announcements or mayor salary, and the observation says so.
+- With polities on (config `polity.enabled`, polity.py) there is no village-wide government at all: the mayor's
+  actions are refused and hidden (`REPLACED`), no elections are held, report_theft carries no village fine.
+  Each polity makes its own laws. The hooks below (`polity_on`, `_polity_guard`) are all this module knows of it.
 
 State lives in `world.governance`; the treasury is `world.governance.coins` (ledger-safe moves only).
 """
@@ -34,6 +37,8 @@ NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax")
 TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enabled (taxes.py)
 LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant")
 ELECTIONS = "feature:elections"  # progress.DEFAULT_UNLOCKS: a town_hall
+# The village-wide government's actions; with polities on each polity governs itself instead (polity.py).
+REPLACED = ("run_for_mayor", "vote", "propose_law", "vote_law", "embezzle", "audit_treasury", "treasury_order")
 
 
 def opens_when(cfg: dict, key: str) -> str:
@@ -60,6 +65,11 @@ def opens_note(cfg: dict, key: str) -> str:
 
 def enabled(cfg: dict) -> bool:
     return bool(cfg.get("governance", {}).get("enabled"))
+
+
+def polity_on(cfg: dict) -> bool:
+    """Config `polity.enabled`: town halls found polities that govern themselves (polity.py)."""
+    return bool((cfg.get("polity") or {}).get("enabled"))
 
 
 def voluntary(cfg: dict) -> bool:
@@ -92,6 +102,8 @@ def law(world: World, name: str) -> int:
         return world.governance.laws[name]
     if name == "tax":
         return cfg["tax_amount"]
+    if name == "theft_fine" and polity_on(cfg):  # no village-wide fine: polities fine their own members
+        return 0
     if name in TAX_RATES:
         t = cfg.get("taxes") or {}
         return t.get("sales_pct" if name == "sales_tax" else "wealth_pct", 0) if t.get("enabled") else 0
@@ -156,6 +168,10 @@ def observe(world: World, name: str) -> dict:
     if not progress.unlocked(world, ELECTIONS):
         return {"mayor": None, "not_yet": "a mayor, elections, laws and a treasury start "
                 + (opens_when(cfg, ELECTIONS) or "later")}
+    if polity_on(cfg):
+        return {"mayor": None, "village_government": "none: each polity (see polities) makes its own laws",
+                "thefts_you_can_report": [{"thief": c["thief"], "victim": c["victim"], "day": c["day"]}
+                                          for c in g.crimes if name in c["known_by"]]}
     return {
         "mayor": g.mayor, "you_are_mayor": g.mayor == name,
         # Only the mayor holds the treasury and sees what is really in it; everyone else sees the books.
@@ -180,6 +196,10 @@ def observe(world: World, name: str) -> dict:
 def facts(cfg: dict) -> str:
     """One line for the model's rules cheat sheet."""
     g = _g(cfg)
+    if polity_on(cfg):
+        from . import polity  # polity imports this module
+        return (polity.facts(cfg) + "\n- Witnesses and victims of a theft, attack or arson can report_theft"
+                + opens_note(cfg, ELECTIONS) + ": everyone learns who did it.")
     return (f"- Government{opens_note(cfg, ELECTIONS)}: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
@@ -204,6 +224,15 @@ def _exile_guard(ctx: Ctx, a: Agent, action: str) -> str | None:
 
 
 ACTIONS.guards.append(_exile_guard)
+
+
+def _polity_guard(ctx: Ctx, a: Agent, action: str) -> str | None:
+    if action in REPLACED and polity_on(ctx.cfg):
+        return "there is no village-wide government here; each polity makes its own laws (polity_propose)"
+    return None
+
+
+ACTIONS.guards.append(_polity_guard)
 
 
 def _require(ctx: Ctx) -> None:
@@ -483,6 +512,9 @@ def new_day(ctx: Ctx) -> None:
         return
     w, cfg = ctx.world, ctx.cfg
     g = w.governance
+    if polity_on(cfg):  # no elections, salary or exile: only witnessed crimes are kept for report_theft
+        g.crimes = [c for c in g.crimes if w.day - c["day"] < _g(cfg)["crime_memory_days"]]
+        return
     if is_election_day(cfg, w.day - 1):
         _count_election(ctx, w.day - 1)
     for n, until in list(g.exiled.items()):
