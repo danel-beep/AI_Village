@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, crises, governance, keys, plots
+from . import clock, conflict, crises, governance, keys, land, plots
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -131,7 +131,7 @@ def world_facts(cfg: dict) -> str:
     fam = cfg.get("family")
     if fam:
         lines.append(f"- Relations: your feelings about people grow from gifts, loans, trades, help and hang_out, "
-                     f"fall after theft or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
+                     f"fall after theft, violence or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
                      f"share a house and chests; a spouse (else your best friend) inherits if you die.")
     if governance.enabled(cfg):
         lines.append(governance.facts(cfg))
@@ -139,6 +139,14 @@ def world_facts(cfg: dict) -> str:
         lines.append(plots.facts(cfg))
     if crisis := crises.fact(cfg):
         lines.append(crisis)
+    if land.enabled(cfg):
+        lines.append(land.facts(cfg))
+    caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
+            for r, s in l.get("resources", {}).items() if s.get("per_hour")]
+    if caps:
+        lines.append(f"- Slow digging: {', '.join(caps)}, whatever your profession and tools.")
+    if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
+        lines.append(conflict.facts(cfg))
     return "\n".join(lines)
 
 

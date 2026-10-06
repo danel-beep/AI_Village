@@ -191,12 +191,15 @@ class Kin:
 class Plot:
     """A house's private yard (aivillage/plots.py). Buildings: {"id", "kind", "built_day", "items",
     and for garden beds "crop" / "ripe_day"}; `items` is what lies ready to collect (or steal)."""
-    owner: str
-    home: str
+    owner: str  # "" = land for sale (a lot nobody owns yet)
+    home: str  # location id: home_<Name> or a lot (aivillage/land.py)
     cells: int
-    house: int = 1
+    house: int = 1  # 0 on a lot: bare land, no house
     expansions: int = 0
     buildings: list[dict] = field(default_factory=list)
+    kind: str = "home"  # home | lot
+    price: int = 0  # lot: what the village asks for it while unowned
+    sale: dict | None = None  # lot: {"to", "price", "expires_tick"} offered by its owner
 
 
 @dataclass
@@ -217,7 +220,7 @@ class World:
     mail: list[Letter] = field(default_factory=list)
     kin: Kin = field(default_factory=Kin)
     governance: Governance = field(default_factory=Governance)
-    plots: dict[str, Plot] = field(default_factory=dict)  # home location id -> plot
+    plots: dict[str, Plot] = field(default_factory=dict)  # home or lot location id -> plot
     crises: list[dict] = field(default_factory=list)  # active and finished world crises (crises.py)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.

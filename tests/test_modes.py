@@ -40,7 +40,8 @@ def test_user_world_overrides_mode_and_disabled_merge():
 
 def test_partial_location_override_keeps_other_resources():
     cfg = engine.new_world(modes.world_override("scarcity")).config
-    assert cfg["locations"]["field"]["resources"]["grain"]["regen"] == 4
+    assert cfg["locations"]["river"]["resources"]["fish"]["regen"] == 3
+    assert cfg["plots"]["buildings"]["garden_bed"]["yield"] == 3 and "crop" in cfg["plots"]["buildings"]["garden_bed"]
     assert "wood" in cfg["locations"]["forest"]["resources"] and "water" in cfg["locations"]["river"]["resources"]
 
 

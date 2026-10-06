@@ -121,8 +121,10 @@ def _food_locations(w: World, resources: list[str]) -> dict[str, list[str]]:
 
 def _possible(w: World, kind: str, spec: dict) -> bool:
     if kind in ("crop_failure", "drought"):  # pointless when nothing of it is left (winter)
-        return any(w.locations[l].resources.get(r, 0) > 0
-                   for l, rs in _food_locations(w, spec["resources"]).items() for r in rs)
+        sown = kind == "crop_failure" and spec.get("garden_share") and any(  # no common field: gardens only
+            b.get("crop") in spec["resources"] for p in w.plots.values() for b in p.buildings)
+        return bool(sown) or any(w.locations[l].resources.get(r, 0) > 0
+                                 for l, rs in _food_locations(w, spec["resources"]).items() for r in rs)
     if kind in ("shortage", "caravan"):
         return any(i in w.config["items"] for i in spec["items"])
     return True
@@ -150,6 +152,9 @@ def _blight(ctx: Ctx, rng: random.Random, spec: dict, c: dict, days: int) -> Non
         return
     c["title"] = "crop failure"
     gardens = _wither_gardens(ctx, rng, spec.get("garden_share", 0), set(spec["resources"]))
+    if not hit:  # no common field: only the gardens suffer
+        c["text"] = "Crop failure! Blight hits the gardens: what was sown in some home garden beds died."
+        return
     c["text"] = (f"Crop failure! Blight hits the fields: most {what} is gone, sown beds died, and nothing "
                  f"grows back for {_days(days)}." + (" Some home gardens were hit too." if gardens else ""))
 

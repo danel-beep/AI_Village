@@ -26,7 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip")},
+            "propose_law", "vote_law", "report_theft", "gossip", "buy_land", "sell_land", "attack", "set_fire")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -88,6 +88,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "egg": {"value": 2, "food": 10},
         "milk": {"value": 4, "food": 20},
         "honey": {"value": 6, "food": 25},
+        # the shared mine's prize (aivillage/land.py, config locations.mine): finite, only sold for coins
+        "gold": {"value": 20},
+        # weapons for fights (aivillage/conflict.py, config combat.weapons); a tool works as a shovel/pick
+        "club": {"value": 4},
+        "spear": {"value": 15},
     },
     # Recipes: where they can be made and by whom (None = anyone).
     "recipes": {
@@ -95,12 +100,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fish_soup": {"inputs": {"fish": 2}, "output": 1, "where": "home", "profession": None},
         "tool": {"inputs": {"wood": 2, "ore": 1}, "output": 1, "where": "smithy", "profession": "smith"},
         "lock": {"inputs": {"ore": 1, "stone": 1}, "output": 1, "where": "smithy", "profession": "smith"},
+        "club": {"inputs": {"wood": 3}, "output": 1, "where": "home", "profession": None},
+        "spear": {"inputs": {"wood": 2, "ore": 1}, "output": 1, "where": "smithy", "profession": "smith"},
     },
     "professions": {
         "farmer": ["grain"],
         "fisher": ["fish"],
         "woodcutter": ["wood"],
-        "miner": ["stone", "ore"],
+        "miner": ["stone", "ore", "gold"],
         "smith": [],
     },
     # Procedural map (mapgen.py): with procedural on, every seed lays out its own village from the
@@ -112,22 +119,29 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Map: a graph of locations. Homes are added per agent and connected to the square.
     # "slots" splits a resource into finite map objects (trees, beds, bushes, shoals, rocks; see tiles.py).
     # "plant": the resource can be sown in an empty bed (costs `seed` of it, ripe after `days` nights).
+    # "per_hour": at most this many units per work hour, whatever the multipliers (gold).
+    # "patch": False keeps a resource out of mapgen's copies (the old quarry has no gold).
+    # "lot": an empty piece of land for sale (aivillage/land.py): cells to build on and its price.
+    # There is no common field: grain grows only in garden beds on private plots (plots.py).
     "locations": {
-        "square": {"name": "Village square", "neighbors": ["market", "field", "forest", "river", "smithy"]},
+        "square": {"name": "Village square", "neighbors": ["market", "forest", "river", "smithy", "lot_1"]},
         "market": {"name": "Market", "neighbors": ["square"]},
-        "field": {"name": "Field", "neighbors": ["square", "river"],
-                  "resources": {"grain": {"start": 40, "max": 40, "regen": 10, "slots": 8,
-                                       "plant": {"seed": 1, "days": 2}}}},
-        "river": {"name": "River", "neighbors": ["square", "field"],
+        "river": {"name": "River", "neighbors": ["square", "lot_2"],
                   "resources": {"fish": {"start": 30, "max": 30, "regen": 8, "slots": 6},
                                 "water": {"start": 999, "max": 999, "regen": 999}}},
-        "forest": {"name": "Forest", "neighbors": ["square", "mine"],
+        "forest": {"name": "Forest", "neighbors": ["square", "mine", "lot_3"],
                    "resources": {"wood": {"start": 80, "max": 80, "regen": 40, "slots": 8},
                                  "berries": {"start": 15, "max": 15, "regen": 5, "slots": 5}}},
+        # The one shared mine: stone, ore, and a finite stock of gold that never comes back once dug out.
         "mine": {"name": "Mine", "neighbors": ["forest"],
                  "resources": {"stone": {"start": 60, "max": 60, "regen": 30, "slots": 6},
-                               "ore": {"start": 30, "max": 30, "regen": 10, "slots": 6}}},
+                               "ore": {"start": 30, "max": 30, "regen": 10, "slots": 6},
+                               "gold": {"start": 24, "max": 24, "regen": 0, "slots": 4, "per_hour": 2,
+                                        "patch": False}}},
         "smithy": {"name": "Smithy", "neighbors": ["square"]},
+        "lot_1": {"name": "Lot by the square", "neighbors": ["square"], "lot": {"cells": 6, "price": 54}},
+        "lot_2": {"name": "Lot by the river", "neighbors": ["river"], "lot": {"cells": 8, "price": 56}},
+        "lot_3": {"name": "Lot at the forest edge", "neighbors": ["forest"], "lot": {"cells": 10, "price": 60}},
     },
     "projects": {
         "bridge": {"name": "Bridge over the river", "needs": {"wood": 40, "stone": 30},
@@ -150,10 +164,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "autumn": {"grain": 1.5},
             "winter": {"grain": 0, "berries": 0, "fish": 0.5},
         },
-        "wither": {"winter": {"field": ["grain"]}},
+        "wither": {},  # {season: {location: [resources]}} emptied at the season's first dawn
         "announce": {
-            "spring": "The field grows again.",
-            "winter": "The field is frozen: no grain until spring, berries are gone, fish are scarce.",
+            "spring": "Gardens can be sown again.",
+            "winter": "The ground is frozen: garden beds cannot be sown until spring, berries are gone, "
+                      "fish are scarce.",
         },
     },
     # Soft world crises (aivillage/crises.py): at dawn, from `first_day`, with `chance_per_day`, a crisis of a
@@ -263,6 +278,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "plots": {
         "enabled": True,
         "start_cells": 6,
+        # Free buildings at start when the agent spec has no "buildings" (as many as fit the yard);
+        # garden beds start sown and are ripe on day 2. Others build their own beds (1 wood each).
+        "start_buildings": {"farmer": ["garden_bed", "garden_bed", "garden_bed"], "default": []},
         "max_cells": 24,          # expand_plot stops here (house upgrades still add cells)
         "expand_cells": 2,
         "expand_price": 25,       # first purchase; each next one costs expand_price_step more
@@ -276,7 +294,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fence_success": 0.5,     # a fence multiplies a thief's chance by this
         "buildings": {
             "garden_bed": {"cells": 1, "coins": 0, "items": {"wood": 1},
-                           "crop": "grain", "seed": 1, "yield": 6, "days": 2},
+                           "crop": "grain", "seed": 1, "yield": 6, "days": 2,
+                           "profession_bonus": 3,  # extra yield when sown by a farmer (professions: grain)
+                           "tool_bonus": 2},  # and when the sower carries a tool (a hoe)
             "chicken_coop": {"cells": 2, "coins": 15, "items": {"wood": 4},
                              "makes": "egg", "per_day": 3, "cap": 9, "feed": 1, "feed_item": "grain"},
             "cow_pen": {"cells": 4, "coins": 40, "items": {"wood": 6, "stone": 2},
@@ -286,6 +306,44 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "fence": {"cells": 0, "coins": 0, "items": {"wood": 6}, "max": 1},
         },
     },
+    # Land for sale (aivillage/land.py): locations with a "lot" spec are empty plots anyone can buy
+    # (coins to the treasury) and then build on like a yard; owners can sell them on to each other.
+    # On a generated map mapgen.py lays out `lots` of them (None = about one per two villagers),
+    # `price_per_cell` coins per cell, nearer the square a bit dearer.
+    "land": {
+        "enabled": True,
+        "lots": None,
+        "cells": [6, 8, 10],
+        "price_per_cell": 7,
+        "sale_ttl_hours": 6,  # how long a sell_land offer stays open
+    },
+    # Fights and arson (aivillage/conflict.py). attack: a few D&D-like rounds of automatic dice rolls:
+    # each round the attacker, then the defender swings: d`die` + weapon attack >= `hit_at` hits for
+    # d`damage_die` + weapon damage. Whoever dealt more damage wins (a tie: the defender holds); a winning
+    # attacker takes up to `loot_max` of what they asked for from the loser. A fighter at or below
+    # `give_up_health` stops. The best weapon carried is used automatically.
+    "combat": {
+        "enabled": True,
+        "rounds": 3,
+        "die": 20,
+        "hit_at": 10,
+        "damage_die": 8,
+        "give_up_health": 15,
+        "min_health": 20,         # too weak to start a fight below this
+        "loot_max": 3,
+        "loot_coins_max": 10,
+        "weapons": {"tool": {"attack": 1, "damage": 2}, "club": {"attack": 0, "damage": 3},
+                    "spear": {"attack": 2, "damage": 5}},
+        # feelings (family.py) and reputation (reputation.py) toward the attacker / arsonist
+        "feelings": {"victim": -30, "witness": -10},
+        "reputation": {"victim": -5, "witness": -3},
+        # set_fire: costs `arson_wood` wood; the family at home awake always sees who did it,
+        # bystanders with steal_notice_chance.
+        "arson_wood": 1,
+    },
+    # Random fires (engine night): each dawn a random house catches fire with this chance
+    # (0 = only the god or an arsonist starts fires). Shown as a setting in the app.
+    "random_fires": {"per_day": 0.0},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},

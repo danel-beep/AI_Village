@@ -119,7 +119,8 @@ def test_fuzz_courtship_replay(tmp_path, seed):
     """Random bots (never hungry) that meet at the square and court whoever is there:
     invariants hold every tick, weddings happen, replay is exact."""
     w = engine.new_world({"seed": seed, "satiety_loss_per_hour": 0, "satiety_loss_asleep_per_hour": 0,
-                          "satiety_loss_night": 0, "family": {"propose_min": 10, "on_event": {}}})
+                          "satiety_loss_night": 0, "family": {"propose_min": 10, "on_event": {}},
+                          "disabled_actions": ["attack", "set_fire"]})  # random violence would sour every courtship
     rnd = bots_decider(w, ["random"], seed)
 
     def decide(name, obs):

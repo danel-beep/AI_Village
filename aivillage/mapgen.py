@@ -1,7 +1,7 @@
 """Procedural village map: every seed gives a different village.
 
-`generate(cfg)` places the landmarks (square, market, field, river, forest, mine, smithy), a few extra
-resource patches (grove, pond, quarry), one house per villager and the roads between them on a tile grid,
+`generate(cfg)` places the landmarks (square, market, river, forest, mine, smithy), a few extra
+resource patches (grove, pond, quarry), empty lots for sale, one house per villager and the roads between them on a tile grid,
 then derives the engine's location graph from it: a road that takes longer than `tiles_per_hour` tiles is
 split by waypoints (crossroads, old oak, ...), so far places really take more hours to reach. Each home is
 linked to the nearest place on the road network, so some villagers live next to their work and the market
@@ -57,7 +57,13 @@ PATCHES = {
 }
 WAYPOINT_NAMES = ["Crossroads", "Old oak", "Windmill", "Stone cross", "Meadow", "Hill path", "Shrine",
                   "Haystacks", "Signpost", "Fox hollow", "Lone pine", "Old well", "Bee yard", "Mill pond path",
-                  "Chapel", "Sheep pen", "Willow bend", "Red barn", "Birch stile", "Watchtower"]
+                  "Chapel", "Sheep pen", "Willow bend", "Red barn", "Birch stile", "Watchtower", "Hay cart",
+                  "Twin elms", "Boundary stone", "Goat track", "Dry ditch", "Rabbit warren", "Tall cross",
+                  "Ash grove path", "Cart ruts", "Owl tree"]
+# Empty lots for sale (aivillage/land.py): a fenced patch of bare land, 2 plot cells per tile column.
+LOT_NAMES = ["Meadow lot", "Hilltop lot", "Brook lot", "Old orchard lot", "Stony lot", "Sunny lot", "Willow lot",
+             "Fern lot", "Clover lot", "Heather lot", "Thistle lot", "Barley lot", "Mossy lot", "Windy lot",
+             "Pine lot", "Daisy lot", "Rush lot", "Elder lot", "Bramble lot", "Poppy lot"]
 
 MAP_DEFAULTS = {
     "procedural": False,
@@ -78,8 +84,9 @@ MAP_DEFAULTS = {
     "attempts": 60,
 }
 
-# The main work spot of each profession (patches are a bonus for those who find them).
-WORK_SPOT = {"farmer": "field", "fisher": "river", "woodcutter": "forest", "miner": "mine", "smith": "smithy"}
+# The main work spot of each profession (patches are a bonus for those who find them). Farmers work their
+# own garden beds at home (no common field), so for them the market counts as the place they walk to.
+WORK_SPOT = {"farmer": None, "fisher": "river", "woodcutter": "forest", "miner": "mine", "smith": "smithy"}
 
 
 RELAXABLE = ("max_home_hops", "max_landmark_hops", "max_work_hops", "max_market_hops")
@@ -224,7 +231,9 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     names = [a["name"] for a in cfg["agents"]]
     n = len(names)
     grow = max(0, math.ceil((n - 8) / 4))
-    cols, rows = 44 + 4 * grow, 32 + 4 * grow
+    lots = _lots_wanted(cfg, n)
+    room = max(grow, math.ceil((n + lots - 5) / 4))  # lots for sale need room at the edges
+    cols, rows = 44 + 4 * room, 32 + 4 * room
     p = {**p, "spread": p["spread"] + grow}
     g = Grid(cols, rows)
     places: dict[str, dict] = {}
@@ -266,7 +275,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             if not g.free(rect(x, y, w, h + extra)) or anchor in g.reserved or not g.free([anchor]):
                 continue
             # margins may touch the map edge but not other things
-            if any(t in g.reserved for t in area if g.inside(*t)):
+            if any(t in g.reserved for t in area if g.inside(*t)) or any(t in g.road for t in rect(x, y, w, h + extra)):
                 continue
             g.reserved.update(t for t in area + [anchor] if g.inside(*t))
             g.solid.update(_solid(kind, x, y, w, h))
@@ -279,7 +288,8 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     put("market", "market", LANDMARKS["market"], sq, 4, 10)
     put("smithy", "smithy", LANDMARKS["smithy"], sq, 5, 14)
     for lid in ("forest", "field", "mine"):
-        put(lid, lid, LANDMARKS[lid], sq, 7, p["spread"])
+        if lid in base:  # the field exists only in old configs: farming is private now
+            put(lid, lid, LANDMARKS[lid], sq, 7, p["spread"])
     lo, hi = p["patches"]
     kinds = list(PATCHES)
     count: dict[str, int] = {}
@@ -320,7 +330,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     # A first draft of the roads tells how far each place is from the square.
     draft = _roads(g, anchors, edges, step, wp_names[:])
     hub = distances(draft[0], "square")
-    for lid in LANDMARKS.keys() | {"river"}:
+    for lid in (LANDMARKS.keys() | {"river"}) & set(base):
         if hub.get(lid, 10 ** 6) > p["max_landmark_hops"]:
             raise MapError(f"{lid} is {hub.get(lid)} hours from the square")
     g.road.clear()
@@ -334,14 +344,17 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     graph0 = {pid: distances(draft[0], pid) for pid in ["square"] + hamlets + lone}
     profession = {a["name"]: a.get("profession") for a in cfg["agents"]}
 
+    def spot(name: str) -> str:
+        return WORK_SPOT.get(profession[name], "square") or "market"
+
     def fits(name: str, c: str) -> bool:  # the honest minimum, judged on the draft roads
         d = graph0[c]
-        work = d.get(WORK_SPOT.get(profession[name], "square"), 10 ** 6)
+        work = d.get(spot(name), 10 ** 6)
         return 1 + work <= p["max_work_hops"] and 1 + d.get("market", 10 ** 6) <= p["max_market_hops"]
 
     def walk(name: str, c: str) -> int:
         d = graph0[c]
-        return d.get(WORK_SPOT.get(profession[name], "square"), 9) + d.get("market", 9)
+        return d.get(spot(name), 9) + d.get("market", 9)
 
     u = p["unfairness"]
     fortune = _fortune(cfg, u, rng)
@@ -372,6 +385,32 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
         routes.append({"a": hid, "b": around, "path": corners(path)})
         g.road.update(path)
 
+    # Empty lots for sale go wherever there is room left, off the roads, each with its own road to the
+    # nearest place (so they never stretch the walks checked above).
+    land_cfg = cfg.get("land") or {}
+    if lots:
+        lot_names = rng.sample(LOT_NAMES, len(LOT_NAMES))
+        free_wp = [x for x in wp_names if x not in {nm for nm, _ in waypoints.values()}]
+        for i in range(lots):
+            cells = rng.choice(land_cfg["cells"])
+            w = max(3, cells // 2)
+            lid = f"lot_{i + 1}"
+            try:
+                put(lid, "lot", {"box": (w, 3), "anchor": (w // 2, 3)}, sq, 6, p["spread"] + 10)
+            except MapError:
+                break  # a crowded village gets fewer lots
+            places[lid].update(name=lot_names[i] if i < len(lot_names) else f"Lot {i + 1}", cells=cells,
+                               plot=list(places[lid]["box"]))
+            anchors[lid] = tuple(places[lid]["anchor"])
+            near = min((j for j in anchors if j != lid and not j.startswith("lot_")), key=lambda j: dist(j, lid))
+            nb, rt, wp = _roads(g, {near: anchors[near], lid: anchors[lid]}, [(near, lid)], step, free_wp)
+            for k, v in nb.items():
+                neighbors.setdefault(k, []).extend(v)
+            routes += rt
+            for wid, (name, t) in wp.items():
+                places[wid] = {"kind": "waypoint", "box": None, "anchor": list(t), "name": name}
+    hops = distances(neighbors, "square")
+
     # Locations: landmarks keep their config (scaled resources), patches copy a share of a landmark.
     lo, hi = p["richness"]
     locations: dict[str, dict] = {}
@@ -382,11 +421,16 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             locations[pid] = {"name": pl["name"], "neighbors": neighbors[pid]}
         elif pl["kind"] == "hamlet":
             locations[pid] = {"name": pl["name"], "neighbors": neighbors[pid]}
+        elif pl["kind"] == "lot":  # dearer next to the square
+            ppc = land_cfg["price_per_cell"] * (1.25 if hops.get(pid, 9) <= 1 else 1.0)
+            locations[pid] = {"name": pl["name"], "neighbors": neighbors[pid],
+                              "lot": {"cells": pl["cells"], "price": round(pl["cells"] * ppc)}}
         elif pl["kind"] in PATCHES:
             spec = PATCHES[pl["kind"]]
             src = base[spec["from"]].get("resources", {})
             f = spec["share"] * rng.uniform(lo, hi)
-            res = {r: dict(s) if r == "water" else _scale(s, f, spec["share"]) for r, s in src.items()}
+            res = {r: dict(s) if r == "water" else _scale(s, f, spec["share"]) for r, s in src.items()
+                   if s.get("patch", True)}
             nm = spec["name"] if pid == pl["kind"] else f"{spec['name']} {pid[len(pl['kind']):]}"
             locations[pid] = {"name": nm, "neighbors": neighbors[pid], "resources": res}
         else:
@@ -398,7 +442,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
             locations[pid] = spec
     # any other location of the base map (added by a mechanic) hangs off the square
     for lid, spec in base.items():
-        if lid not in locations:
+        if lid not in locations and "lot" not in spec:  # the hand-made map's lots: replaced by generated ones
             spec = copy.deepcopy(spec)
             spec["neighbors"] = ["square"]
             locations[lid] = spec
@@ -409,7 +453,7 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     layout = {
         "cols": cols, "rows": rows,
         "river": {"side": side, "x": span, "dock": {"y": dock_y, "x": dock}},
-        "places": {pid: {k: v for k, v in pl.items() if k != "name"} for pid, pl in places.items()},
+        "places": {pid: {k: v for k, v in pl.items() if k not in ("name", "cells")} for pid, pl in places.items()},
         "defaults": {k: list(v["default"]) for k, v in LANDMARKS.items()},
         "routes": routes,
     }
@@ -424,6 +468,14 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
         a.setdefault("house_level", f["house_level"])
     out["map"]["fairness"] = fairness(out)
     return out
+
+
+def _lots_wanted(cfg: dict, n: int) -> int:
+    land_cfg = cfg.get("land") or {}
+    if not (land_cfg.get("enabled") and cfg.get("plots", {}).get("enabled")):
+        return 0
+    from .land import lot_count
+    return lot_count(cfg, n)
 
 
 def _roads(g: Grid, anchors: dict, edges: list, step: int, wp_names: list[str]):
@@ -560,9 +612,10 @@ def fairness(cfg: dict) -> dict:
     for a in cfg["agents"]:
         d = distances(adj, f"home_{a['name']}")
         spot = WORK_SPOT.get(a.get("profession"), "square")
+        work = d.get(spot) if spot else 0  # a farmer works at home
         start = cfg["map"].get("start", {}).get(a["name"], {})
-        out[a["name"]] = {"square": d.get("square"), "market": d.get("market"), "work": d.get(spot),
-                          "work_spot": spot, "coins": start.get("coins", cfg["start_coins"]),
+        out[a["name"]] = {"square": d.get("square"), "market": d.get("market"), "work": work,
+                          "work_spot": spot or "home", "coins": start.get("coins", cfg["start_coins"]),
                           "items": start.get("items", {}),
                           "plot_tiles": start["plot"][2] * start["plot"][3] if "plot" in start else None,
                           "plot_cells": a.get("plot_cells"), "house_level": a.get("house_level")}
@@ -580,7 +633,10 @@ def check(cfg: dict, base_locations: dict | None = None, p: dict | None = None) 
     d = distances(adj, "square")
     if len(d) != len(adj):
         raise MapError(f"unreachable: {sorted(set(adj) - set(d))}")
-    for lid in LANDMARKS.keys() | {"river"}:
+    if base_locations is None:
+        from .config import DEFAULT_CONFIG
+        base_locations = DEFAULT_CONFIG["locations"]
+    for lid in (LANDMARKS.keys() | {"river"}) & set(base_locations):
         if lid not in d or d[lid] > p["max_landmark_hops"]:
             raise MapError(f"{lid} is {d.get(lid)} hours from the square")
     for a in cfg["agents"]:
@@ -591,9 +647,6 @@ def check(cfg: dict, base_locations: dict | None = None, p: dict | None = None) 
             raise MapError(f"{name} lives {f['work']} hours from work")
         if f["market"] is None or f["market"] > p["max_market_hops"]:
             raise MapError(f"{name} lives {f['market']} hours from the market")
-    if base_locations is None:
-        from .config import DEFAULT_CONFIG
-        base_locations = DEFAULT_CONFIG["locations"]
     base: dict[str, int] = {}
     for spec in base_locations.values():
         for r, s in spec.get("resources", {}).items():

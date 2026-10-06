@@ -6,8 +6,10 @@ from aivillage.run import bots_decider, replay, run
 
 
 def world(**over):
+    """Two villagers with bare yards (no default start beds), so each test builds what it needs."""
     agents = over.pop("agents", [{"name": "Anna", "profession": "farmer"},
                                  {"name": "Boris", "profession": "fisher"}])
+    over.setdefault("plots", {"start_buildings": {"farmer": [], "default": []}})
     return engine.new_world({"agents": agents, **over})
 
 
@@ -90,7 +92,7 @@ def test_garden_bed_is_private():
     assert "sown or ripe" in err
     night(w)
     night(w)
-    assert plots.stock(w.plots["home_Anna"]) == {"grain": 6}
+    assert plots.stock(w.plots["home_Anna"]) == {"grain": 9}  # 6 + 3 for a farmer
     obs = engine.observe(w, "Anna")
     assert "collect" in obs["available_actions"]
 
@@ -174,17 +176,18 @@ def test_run_config_sets_unequal_start():
         {"name": "Boris", "profession": "fisher", "plot_cells": 2}]})
     w = engine.new_world(rc.world_override())
     assert (w.plots["home_Anna"].cells, w.plots["home_Anna"].house) == (16, 3)
-    assert w.plots["home_Boris"].cells == 2 and w.plots["home_Boris"].buildings == []
+    assert [b["kind"] for b in w.plots["home_Anna"].buildings] == ["cow_pen"]  # given buildings: no default beds
+    assert w.plots["home_Boris"].cells == 2 and w.plots["home_Boris"].buildings == []  # not a farmer: builds own beds
 
 
 def test_generated_map_yards_set_plot_size():
     names = [{"name": n, "profession": p} for n, p in
              zip("ABCDEFGH", ["farmer", "fisher", "woodcutter", "miner", "smith"] * 2)]
     fair = engine.new_world({"seed": 4, "agents": names, "map": {"procedural": True, "unfairness": 0}})
-    assert {p.cells for p in fair.plots.values()} == {6}
+    assert {p.cells for p in fair.plots.values() if p.kind == "home"} == {6}
     sizes = set()
     for seed in range(1, 4):
         w = engine.new_world({"seed": seed, "agents": names, "map": {"procedural": True, "unfairness": 1}})
-        sizes |= {p.cells for p in w.plots.values()}
+        sizes |= {p.cells for p in w.plots.values() if p.kind == "home"}
         check(w)
     assert len(sizes) > 2

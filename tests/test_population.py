@@ -18,7 +18,7 @@ from aivillage.runconfig import RunConfig
 def test_default_config_is_unchanged():
     cfg = make_config()
     assert [a["name"] for a in cfg["agents"]] == [a["name"] for a in DEFAULT_CONFIG["agents"]]
-    assert cfg["locations"]["field"]["resources"] == DEFAULT_CONFIG["locations"]["field"]["resources"]
+    assert cfg["locations"]["mine"]["resources"] == DEFAULT_CONFIG["locations"]["mine"]["resources"]
     assert resource_scale(cfg) == 1.0 and cfg["orders_per_post"] == 1
 
 
@@ -43,14 +43,14 @@ def test_fewer_villagers_keeps_first_ones():
 def test_resources_scale_but_water_does_not():
     cfg = make_config({"population": {"size": 20}})
     assert resource_scale(cfg) == 4.0
-    field, base = cfg["locations"]["field"]["resources"]["grain"], DEFAULT_CONFIG["locations"]["field"]["resources"]["grain"]
-    assert all(field[k] == 4 * base[k] for k in ("start", "max", "regen"))
-    assert field["slots"] == base["slots"]  # same number of beds/trees, each holds more
+    fish, base = cfg["locations"]["river"]["resources"]["fish"], DEFAULT_CONFIG["locations"]["river"]["resources"]["fish"]
+    assert all(fish[k] == 4 * base[k] for k in ("start", "max", "regen"))
+    assert fish["slots"] == base["slots"]  # same number of shoals/trees, each holds more
     assert cfg["locations"]["river"]["resources"]["water"] == DEFAULT_CONFIG["locations"]["river"]["resources"]["water"]
     assert cfg["projects"]["bridge"]["needs"]["wood"] == 4 * DEFAULT_CONFIG["projects"]["bridge"]["needs"]["wood"]
     assert cfg["orders_per_post"] == 4
     off = make_config({"population": {"size": 20, "scale_resources": False}})
-    assert off["locations"]["field"]["resources"] == DEFAULT_CONFIG["locations"]["field"]["resources"]
+    assert off["locations"]["river"]["resources"] == DEFAULT_CONFIG["locations"]["river"]["resources"]
 
 
 def test_resolve_is_idempotent_and_replay_exact(tmp_path):

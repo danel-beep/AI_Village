@@ -39,6 +39,8 @@ god events ─┐
 | `aivillage/tiles.py` | finite map objects: a resource with `slots` is split into trees / beds / bushes / shoals / rocks; take, regrow, sow, ripen |
 | `aivillage/family.py` | feelings (directed scores moved by events via `family.on_event`), hang_out/propose/answer_proposal/divorce, marriage (shared house + chests), inheritance; feelings via `ops.EVENT_HOOKS`; engine calls `after_hour` (estates) / `after_night`; `observe()["relations"]`. Unlike reputation (what I saw), feelings are the relationship that drives marriage and inheritance |
 | `aivillage/plots.py` | private yards (`world.plots[home]`): build / collect / expand_plot / upgrade_house / steal_from_plot, garden beds via `plant` at home, animals fed from the owner's chest in `after_night`, fire hook, `observe` (`plot`, `here_plot`, `village_plots`), prompt `facts`, log `view`; config block `plots`, start from `config.agents[i]` (`plot_cells`, `house_level`, `buildings`) |
+| `aivillage/land.py` | land for sale: locations with a `lot` spec become unowned plots (`kind: "lot"`); `buy_land` (on the spot, to the treasury; or an owner's `sell_land` offer from anywhere), observation `your_lots` / `land_for_sale` / `land_owners` / `land_offers`, prompt `facts`. Building, collecting and yard theft on a lot are plots.py's |
+| `aivillage/conflict.py` | `attack` (seeded D&D-like dice rounds, weapons from `combat.weapons`, loot), `set_fire` (arson with witnesses), `random_fire` (engine night, `random_fires.per_day`); an `ops.EVENT_HOOKS` hook lowers feelings and reputation toward the culprit; governance records `fight` / `arson_seen` as crimes |
 | `aivillage/crises.py` | soft world crises (crop failure, drought, rats, trader shortage, caravan) started at dawn by `new_day` from config block `crises` (modes tune it); state in `world.crises`; engine hooks `blocks_regrowth` (regrowth loop) and `price_factor` (trader prices in `_price` and `observe`); `observe()["crises"]`, god event `crisis` |
 | `aivillage/invariants.py` | per-tick checks |
 | `aivillage/bots.py` | RandomBot (fuzzer), WorkerBot, ThiefBot |
@@ -89,7 +91,10 @@ Events for animation (all have `actor`, `location` and `data`):
 | `slot_empty` | `resource`, `slot` (a tree fell, a bed was harvested) | log only |
 | `plant` | `resource`, `slot`, `ripe_day` | location |
 | `crop_ripe` | `resource`, `slot`, `by` | the planter |
-| `fire` | `victim`, `house` | public |
+| `fire` | `victim`, `house` (+ `arsonist` or `cause: "accident"`) | public |
+| `fight` | `attacker`, `defender`, `winner`, `rounds`, `damage`, `loot`, `weapons`, `witnesses` | location + defender |
+| `set_fire` / `arson_seen` | `victim`, `house` (+ `arsonist`) | arsonist / each witness |
+| `land_bought` / `land_sold` / `land_offer` | `lot`, `price` | public / public / buyer |
 | `fire_grows` | `house`, `water_needed`, `hours_left` | location |
 | `pour_water` / `fire_out` | `helper`, `house`, `buckets`, `water_needed` | location / public |
 | `house_burned` | `home` | public |

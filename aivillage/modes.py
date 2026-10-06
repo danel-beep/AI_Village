@@ -16,14 +16,15 @@ from typing import Any
 from .config import _merge
 
 
-def _food(grain: tuple[int, int], fish: tuple[int, int], berries: tuple[int, int]) -> dict:
-    """(max, nightly regen) per food resource; the stock starts full."""
+def _food(garden: int, fish: tuple[int, int], berries: tuple[int, int]) -> dict:
+    """Grain per garden bed harvest (there is no common field) and (max, nightly regen) of the wild food;
+    the stock starts full. Returns world overrides for "plots" and "locations"."""
     def r(mx: int, regen: int) -> dict:
         return {"start": mx, "max": mx, "regen": regen}
     return {
-        "field": {"resources": {"grain": r(*grain)}},
-        "river": {"resources": {"fish": r(*fish)}},
-        "forest": {"resources": {"berries": r(*berries)}},
+        "plots": {"buildings": {"garden_bed": {"yield": garden}}},
+        "locations": {"river": {"resources": {"fish": r(*fish)}},
+                      "forest": {"resources": {"berries": r(*berries)}}},
     }
 
 
@@ -35,13 +36,13 @@ MODES: dict[str, dict[str, Any]] = {
     },
     "peaceful": {
         "title": "Мирный",
-        "about": "Еды вдвое больше, налог вдвое ниже, больше денег на старте; "
-                 "кражу почти всегда замечают и она редко удаётся.",
+        "about": "Грядки и природа дают больше еды, налог вдвое ниже, больше денег на старте; "
+                 "кражу почти всегда замечают и она редко удаётся, драк и поджогов нет.",
         "world": {
             "map": {"unfairness": 0.1},  # start fairness of the generated village (mapgen.py)
             "start_coins": 40,
             "tax_amount": 10,
-            "locations": _food(grain=(80, 20), fish=(60, 16), berries=(30, 10)),
+            **_food(garden=9, fish=(60, 16), berries=(30, 10)),
             "steal_notice_chance": 0.9,
             "steal_awake_target_success": 0.2,
             "max_steal_qty": 1,
@@ -49,17 +50,18 @@ MODES: dict[str, dict[str, Any]] = {
             "crises": {"chance_per_day": 0.2, "gap_days": 3, "max_quiet_days": 8,
                        "kinds": {"rats": {"eat": 0.3}, "crop_failure": {"keep": 0.6, "garden_share": 0.25}}},
         },
+        "disabled": ["attack", "set_fire"],
     },
     "scarcity": {
         "title": "Дефицит",
-        "about": "Еды хватает примерно на 3 из 5 жителей, у торговца она очень дорогая, "
+        "about": "Грядка даёт вдвое меньше зерна, рыбы и ягод мало, у торговца еда очень дорогая, "
                  "все начинают полуголодными.",
         "world": {
             "map": {"unfairness": 0.6},  # start fairness of the generated village (mapgen.py)
             "start_coins": 15,
             "satiety_start": 50,
             "npc_sell_ratio": 2.5,
-            "locations": _food(grain=(20, 4), fish=(15, 3), berries=(6, 2)),
+            **_food(garden=3, fish=(15, 3), berries=(6, 2)),
             # food is already short: crises come often and hit food first
             "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
                        "kinds": {"caravan": {"weight": 1}, "rats": {"weight": 3}}},
@@ -82,7 +84,7 @@ MODES: dict[str, dict[str, Any]] = {
     "gold_rush": {
         "title": "Золотая лихорадка",
         "about": "Каждый день на доске один огромный заказ на 150 монет, получает только первый. "
-                 "Руда редкая и дорогая, инструменты и замки делает только кузнец.",
+                 "Руда редкая и дорогая, в шахте вдвое больше золота, инструменты и замки делает только кузнец.",
         "world": {
             "map": {"unfairness": 0.7},  # start fairness of the generated village (mapgen.py)
             "start_coins": 10,
@@ -93,7 +95,8 @@ MODES: dict[str, dict[str, Any]] = {
                 {"needs": {"lock": 1, "ore": 3}, "reward": 150},
             ],
             "items": {"ore": {"value": 10}},
-            "locations": {"mine": {"resources": {"ore": {"start": 8, "max": 8, "regen": 3}}}},
+            "locations": {"mine": {"resources": {"ore": {"start": 8, "max": 8, "regen": 3},
+                                                 "gold": {"start": 48, "max": 48}}}},
             # caravans buy ore and tools dear
             "crises": {"kinds": {"caravan": {"weight": 4, "items": ["ore", "tool", "lock"]}}},
         },

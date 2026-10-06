@@ -5,7 +5,7 @@
 // have: a winding river with its dock, fenced plots, groves, ponds, quarries, hamlet greens, road signposts.
 // GenMap.spots() gives viewer/maplayer.js the pixel spots of resource objects outside the old landmarks.
 const GenMap = (() => {
-  const LABEL = { grove: -34, pond: -30, quarry: -34, hamlet: -30, waypoint: -26 };
+  const LABEL = { grove: -34, pond: -30, quarry: -34, hamlet: -30, waypoint: -26, lot: -30 };
 
   function layout(lay, names, T, ROOFS) {
     const px = (x, y) => [x * T + 8, y * T + 8];
@@ -26,7 +26,7 @@ const GenMap = (() => {
       else if (pl.kind === 'market' || pl.kind === 'smithy' || pl.kind === 'mine') fill(b, 'block');
       else if (pl.kind === 'pond') fill(b, 'water');
       else if (pl.kind === 'grove' || pl.kind === 'quarry' || pl.kind === 'hamlet') fill(b, 'block');
-      else if (pl.kind === 'home') fill(pl.plot, 'block');
+      else if (pl.kind === 'home' || pl.kind === 'lot') fill(pl.plot, 'block');
     }
     const order = Object.values(lay.places).filter(p => p.kind === 'home')
       .sort((a, b) => names.indexOf(a.owner) - names.indexOf(b.owner));
@@ -53,7 +53,9 @@ const GenMap = (() => {
     };
     const plots = {};  // yard of every house in pixels, for viewer/plotlayer.js
     houses.forEach(h => { plots['home_' + h.name] = h.plot; });
-    return { gen: lay, plots, cols: lay.cols, W: lay.cols * T, H: lay.rows * T, kind, anchors, box, routes, houses, off, labels, bank, rows: 0 };
+    const lots = {};  // empty land for sale (aivillage/land.py), drawn by viewer/plotlayer.js once someone builds there
+    for (const [id, pl] of Object.entries(lay.places)) if (pl.kind === 'lot') lots[id] = plots[id] = pl.plot.map(v => v * T);
+    return { gen: lay, plots, lots, cols: lay.cols, W: lay.cols * T, H: lay.rows * T, kind, anchors, box, routes, houses, off, labels, bank, rows: 0 };
   }
 
   // Pixel spots of resource objects (MapLayer format) for places pixelmap has no hand-made art for.
@@ -120,8 +122,9 @@ const GenMap = (() => {
         const mp = pat('tex_moss');
         if (mp) { g.beginPath(); g.ellipse(x0 + w / 2, y0 + h / 2, w / 2 + 4, h / 2 + 2, 0, 0, Math.PI * 2); g.fillStyle = mp; g.globalAlpha = .7; g.fill(); g.globalAlpha = 1; }
         else blob(g, x0 + w / 2, y0 + h / 2, w / 2 + 4, h / 2 + 2, [C.grassL, C.grassD, C.grassDD], null);
-      } else if (pl.kind === 'home') { // fenced yard around the house
+      } else if (pl.kind === 'home' || pl.kind === 'lot') { // fenced yard around the house; a lot is bare tilled land
         const [px0, py0, pw, ph] = pl.plot.map(v => v * T);
+        if (pl.kind === 'lot') for (let yy = py0 + 3; yy < py0 + ph - 2; yy += 4) R(g, px0 + 3, yy, pw - 6, 2, rnd(px0, yy, 9) < .5 ? '#8a6a44' : '#7a5c3a');
         for (let yy = py0 + 2; yy < py0 + ph - 1; yy += 6) for (let xx = px0 + 2; xx < px0 + pw - 2; xx += 6)
           if (rnd(xx, yy, 31) < .35) P(g, xx, yy, C.grassL);
         const gate = pl.anchor[0] * T + 8;

@@ -35,6 +35,20 @@ const PlotLayer = (() => {
         yards[id] = { ox: h.x, oy: h.y - 3 * T + 2, cw: 8, ch: 11, cols: 6, order, gen: false, house: h };
       }
     }
+    // lots for sale (aivillage/land.py): no house, cells filled from the gate row up
+    for (const [id, [x, y, w, hh]] of Object.entries(layout.lots || {})) {
+      const cols = Math.round(w / 8), rows = Math.round(hh / 16), order = [];
+      for (let r = rows - 1; r >= 0; r--) for (let c = 0; c < cols; c++) order.push([c, r]);
+      yards[id] = { ox: x, oy: y, cw: 8, ch: 16, cols, order, gen: true, rect: [x, y, w, hh], house: null };
+    }
+  }
+
+  // A signpost on a lot: "for sale" while nobody owns it, else the owner's initial.
+  function lotSign(g, yd, p) {
+    const { R, P, C } = K, [x, y] = yd.rect, sx = x + 3, sy = y - 9;
+    R(g, sx + 4, sy + 6, 2, 9, C.woodD); R(g, sx, sy, 11, 7, C.k); R(g, sx + 1, sy + 1, 9, 5, p.for_sale ? '#e8d8a0' : C.woodL);
+    if (p.for_sale) { R(g, sx + 3, sy + 2, 5, 1, '#c0392b'); R(g, sx + 3, sy + 4, 3, 1, '#c0392b'); }
+    else { R(g, sx + 4, sy + 2, 3, 3, '#3a6ea5'); P(g, sx + 5, sy + 3, '#e8d8a0'); }
   }
 
   // Cells the family may use now: on a generated map the whole fenced yard plus rows behind it for bought land.
@@ -186,7 +200,8 @@ const PlotLayer = (() => {
         else if (b.kind === 'beehive') hive(g, box, b, sec);
         if (built.has(b.id)) puff(g, box[0] + box[2] / 2, box[1] + box[3] / 2, e);
       }
-      houseLevel(g, yd.house, p.house || 1);
+      if (yd.house) houseLevel(g, yd.house, p.house || 1);
+      else lotSign(g, yd, p);
     }
   }
 

@@ -476,7 +476,7 @@ const PixelMap = (() => {
     const at = (id, fn) => { const [dx, dy] = layout.off[id] || [0, 0]; g.save(); g.translate(dx, dy); fn(g); g.restore(); return [dx, dy]; };
     const move = ([x, y], [dx, dy]) => [x + dx, y + dy];
     terrain(g) || paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock, SP, fence, planks });
-    at('field', field);
+    if (layout.off.field) at('field', field);  // newer villages have no common field
     const sq = at('square', square); layout.lamps = layout.lamps.map(p => move(p, sq));
     at('market', market);
     const sm = at('smithy', smithy); layout.forge = move(layout.forge, sm); layout.smithyChimney = move(layout.smithyChimney, sm);
@@ -685,6 +685,7 @@ const PixelMap = (() => {
     const at = Camera.toScreen, z = Camera.view().z;
     const top = { market: -34, field: -44, river: -40, square: -38, forest: -26, mine: -58, smithy: -82 };
     for (const [id, dy] of [...Object.entries(top), ...(layout.labels || [])]) {
+      if (!layout.anchors[id]) continue;  // e.g. no common field on newer maps
       const [x, y] = layout.anchors[id]; plaque(ctx, ...at(x, y + dy), t.view.locations[id] || id);
     }
     for (const h of layout.houses) {
