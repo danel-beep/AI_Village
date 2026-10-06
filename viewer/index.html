@@ -136,6 +136,9 @@ function push(row) {
       for (const n of who) if (row.view.agents[n] && (fight || n !== e.actor)) mood[n] = { ...mood[n], angry: keep, ...(fight ? { fight: 1 } : {}) };
     }
     row._goal = goal; row._hop = hop; row._acts = acts; row._mood = mood;
+    // _knownBy: what each villager knows (explore.py), logged only when it changes: carried forward for the picked
+    // villager's own fog (viewer/fog.js)
+    row._knownBy = row.view.known_by || (last && last._knownBy) || null;
     ticks.push(row); document.getElementById('scrub').max = ticks.length - 1;
   }
 }
@@ -185,7 +188,7 @@ document.getElementById('stepb').onclick = () => go(i + 1);
 document.getElementById('scrub').oninput = e => go(+e.target.value, true);
 function go(n, jump) { if (!ticks.length) return; i = Math.max(0, Math.min(ticks.length - 1, n)); frac = jump ? 1 : 0; render(); }
 // Selecting a villager (map click via PixelMap.pick, a card, or Dossier's close button) opens their dossier.
-function select(n) { selected = selected === n ? null : n; lastPanel = -1; }
+function select(n) { selected = selected === n ? null : n; lastPanel = -1; if (window.Fog) Fog.pick(selected); }
 // Click a villager on the map to follow them, anything else to inspect it (viewer/inspect.js).
 // The canvas uses object-fit: contain, so undo the letterboxing.
 cv.onclick = e => {

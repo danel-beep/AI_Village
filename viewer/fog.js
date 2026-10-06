@@ -1,6 +1,8 @@
 // Fog over unexplored places (aivillage/explore.py), drawn from `view.known`: every place no villager has stood
 // in yet sits under a drifting cloud, and its sign reads "?". Without `view.known` (exploration off) nothing is
-// drawn. Pixel art in code: each place's cloud is drawn once into its own small canvas, then drifts a little.
+// drawn. A villager the viewer picked by hand (a click on them or their card, index.html select -> Fog.pick; not
+// the director camera or a highlight clip) shows their own fog instead: what they know (`known_by`, carried
+// forward as tick._knownBy). Pixel art in code: each place's cloud is drawn once into its own small canvas, then drifts a little.
 // PixelMap.draw calls Fog.draw after the villagers and threats, before the night shade.
 const Fog = (() => {
   const CELL = 4, PAD = 10, cache = {};
@@ -25,14 +27,23 @@ const Fog = (() => {
     return (cache[key] = c);
   }
 
-  // Location ids no villager knows yet; null when exploration is off.
+  let picked = null;   // the villager whose own fog is shown, while they stay the selected one
+  function pick(name) { picked = name || null; }
+  // Who the fog is for now: the picked villager while still selected (a clip may select someone else), else null.
+  function whose(t) {
+    const sel = typeof selected !== 'undefined' ? selected : picked;
+    return picked && sel === picked && t._knownBy && t._knownBy[picked] ? picked : null;
+  }
+  function knownList(t) { const w = whose(t); return w ? t._knownBy[w] : t.view.known; }
+
+  // Location ids no villager (or the picked one) knows yet; null when exploration is off.
   function unknown(t, layout) {
-    const k = t.view.known; if (!k) return null;
+    const k = knownList(t); if (!k) return null;
     const known = new Set(k), ids = new Set([...Object.keys(layout.box), ...Object.keys(layout.anchors)]);
     return [...ids].filter(id => !known.has(id));
   }
 
-  function hidden(t, id) { const k = t.view.known; return !!k && !k.includes(id); }
+  function hidden(t, id) { const k = knownList(t); return !!k && !k.includes(id); }
 
   function draw(b, t, layout, sec) {
     const ids = unknown(t, layout); if (!ids) return;
@@ -46,6 +57,6 @@ const Fog = (() => {
     }
   }
 
-  return { draw, hidden, unknown };
+  return { draw, hidden, unknown, pick, whose };
 })();
 window.Fog = Fog;

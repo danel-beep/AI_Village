@@ -216,6 +216,7 @@ camp fire for those without a site, a meadow around the camp.
   `[{"id", "kind", "level", "location", "done": 0..1, "workers": [names]}]`; `workers` = who worked on it today. Common buildings: tick `view.buildings` = `[{"id", "kind", "level", "location"}]`.
 - Buildings with levels: plot building dicts carry `level` (default 1); works keep `works.levels`.
 - Unexplored places (task 6): tick `view.known` = location ids someone has seen.
+- Each villager's knowledge: tick `view.known_by` = {villager: [known ids]}, only on ticks where it changed (`explore.view_by`); the viewer carries it forward and shows a hand-picked villager's own fog.
 
 ## Polity (`aivillage/polity.py`, task 16)
 

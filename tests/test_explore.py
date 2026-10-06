@@ -89,3 +89,14 @@ def test_texts_are_neutral():
         except ActionError as e:
             texts.append(str(e))
     assert len(texts) == 2 and evaluative(" ".join(texts)) == []
+
+
+def test_view_by_is_written_only_when_someone_learns_a_place():
+    w = engine.new_world(CFG)
+    assert explore.view_by(engine.new_world({"seed": 1})) == {}  # exploration off
+    engine.observe(w, "Anna")
+    first = explore.view_by(w)["known_by"]
+    assert first["Anna"] == sorted(explore.known(w, "Anna"))
+    assert explore.view_by(w) == {}  # nothing new
+    walk(w, "Anna", "mine")
+    assert "mine" in explore.view_by(w)["known_by"]["Anna"]
