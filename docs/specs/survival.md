@@ -38,7 +38,8 @@ API for other modules:
   buildings by `kind`, with `level` if the building dict has one) and `world.works.levels`. Leveled kinds
   count as `kind`, `kind@2`, `kind@3`. A module with its own buildings appends `fn(world) -> Counter`
   to `progress.BUILT_SOURCES`.
-- Unlocks are sticky; the stage never drops.
+- Unlocks are sticky; the stage never drops. Starting at a later stage, the buildings that stage and the
+  earlier ones require count as standing (`world.progress.prebuilt`).
 - Observation (progress on): `village_stage: {stage, next_stage, next_stage_needs_standing: {kind: "have/need"}}`.
 - Log: public event `village_stage` with `stage` (id) and `index`. State `world.progress`
   (`stage`, `reached: {id: day}`, `unlocked: [keys]`).
@@ -56,6 +57,11 @@ Stage-critical (the stage table uses them): `house` (levels 1–3; `shelter` is 
 Others from the plan: `campfire`, `granary`, `smokehouse`, `pen`, `kiln`, `mill`, `weaving_shed`,
 `tannery`, `stable`, `palisade` (→ `wall`), plus today's yard buildings (`garden_bed`, `chicken_coop`,
 `cow_pen`, `beehive`, `fence`) and works (`well`, `bridge`, `watchtower`, `wall`).
+
+## Roof and fire (tasks 3 and 11)
+
+A villager has a roof when their plot has `house >= 1` or a `shelter` yard building
+(`construction.has_roof(world, name)` once construction exists). `plot.house = 0` means no house yet.
 
 ## Item ids
 
