@@ -11,7 +11,7 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
   A knob whose path is not in DEFAULT_CONFIG yet is hidden, so knobs can be listed before their feature lands.
 - no `path`: a run option handled in `to_run()` (villagers, days, mode, pace, ...).
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
-- `only`: "llm" or "bots" shows the knob for that kind of village only.
+- `only`: "llm" or "bots" shows the knob for that kind of village only; `mode`: shown in that economy mode only.
 - `roster` (not a knob): optional list of {name, profession, character} from "Жители по одному".
 - `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
 - `sets` (on a choice): {option: {knob key: slider value}}, a preset. Picking the option moves those sliders;
@@ -65,6 +65,11 @@ KNOBS: list[dict[str, Any]] = [
      "options": [[m, v["title"]] for m, v in modes.MODES.items()],
      "about": {m: v["about"] for m, v in modes.MODES.items()},
      "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах."},
+    {"key": "start_stage", "path": "progress.start_stage", "group": "Правила", "type": "choice", "mode": "survival",
+     "label": "С какой стадии начать", "options": [["camp", "🔥 Лагерь (с нуля)"], ["hamlet", "🛖 Хутор"],
+                                                  ["village", "🏘 Деревня"], ["town", "🏰 Посёлок"]],
+     "hint": "Лагерь: ни домов, ни денег, ни профессий. Со стадии повыше всё, что нужно для неё, уже построено "
+             "и открыто, старт как в «Обычном»."},
     {"key": "unfairness", "path": "map.unfairness", "group": "Правила", "type": "range", "scale": 0.1,
      "label": "Нечестный старт", "min": 0, "max": 10, "step": 1,
      "hint": "0: у всех одинаковые участки, деньги и дорога до работы. 10: у кого-то большой участок и "

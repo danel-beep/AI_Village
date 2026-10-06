@@ -43,6 +43,12 @@ API for other modules:
 - Log: public event `village_stage` with `stage` (id) and `index`. State `world.progress`
   (`stage`, `reached: {id: day}`, `unlocked: [keys]`).
 
+## Empty start (task 2, `modes.py`)
+
+Mode id `survival` («С нуля»). Config `bare_start` (`enabled`, `until_stage`, default `hamlet`): a start before
+that stage has every villager at profession `laborer`, house level 0, no coins, items or yard buildings,
+gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode.
+
 ## Building ids
 
 Stage-critical (the stage table uses them): `house` (levels 1–3; `shelter` is the level-0 hut before it),
