@@ -66,11 +66,13 @@ god events ─┐
 | `aivillage/translate.py` | post-processes a finished log into a `<log>.ru.json` sidecar for spectators (never touches the log) |
 | `aivillage/summary.py` | LLM recaps of log stretches for spectators (digest of thoughts/actions/says/events → 3-6 Russian sentences); sidecar `<log>.summary.json` |
 | `aivillage/reports.py` | problem reports: note + log + recaps zipped for the project chat; `show` prints the moment around the reported tick |
+| `aivillage/session.py` | end-of-session summary next to the log (`<log>.session.json/.md/.html`): facts, numbers, main stories, recaps and highlights per day, scorecard per villager, the player's comment; built from the log and sidecars only (no model calls) |
 | `aivillage/metrics.py` | behaviour metrics from a log only (JSON + Russian markdown) |
 | `aivillage/server.py` | live mode: FastAPI app runs `run.run()` in a thread, streams log records over `/ws`, god events via `POST /api/god` (scheduled for a tick just after the one on screen via `GodQueue`, announced as `god_pending`, then logged in `god`, so replay stays exact), pause/pace via `POST /api/control` |
 | `aivillage/knobs.py` | start-screen settings: `KNOBS`, one dict per slider/choice/toggle. `path` = dotted world-config key (default from the chosen economy mode, hidden until the key exists in `DEFAULT_CONFIG`), no path = run option (villagers, days, pace, seed, bots). `to_run(answers)` -> world override + run options. **A new config knob for the app = one line here**, no JS. |
 | `viewer/setup.js` + `server.py --setup` | the app opens on the start screen (no village yet); `GET /api/setup` (schema + per-mode defaults), `POST /api/start` builds a `LiveSim` via `Host`, page reloads into live mode; `POST /api/stop` ("🔄 Новая деревня") goes back. Also `/api/runs`, `/replay/<name>` (build_demo on demand), `/api/report-last`. Launcher = `server --setup`, no terminal questions. |
 | `viewer/report.js` | injected by the server: recap panel (`/api/summary`) and problem report form (`/api/report`) |
+| `viewer/session.js` | injected by the server: "🏁 Завершить сессию" (`POST /api/end` → `/session/<name>`), banner when all days are played |
 | `viewer/live.js`, `viewer/god.js` | injected by the server into `index.html`: live feed (uses only `load()` / `ticks` / optional `window.viewerAppend`) and the god panel built from GOD schemas |
 | `viewer/index.html` | Replay UI (controls, villager cards, diary, events). Feed it via `Viewer.start(header)` / `Viewer.push(row)`; `scripts/build_demo.py` bundles a log + scripts into one page |
 | `viewer/pixelmap.js` | Pixel-art map renderer: map layout (viewer-only coordinates), art drawn in code, walking, lighting |
