@@ -607,7 +607,7 @@ const PixelMap = (() => {
   }
   function campUpdate(t) {
     const st = t.view.settle; if (!campLay || !st) return;
-    const paved = (t.view.buildings || []).some(b => b.location === ((hdr.config.settle || {}).camp || 'square'));
+    const paved = (t.view.buildings || []).some(b => b.location === ((hdr.config.settle || {}).camp || 'square') && b.kind !== 'campfire');
     const roadAt = ((hdr.config.settle || {}).road_at) || 12;
     const sig = JSON.stringify([st.homes, Object.entries(st.trails || {}).map(([k, n]) => k + (n < roadAt ? ':t' : ':r')).sort(), paved]);
     if (sig === campSig) return;
