@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, illness,
+from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, hire, illness,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
                taxes, threats, tiles, transport, works)
 from .actions import step_move, work_hour
@@ -110,11 +110,10 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
                     **({"items": c.items, "coins": c.coins} if ops.can_act(a) and
                        (c.owner == name or name in c.shared_with) else {})}
                    for c in world.chests.values() if c.location == a.location]
-    every = cfg["tax_every_days"]
     beds = plant_info(world, loc)
     obs = {
         "time": {"day": world.day, "hour": world.hour, "minute": world.minute, "day_ends_at": cfg["day_end_hour"],
-                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": taxes.bill(world, a)["total"],
+                 **taxes.time_info(world, a),
                  **seasons.time_info(cfg, world.day)},
         "you": {
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
@@ -140,7 +139,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "debts": debts.board(world),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": works.board(world),
-            "trader_prices": pricing.prices(world),
+            "trader_prices": pricing.prices(world) if labor.trader_here(world) else {},
             "recipes": cfg["recipes"],
             "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
                           for o in world.agents.values()],
@@ -172,6 +171,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(conflict.observe(world, name))
     obs.update(construction.observe(world, name))
     obs.update(transport.observe(world, name))
+    obs.update(hire.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -374,6 +374,7 @@ def end_of_hour(ctx: Ctx) -> None:
     check_health(ctx)
     family.after_hour(ctx)
     spoilage.end_of_hour(ctx)
+    hire.end_of_hour(ctx)  # jobs: guard hours, deadlines, unpaid shares; hired outsiders work or leave
 
 
 def burn_for(ctx: Ctx, f: Fire, hours: int) -> None:
@@ -516,7 +517,7 @@ def night(ctx: Ctx) -> None:
                 ops.mint_coins(w, poster, o.reward)
                 ctx.emit("order_expired", f"Nobody delivered your order {o.id}; your {o.reward} coins are back.",
                          to=[poster.name], order=o.id)
-    if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
+    if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"] and taxes.orders_open(w):
         for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
             tpl = ctx.rng.choice(cfg["order_templates"])
             o = Order(w.new_id("order"), dict(tpl["needs"]), taxes.council_reward(cfg, tpl), w.day + cfg["order_ttl_days"])

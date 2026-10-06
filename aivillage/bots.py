@@ -143,6 +143,16 @@ class RandomBot(Bot):
         elif name in ("build_work", "fund_project"):
             projs = [p["id"] for p in obs["board"]["projects"]] or ["well_9"]
             args = {"project_id": r.choice(projs), **({"coins": r.randint(-2, 50)} if name == "fund_project" else {})}
+        elif name == "offer_job":
+            args = {"to": r.choice(people + ["nobody"]), "task": r.choice(["wood", "stone", "build", "guard", "dance"]),
+                    "hours": r.randint(1, 4), "wage": {r.choice(["coins", pick_item()]): r.randint(1, 4)},
+                    "pay": r.choice(["before", "after"])}
+        elif name in ("accept_job", "decline_job", "end_job", "pay_job"):
+            ids = [j["id"] for j in obs.get("jobs_offered_to_you", []) + obs.get("job_board", [])] or ["job0"]
+            args = {"job_id": r.choice(ids)}
+        elif name == "hire_npc":
+            args = {"kind": r.choice(["worker", "guard"]), "resource": r.choice(["wood", "fish", "air"]),
+                    "hours": r.randint(1, 3), "days": r.randint(1, 2)}
         elif name == "change_trade":
             args = {"profession": r.choice(["farmer", "fisher", "woodcutter", "miner", "smith", "laborer", "king"])}
         elif name == "treasury_order":
@@ -234,8 +244,8 @@ class WorkerBot(Bot):
                 n = 1 if food_want != "fish" else 2
                 return decision("offer", {"to": who, "give": {surplus: 4}, "want": {food_want: n}},
                                 say=f"{who}, I'll give 4 {surplus} for {n} {food_want}.")
-            price = obs["board"]["trader_prices"]["bread"]["buy"]
-            if me["coins"] >= price:
+            price = obs["board"]["trader_prices"].get("bread", {}).get("buy")  # no trader yet: {} (progress.py)
+            if price is not None and me["coins"] >= price:
                 return decision("buy", {"item": "bread"}) if loc == "market" else go("market", "buy food")
             goods = [k for k in inv if k in obs["board"]["trader_prices"] and k != "tool"]
             if goods and sum(inv[k] for k in goods) >= 4:
@@ -282,7 +292,7 @@ class WorkerBot(Bot):
                 return decision("fulfill_order", {"order_id": o["id"]}) if loc == "square" else go("square", "order")
 
         # Tax money
-        if me["coins"] < t["tax"] and t["next_tax_day"] - t["day"] <= 1:
+        if me["coins"] < t.get("tax", 0) and t.get("next_tax_day", 0) - t["day"] <= 1:
             sellable = [k for k, v in inv.items() if v > 0 and k in obs["board"]["trader_prices"]]
             if sellable:
                 return decision("sell", {"item": sellable[0], "qty": inv[sellable[0]]}) if loc == "market" \
@@ -395,7 +405,7 @@ class TraderBot(WorkerBot):
     def decide(self, obs: dict) -> dict:
         me, here, t = obs["you"], obs["here"], obs["time"]
         inv, loc = me["inventory"], me["location"]
-        tax_reserve = t["tax"] if t["next_tax_day"] - t["day"] <= 2 else 0
+        tax_reserve = t.get("tax", 0) if t.get("next_tax_day", 0) - t["day"] <= 2 else 0
 
         for o in obs["offers_to_you"]:
             price = o["want"].get("coins", 0)
@@ -445,7 +455,8 @@ class TraderBot(WorkerBot):
                 act["args"]["resource"] = "gold"  # the mine's prize, while it lasts
             elif res.get("ore"):
                 act["args"]["resource"] = "ore"  # ore is worth more than stone
-        if act["name"] == "buy" and act["args"].get("item") in self.MEALS:
+        if act["name"] == "buy" and act["args"].get("item") in self.MEALS \
+                and act["args"]["item"] in obs["board"]["trader_prices"]:
             price = obs["board"]["trader_prices"][act["args"]["item"]]["buy"]
             need = max(1, self._wants(obs, act["args"]["item"]))
             act["args"]["qty"] = max(1, min(need, (me["coins"] - tax_reserve) // price))
@@ -493,7 +504,7 @@ class HomesteadBot(TraderBot):
         if not plot or me["location"] != plot["home"] or obs["fires"] or not chores:
             return super().decide(obs)
         acts = set(obs["available_actions"])
-        reserve = t["tax"] + 5
+        reserve = t.get("tax", 0) + 5
         if "collect" in acts:
             return decision("collect", None, "collect the yard")
         if "plant" in acts and inv.get("grain", 0) >= 1:
@@ -593,6 +604,7 @@ class BuilderBot(WorkerBot):
         self.res_ever: dict[str, set] = {}
         self.foraging = False             # on a food trip until the stock is well above the need
         self.home_fire = 0                # wood in my hearth when I last saw it (warmth.py)
+        self.clay_given: tuple = ((), 0)  # (brick sites, clay handed to the kiln's owner for them)
         self.last: dict | None = None
 
     # ---------- helpers ----------
@@ -666,7 +678,7 @@ class BuilderBot(WorkerBot):
         if hour >= end - 3:
             return go(me["home"], "home for the night")
         # Tax day: sell hides and other spare goods to the trader for the coins.
-        if t["tax"] > me["coins"] and t["next_tax_day"] - t["day"] <= 1 \
+        if t.get("tax", 0) > me["coins"] and t.get("next_tax_day", 0) - t["day"] <= 1 \
                 and "sell" not in (obs.get("locked_actions") or []):
             spare = [k for k in ("hide", "meat", "stone", "wood", "ore") if inv.get(k, 0) > (4 if k != "hide" else 0)]
             if spare:
@@ -818,6 +830,19 @@ class BuilderBot(WorkerBot):
             give = {k: min(n, spare.get(k, 0)) for k, n in s["still_needs"].items() if spare.get(k, 0) > 0}
             if s["at"] == loc and give:
                 return decision("bring_materials", {"site_id": s["id"], "items": give}, "materials for the site")
+        # A yard kiln serves only its owner's household, so the others hand their clay to the owner.
+        kiln_owner = living[self.YARD_RANK["kiln"] % len(living)] if living else name
+        key = tuple(sorted(s["id"] for s in sites if s["still_needs"].get("brick")))
+        if self.clay_given[0] != key:
+            self.clay_given = (key, 0)
+        clay = inv.get("clay", 0)
+        if key and not kiln and name != kiln_owner and clay >= 2 \
+                and any(p["name"] == kiln_owner and not p["asleep"] for p in here["people"]):
+            self.clay_given = (key, self.clay_given[1] + clay)
+            give = {"clay": clay}
+            if (wood := min(spare.get("wood", 0), -(-clay // 2))) > 0:
+                give["wood"] = wood
+            return decision("give", {"to": kiln_owner, "items": give}, "clay for the kiln")
         if team and t["hour"] >= self.TEAM_HOUR:
             s = team[0]
             if loc != s["at"]:
@@ -832,18 +857,28 @@ class BuilderBot(WorkerBot):
         if not focus:
             need.update(self.STOCK)
         need["wood"] += firewood
-        # Crafted materials: planks from wood by hand; bricks only at my own kiln, from clay and wood.
+        # Crafted materials: planks from wood by hand; bricks at my own kiln from clay and wood, else my share
+        # of the clay for the kiln's owner.
         if (short := need.pop("plank", 0) - inv.get("plank", 0)) > 0:
             if spare.get("wood", 0) >= 2:
                 return decision("craft", {"recipe": "plank", "times": min(short, spare["wood"] // 2, 10)}, "planks")
             need["wood"] += 2 * short
         if (short := need.pop("brick", 0) - inv.get("brick", 0)) > 0 and kiln:
             batches = -(-short // 2)
-            if loc == me["home"] and inv.get("clay", 0) >= 2 and spare.get("wood", 0) >= 1:
-                return decision("craft", {"recipe": "brick", "times": min(batches, inv["clay"] // 2, spare["wood"])},
-                                "bricks at my kiln")
+            if inv.get("clay", 0) >= 2 and spare.get("wood", 0) >= 1:
+                if loc == me["home"]:
+                    return decision("craft", {"recipe": "brick",
+                                              "times": min(batches, inv["clay"] // 2, spare["wood"])},
+                                    "bricks at my kiln")
+                if t["hour"] < t["day_ends_at"] - 4 and inv["clay"] >= min(2 * batches, 8):
+                    return go(me["home"], "make bricks at my kiln")
             need["clay"] += 2 * batches
             need["wood"] += batches
+        elif short > 0 and name != kiln_owner:
+            share = 2 * -(-short // len(living)) - self.clay_given[1]  # twice my clay share: some fall short
+            if share > 0:
+                need["clay"] += share
+                need["wood"] += -(-share // 2)
         need.pop("iron", None)
         deficit = {k: n - inv.get(k, 0) for k, n in need.items() if n > inv.get(k, 0)}
         carrying = any(spare.get(k, 0) > 0 for s in focus for k in s["still_needs"])

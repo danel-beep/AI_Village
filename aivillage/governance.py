@@ -11,6 +11,8 @@ Rules, in the order an agent meets them:
   exile (person loses market, orders and votes for `exile_days`), payout (treasury split equally),
   grant (coins from the treasury to one person).
 - Witnesses and awake victims of a theft can `report_theft`: the thief pays the theft_fine.
+- With village stages on (progress.py, the «С нуля» mode) there is no government until a town hall stands
+  (`feature:elections`): no election days, announcements or mayor salary, and the observation says so.
 
 State lives in `world.governance`; the treasury is `world.governance.coins` (ledger-safe moves only).
 """
@@ -22,7 +24,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import clock, ops
+from . import clock, ops, progress
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -31,6 +33,27 @@ from .state import Agent, LawProposal, World
 NUMBER_LAWS = ("tax", "theft_fine", "mayor_salary", "sales_tax", "wealth_tax")
 TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enabled (taxes.py)
 LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant")
+ELECTIONS = "feature:elections"  # progress.DEFAULT_UNLOCKS: a town_hall
+
+
+def opens_when(cfg: dict, key: str) -> str:
+    """"once a town_hall stands in the village" for a mechanic that village stages (progress.py) keep closed at
+    first; "" with progress off or a key with no rule. From the config only, so prompt rules stay the same all run."""
+    if not progress.enabled(cfg):
+        return ""
+    rule = progress.rules(cfg).get(key) or {}
+    parts = []
+    if rule.get("building"):
+        parts.append(f"a {rule['building']} stands in the village")
+    if rule.get("stage"):
+        parts.append(f"the village is a {rule['stage']}")
+    return f"once {' and '.join(parts)}" if parts else ""
+
+
+def opens_note(cfg: dict, key: str) -> str:
+    """opens_when in brackets, for a line of the rules: " (once a town_hall stands in the village)" or ""."""
+    when = opens_when(cfg, key)
+    return f" ({when})" if when else ""
 
 
 # ---------- queries ----------
@@ -130,6 +153,9 @@ def describe_law(p: LawProposal) -> str:
 
 def observe(world: World, name: str) -> dict:
     g, cfg = world.governance, world.config
+    if not progress.unlocked(world, ELECTIONS):
+        return {"mayor": None, "not_yet": "a mayor, elections, laws and a treasury start "
+                + (opens_when(cfg, ELECTIONS) or "later")}
     return {
         "mayor": g.mayor, "you_are_mayor": g.mayor == name,
         # Only the mayor holds the treasury and sees what is really in it; everyone else sees the books.
@@ -154,7 +180,7 @@ def observe(world: World, name: str) -> dict:
 def facts(cfg: dict) -> str:
     """One line for the model's rules cheat sheet."""
     g = _g(cfg)
-    return (f"- Government: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
+    return (f"- Government{opens_note(cfg, ELECTIONS)}: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
             + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant); everyone votes with vote_law; a law passes when "
@@ -453,7 +479,7 @@ def _count_election(ctx: Ctx, day: int) -> None:
 
 def new_day(ctx: Ctx) -> None:
     """Called at dawn (world.day is already the new day), before the weekly tax."""
-    if not enabled(ctx.cfg):
+    if not enabled(ctx.cfg) or not progress.unlocked(ctx.world, ELECTIONS):
         return
     w, cfg = ctx.world, ctx.cfg
     g = w.governance

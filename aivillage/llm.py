@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import animals, chronicle, construction, crafting, handbook, luxury, market, places, reputation, spoilage, taxes, transport
+from . import animals, chronicle, construction, crafting, handbook, hire, luxury, market, places, reputation, spoilage, taxes, transport
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -142,8 +142,7 @@ def world_facts(cfg: dict) -> str:
     if cfg.get("craft_hint", True):
         lines.append("- \"you.can_craft_now\": recipes your own goods cover right now, how many times and where. "
                      "\"you.not_edible\": raw goods you carry that are not food, and what they go into.")
-    lines.append("- The trader is only at the market. trader_prices \"a/b\" means you BUY from the trader at a coins, "
-                 "SELL to the trader at b coins. Coins only enter the village when someone sells to the trader.")
+    lines.append(labor.trader_fact(cfg))
     lines.append(taxes.facts(cfg))
     lines.append(f"- steal succeeds {cfg['steal_awake_target_success']:.0%} of the time against an awake person and always "
                  f"against a sleeping one; awake people nearby notice it with {cfg['steal_notice_chance']:.0%} chance; "
@@ -197,6 +196,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(works.facts(cfg))
     if built := construction.facts(cfg):
         lines.append(built)
+    if hire.enabled(cfg):
+        lines.append(hire.facts(cfg))
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:
@@ -593,7 +594,7 @@ class StubClient(Client):
         obs.setdefault("fires", [])
         obs["board"].setdefault("orders", [])
         obs["board"]["trader_prices"] = {k: {"buy": int(v.split("/")[0]), "sell": int(v.split("/")[1])}
-                                         for k, v in obs["board"]["trader_prices"].items()}
+                                         for k, v in obs["board"].get("trader_prices", {}).items()}
         dec = self.bot.decide(obs)
         usage = {"prompt_tokens": sum(len(m["content"]) for m in messages) // 4, "completion_tokens": 60}
         return "Sure! ```json\n" + json.dumps(dec) + "\n```", usage
