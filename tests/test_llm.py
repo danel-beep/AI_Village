@@ -109,3 +109,21 @@ def test_night_diary_logged_and_replay_ignores_it(tmp_path):
     assert set(diaries[0]["entries"]) == set(agents)
     assert all(a.diary for a in agents.values())
     assert replay(log).hash() == w.hash()
+
+
+def test_cost_cap_stops_the_run_early_and_log_still_replays(tmp_path):
+    w = engine.new_world({"seed": 2})
+    agents = llm_agents(w, ["stub"])
+    for ag in agents.values():  # the stub is free: pretend each turn costs a cent
+        ag.client.complete = (lambda f: lambda m: (lambda r: (r[0], {**r[1], "cost": 0.01}))(f(m)))(ag.client.complete)
+
+    def decide(n, o):
+        return agents[n].decide(o)
+    decide.agents = agents
+    log = tmp_path / "cap.jsonl"
+    stats = run(w, decide, days=3, log_path=log, max_cost=0.2)
+    spent = sum(a.usage.cost_usd for a in agents.values())
+    assert stats["stopped_at_cost_cap"] == 1 and 0.2 <= spent < 0.3 and w.day == 1
+    recs = list(read_log(log))
+    assert any(r["type"] == "stop" for r in recs) and recs[-1]["type"] == "usage"
+    assert replay(log).hash() == w.hash()

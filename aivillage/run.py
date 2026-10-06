@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -48,14 +49,16 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         log_path: str | Path | None = None, check_every_tick: bool = True,
         on_tick: Callable[[World, list], None] | None = None,
         on_night: Callable[[World, int], dict] | None = None,
-        on_record: Callable[[dict], None] | None = None, meta: dict | None = None) -> dict:
+        on_record: Callable[[dict], None] | None = None, meta: dict | None = None,
+        max_cost: float = 0.0) -> dict:
     """Drive the world for `days` days. Returns summary stats.
 
     `on_night(world, day)` runs after each day ends; whatever it returns is logged as a `diary` record
     (outside the engine, so replay ignores it). `on_record` sees every log record as it is written
     (the live server streams them). `meta` goes into the header; who plays whom (`brains`: villager -> model
     id or "bot:<kind>") is read from `decide.agents` / `decide.bots` when not given, and LLM token use and cost
-    are logged as a `usage` record after every night and at the end (aivillage/scorecard.py reads both)."""
+    are logged as a `usage` record after every night and at the end (aivillage/scorecard.py reads both).
+    `max_cost` (USD, 0 = no limit): stop early once the LLM villagers together have spent this much."""
     log = JsonlLog(log_path)
     meta = {"brains": brains_of(decide), **(meta or {})}
     llm = getattr(decide, "agents", None) or {}
@@ -94,6 +97,10 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
                     emit({"type": "diary", "day": day, "entries": entries})
             if llm and world.day != day:
                 emit(usage_record(llm, world.tick))
+            if llm and max_cost and sum(ag.usage.cost_usd for ag in llm.values()) >= max_cost:
+                stats["stopped_at_cost_cap"] = 1
+                emit({"type": "stop", "tick": world.tick, "reason": f"cost cap ${max_cost:g} reached"})
+                break
     finally:
         if llm:
             emit(usage_record(llm, world.tick))
@@ -213,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
                                                 "standard, peaceful, scarcity, debt, gold_rush, lawless")
     p.add_argument("--tick-minutes", type=int, default=None, choices=clock.ALLOWED,
                    help=f"game minutes per tick (default {clock.RUN_DEFAULT}; 60 = the old hourly turns)")
+    p.add_argument("--max-cost", type=float, default=float(os.environ.get("AIVILLAGE_MAX_COST") or 0),
+                   help="stop the run once LLM villagers have spent this many USD (default: env AIVILLAGE_MAX_COST, "
+                        "0 = no limit)")
     mapgen.add_args(p)
     a = p.parse_args(argv)
 
@@ -260,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         fire_at = clock.tick_of(world.config, a.fire_day, world.config["day_start_hour"] + 4)
         god.setdefault(fire_at, []).append({"name": "fire", "args": {"person": victim}})
     on_night = (lambda w, day: night_reflection(w, agents, day)) if agents else None
-    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night)
+    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night, max_cost=a.max_cost)
     print(summary(world, stats))
     for name, ag in agents.items():
         u = ag.usage

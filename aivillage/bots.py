@@ -106,7 +106,7 @@ class RandomBot(Bot):
             args = {"proposal_id": r.choice(props), "vote": r.choice(["yes", "no", "maybe"])}
         if r.random() < 0.05:
             args = {"garbage": [1, 2, 3]}
-        return decision(name, args, thought="random", say="hi" if r.random() < 0.05 else None)
+        return decision(name, args, say="hi" if r.random() < 0.05 else None)
 
 
 class WorkerBot(Bot):

@@ -138,6 +138,7 @@ CHARACTER_LABELS = {
     "lazy": "Ленивый",
 }
 NAME_MAX = 20
+LOOKS = 24  # villager looks in viewer/sprites.js
 
 
 def roster(n: int, seed: int, existing: list[dict] | None = None) -> list[dict]:
@@ -145,7 +146,8 @@ def roster(n: int, seed: int, existing: list[dict] | None = None) -> list[dict]:
     from .population import generate_agents
     cfg = make_config({"seed": seed})
     base = cfg["agents"] if existing is None else existing
-    return [{"name": a["name"], "profession": a["profession"], "character": a.get("character", "default")}
+    return [{"name": a["name"], "profession": a["profession"], "character": a.get("character", "default"),
+             **({"look": a["look"]} if a.get("look") is not None else {})}
             for a in generate_agents(base, n, cfg)]
 
 
@@ -174,7 +176,9 @@ def clean_roster(rows: list, n: int) -> list[dict]:
         ch = str(r.get("character") or "default").strip()
         if ch != "default" and ch not in CHARACTERS:
             ch = ch[:CHARACTER_MAX_CHARS]
-        out.append({"name": name, "profession": prof, "character": ch})
+        look = r.get("look")  # viewer/sprites.js look index; anything else = picked automatically
+        look = look if isinstance(look, int) and not isinstance(look, bool) and 0 <= look < LOOKS else None
+        out.append({"name": name, "profession": prof, "character": ch, **({"look": look} if look is not None else {})})
     return out
 
 

@@ -142,3 +142,11 @@ def test_tick_minutes_from_start_screen(tmp_path, monkeypatch):
     host.start({"brains": "bots", "villagers": 2, "days": 1, "pace": 0})
     assert host.sim.world.config["tick_minutes"] == 15
     host.stop()
+
+
+def test_villager_look_from_the_editor():
+    rows = [{"name": "Вера", "profession": "farmer", "look": 13}, {"name": "Петя", "profession": "smith", "look": 99},
+            {"name": "Лев", "profession": "miner", "look": True}]
+    agents = knobs.to_run({"villagers": 3, "roster": rows})["override"]["agents"]
+    assert [a.get("look") for a in agents] == [13, None, None]
+    assert knobs.roster(3, 1, [{"name": "Вера", "profession": "farmer", "look": 13}])[0]["look"] == 13

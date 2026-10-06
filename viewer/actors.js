@@ -118,7 +118,7 @@ const Actors = (() => {
     chop(b, x, y, sec, a) {
       const { R, C } = gx(), s = swing(sec, .9, -2.3, .55);
       return { dy: s.since < .08 ? 1 : 0, front() {
-        if (!a.real) { R(b, x + 7, y + 3, 7, 5, C.k); R(b, x + 8, y + 3, 5, 4, C.wood); R(b, x + 8, y + 3, 5, 1, '#e8c090'); }
+        if (!a.real) { const px = x + a.ox; R(b, px + 7, y + 3, 7, 5, C.k); R(b, px + 8, y + 3, 5, 4, C.wood); R(b, px + 8, y + 3, 5, 1, '#e8c090'); }
         tool(b, x + 1, y + 1, s.ang, 7, 'axe');
         burst(b, x + 10, y + 2, s.since, 6, [C.woodL, '#e8c090', C.wood], s.k);
       } };
@@ -126,7 +126,7 @@ const Actors = (() => {
     mine(b, x, y, sec, a) {
       const { blob, C } = gx(), s = swing(sec, 1, -2.2, .5), ore = a.loc === 'mine' && /ore/.test(a.text);
       return { dy: s.since < .08 ? 1 : 0, front() {
-        if (!a.real) blob(b, x + 11, y + 5, 4, 3, [C.stoneL, C.stone, C.stoneD]);
+        if (!a.real) blob(b, x + a.ox + 11, y + 5, 4, 3, [C.stoneL, C.stone, C.stoneD]);
         tool(b, x + 1, y + 1, s.ang, 7, 'pick');
         burst(b, x + 10, y + 3, s.since, 7, ore ? ['#fff6b0', '#ffd23f', C.stoneL] : [C.stoneL, '#fff6b0', C.stone], s.k, 26, .3);
       } };
@@ -144,7 +144,7 @@ const Actors = (() => {
     gather(b, x, y, sec, a) {
       const { blob, P, C } = gx(), u = (sec / 1.4) % 1, k = Math.floor(sec / 1.4);
       return { crouch: 2, front() {
-        if (!a.real) { blob(b, x + 10, y + 3, 5, 4, [C.leafL, C.leaf, C.leafD]); P(b, x + 9, y + 2, '#e4572e'); P(b, x + 12, y + 4, '#e4572e'); }
+        if (!a.real) { const px = x + a.ox; blob(b, px + 10, y + 3, 5, 4, [C.leafL, C.leaf, C.leafD]); P(b, px + 9, y + 2, '#e4572e'); P(b, px + 12, y + 4, '#e4572e'); }
         P(b, x + 5 + (u < .5 ? 2 : 0), y + 2, '#f2c9a0');
         if (u > .5) P(b, Math.round(x + 9 - (u - .5) * 10), Math.round(y + 1 - Math.sin((u - .5) * 6) * 3), '#ff4d3a');
         burst(b, x + 10, y + 1, (u * 1.4) % 1.4, 3, [C.leafL], k, 10, .25);
@@ -223,6 +223,9 @@ const Actors = (() => {
     const row = dir === 'up' ? 1 : dir === 'down' ? 0 : 2, frame = a.moving ? 1 + (Math.floor(sec * 7) % 2) : 0;
     b.save();
     if (dir === 'left') { b.translate(x, 0); b.scale(-1, 1); b.translate(-x, 0); }
+    // Props (a log, a rock, a bush when there is no real one) were placed for the 12 px code villagers: move them out
+    // by the extra half width of a sprite villager so they stand beside it, not over its arm.
+    a.ox = Math.max(0, ((sheet.fw || 12) - 12) / 2);
     const pose = !a.moving && POSES[a.act] ? POSES[a.act](b, x, y, sec + a.k * .37, a) : {};
     const crouch = pose.crouch || 0, dy = (pose.dy || 0) + crouch;
     if (pose.back) pose.back();
