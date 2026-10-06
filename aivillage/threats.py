@@ -19,6 +19,10 @@ and it strikes back. Night: a threat still here acts unopposed through `fire_nig
 State: `world.threats`, a list of dicts with `state` coming | here | gone | defeated. The engine calls
 `arrivals` every tick, `end_of_hour`, `night` and `new_day`; agents see warned and present threats in
 `observe()["threats"]`; the log view carries `threats` for the viewer.
+
+With village stages on (progress.py, the «С нуля» mode) raids come by themselves only once the village is a town
+(`feature:raids`): before that a random raid is not scheduled and a random traveler is never a scout (the dice
+are still rolled, so the other draws stay where they were). The god can send a raid at any stage.
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ import random
 
 from pydantic import BaseModel, Field
 
-from . import clock, conflict, ops, works
+from . import clock, conflict, governance, ops, progress, works
 from .actions import _agent
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, GOD, ActionError
@@ -37,6 +41,7 @@ HOSTILE = ("raid", "beast")
 KINDS = ("raid", "beast", "traveler")
 KEEP_FINISHED = 6  # finished threats kept in the world for the log, oldest dropped
 WHAT = {"raid": "bandits", "beast": "a beast", "traveler": "a traveler"}
+RAIDS = "feature:raids"  # progress.DEFAULT_UNLOCKS: the town stage
 
 
 def _t(cfg: dict) -> dict:
@@ -145,10 +150,11 @@ def new_day(ctx: Ctx, rng: random.Random) -> None:
     if not enabled(cfg) or w.day < _t(cfg).get("first_day", 2):
         return
     start = clock.tick_of(cfg, w.day, cfg["day_start_hour"])
+    raids = progress.unlocked(w, RAIDS)
     for kind in KINDS:
         p = float(_kind(cfg, kind).get("per_day") or 0)
         roll = rng.random()
-        if p <= 0 or roll >= p or _active_count(w) >= _t(cfg).get("max_active", 1):
+        if p <= 0 or roll >= p or _active_count(w) >= _t(cfg).get("max_active", 1) or (kind == "raid" and not raids):
             continue
         warn = kind != "traveler" and rng.random() < float(_t(cfg).get("warn_chance", 0))
         if warn:
@@ -160,7 +166,7 @@ def new_day(ctx: Ctx, rng: random.Random) -> None:
         target = None
         if kind != "traveler" and homes:
             target = w.agents[_homes(w)[rng.choice(homes)]].name
-        scout = kind == "traveler" and rng.random() < float(_kind(cfg, kind).get("scout_chance", 0))
+        scout = kind == "traveler" and rng.random() < float(_kind(cfg, kind).get("scout_chance", 0)) and raids
         schedule(ctx, kind, tick, warn, target, scout=scout, cause="random")
 
 
@@ -576,7 +582,7 @@ def observe(world: World, name: str) -> dict:
 def facts(cfg: dict) -> str | None:
     if not enabled(cfg):
         return None
-    return ("- Danger can come from outside: bandits plunder chests house by house and burn one when they leave; a "
+    return (f"- Danger can come from outside: bandits{governance.opens_note(cfg, RAIDS)} plunder chests house by house and burn one when they leave; a "
             "beast eats stores and mauls people; a traveler asks for food. Warnings, if any, come in the news; "
             "\"threats\" lists what is expected or here. Anyone at the place can defend (a dice round, they strike "
             "back); driven-off bandits drop what they took.")

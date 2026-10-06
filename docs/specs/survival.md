@@ -30,7 +30,9 @@ API for other modules:
 
 - `progress.unlocked(world, key) -> bool`. Keys: `action:<name>`, `recipe:<name>`, `building:<kind>`,
   `law:<name>`, `feature:<name>`. Ask it before anything automatic: `feature:trader` (the trader comes),
-  `feature:elections`, `feature:taxes`, `feature:raids`. True when progress is off or the key has no rule.
+  `feature:elections`, `feature:taxes`, `feature:raids`, `feature:council_orders` (taxes.py) and
+  `feature:council_projects` (works.py), both with a town_hall. True when progress is off or the key has no rule.
+  For a rules line, `governance.opens_note(cfg, key)` gives " (once a town_hall stands in the village)" (or "").
 - Register a mechanic's rule by adding to `progress.DEFAULT_UNLOCKS` in that module
   (`DEFAULT_UNLOCKS["action:hunt"] = {"stage": "hamlet"}`), rule = `{"stage": id}` and/or `{"building": kind}`.
 - Locked actions are refused by a registry guard and hidden from `available_actions` and the handbook.
