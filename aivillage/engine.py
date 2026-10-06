@@ -13,7 +13,7 @@ from typing import Any
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
-               labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
+               labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, settle, spoilage,
                taxes, threats, tiles, transport, works)
 from .actions import step_move, work_hour
 from .config import make_config
@@ -68,6 +68,7 @@ def new_world(config: dict | None = None) -> World:
     animals.setup(w)
     transport.setup(w)
     progress.setup(w)
+    settle.setup(w)
     for a in w.agents.values():
         a.busy_until = w.tick + wake_offset(w, a.name)
     return w
@@ -174,6 +175,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(transport.observe(world, name))
     obs.update(hire.observe(world, name))
     obs.update(explore.observe(world, name))
+    obs.update(settle.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:

@@ -303,6 +303,9 @@ class World:
     # transport.py: {"animals": {id: animal}, "wild": {loc: {kind: n}}, "pace": {name: credit}, "sold": {kind: n}}
     transport: dict[str, Any] = field(default_factory=dict)
     hire: dict[str, Any] = field(default_factory=dict)  # hire.py: {"jobs": {id: job}, "npcs": [outsider]}
+    # settle.py (camp start): {"camp": [villagers without a house site yet], "homes": {name: site id},
+    # "trails": {"a|b": times walked}}
+    settle: dict[str, Any] = field(default_factory=dict)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -324,6 +327,8 @@ class World:
             del d["transport"]
         if not d["hire"]:  # hiring off or unused: same dict and hash as before the field existed
             del d["hire"]
+        if not d["settle"]:  # no camp start: same dict and hash as before the field existed
+            del d["settle"]
         return d
 
     @classmethod
@@ -362,6 +367,7 @@ class World:
             polities=d.get("polities", {}),
             transport=d.get("transport", {}),
             hire=d.get("hire", {}),
+            settle=d.get("settle", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

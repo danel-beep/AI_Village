@@ -121,6 +121,7 @@ const PixelMap = (() => {
           c = bank < 2 + rnd(0, Y >> 2) * 3 ? C.waterL : deep ? C.waterD : C.water;
           if (r < .02) c = C.waterL;
         } else if (k === 'path') c = r < .12 ? C.dirtD : r < .2 ? C.dirtL : C.dirt;
+        else if (k === 'trail') c = r < .45 ? (r < .1 ? C.dirtD : C.dirt) : r < .55 ? C.grassD : C.grass;   // trodden grass
         else if (k === 'cobble') {
           const sx = (X + ((Y >> 2) % 2) * 3) % 6, sy = Y % 4;
           c = sx === 0 || sy === 0 ? C.stoneD : rnd(X / 6 | 0, Y >> 2, 7) < .5 ? C.stone : C.stoneL;
@@ -150,7 +151,7 @@ const PixelMap = (() => {
   // layer whose tile plan, blended bilinearly between tile centres plus one shared value noise, is over one half,
   // so edges come out rounded and a little ragged instead of square. Then edges get shading: a wet bank and foam
   // along water, a dark rim on cobbles and beds, a soft shadow along roads. Returns false without the textures.
-  const LAYER = { grass: 0, block: 0, forest: 1, soil: 2, path: 3, cobble: 4, water: 5, dock: 5 };
+  const LAYER = { grass: 0, block: 0, forest: 1, soil: 2, path: 3, trail: 3, cobble: 4, water: 5, dock: 5 };
   const LAYER_TEX = ['tex_grass2', 'tex_moss', 'tex_soil', 'tex_dirt', 'tex_cobble', 'tex_water'];
   function terrain(g) {
     if (!window.Sprites || !Sprites.has('tex_grass2')) return false;
@@ -206,6 +207,9 @@ const PixelMap = (() => {
       const i = Y * W + X, L = lay[i];
       let c = at(LAYER_TEX[L], X, Y), f = 1, mix = null, mixA = 0;
       if (L === 5 && deepAt[i]) { mix = at('tex_deep', X, Y); mixA = deepAt[i] / 255 * .85; }
+      if (L === 3 && layout.kind[(X / T | 0) + ',' + (Y / T | 0)] === 'trail') {   // a footpath: dirt half grown over
+        mix = at('tex_grass2', X, Y); mixA = noise(X, Y, 4, 11) > .45 ? .75 : .2;
+      }
       if (L === 0) {   // soft patches of lighter grass and a few flower meadows break the repetition
         const m = noise(X, Y, 40, 5);
         mix = at('tex_grass', X, Y); mixA = Math.max(.2, Math.min(.6, .2 + (m - .5) * 2));
@@ -458,7 +462,11 @@ const PixelMap = (() => {
       let free = true;
       for (let dy = -1; dy <= 2 && free; dy++) for (let dx = -1; dx <= 2; dx++) if (kindAt(tx + dx, ty + dy) !== 'grass') { free = false; break; }
       if (!free) continue;
-      const r = rnd(tx, ty, 21);
+      let r = rnd(tx, ty, 21);
+      if (campLay) {   // camp start: an open meadow around the camp, the wild thickening further out
+        const [cx, cy] = layout.anchors.square || [0, 0], d = Math.hypot(tx - cx / T, ty - cy / T);
+        r /= Math.max(.15, Math.min(1, (d - 5) / 14));
+      }
       if (r < .12) items.push([tx * T, ty * T - 8, 'tree']); else if (r < .2) items.push([tx * T, ty * T, 'bush']);
       else if (r < .23) items.push([tx * T, ty * T, 'rock']);
     }
@@ -497,6 +505,7 @@ const PixelMap = (() => {
     const sm = at('smithy', smithy); if (layout.forge) { layout.forge = move(layout.forge, sm); layout.smithyChimney = move(layout.smithyChimney, sm); }
     at('mine', mine); decor(g);
     groundCopy(); if (!built) layout.houses.forEach(h => house(g, h)); at('forest', forest);
+    if (campLay) GenMap.camp(g, layout, { C, R, P, blob });
   }
 
   // ---------- characters ----------
@@ -544,7 +553,10 @@ const PixelMap = (() => {
       if (!pendingInit) Sprites.onReady(() => pendingInit && init(...pendingInit));
       pendingInit = [header, colors];
     } else pendingInit = null;
-    hdr = header; names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null; buildLayout();
+    hdr = header; names = header.config.agents.map(a => a.name); color = colors; genLay = (header.config.map || {}).layout || null;
+    campLay = genLay && (header.config.map || {}).camp ? genLay : null; campSig = null;
+    if (campLay) genLay = campLayout({}, false);   // camp start: the empty valley until the first tick says more
+    buildLayout(); campAnchors();
     if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
     // «С нуля» (construction on): houses and buildings come from the log, drawn by viewer/buildlayer.js
     built = !!(window.BuildLayer && BuildLayer.init({ layout, C, T, R, P, blob, rnd }, header)); bare = built && BuildLayer.empty(header);
@@ -554,6 +566,56 @@ const PixelMap = (() => {
     looks = pickLooks(header.config.agents);
     sheets = {}; names.forEach((n, k) => sheets[n] = sheetFor(n, k));
     return { width: W * S, height: H * S };
+  }
+
+  // ---------- camp start (aivillage/settle.py): the map grows with the village ----------
+  // The header's layout has free house sites (kind homesite) and every road there could be. Shown is only what
+  // the villagers made: a site becomes home_<Name> once taken (view.settle.homes), a road shows as a footpath once
+  // walked and as a road from settle.road_at walks (view.settle.trails), the square is paved once something
+  // stands on it. Until they settle, villagers sleep in a ring around the camp. When that picture changes, the
+  // layout is rebuilt and the background repainted (rare: a few times a day at most).
+  let campLay = null, campSig = null;
+  function campLayout(st, paved) {
+    const lay = { ...campLay, places: {}, routes: [] }, owner = {}, tr = st.trails || {};
+    const roadAt = ((hdr.config.settle || {}).road_at) || 12;
+    for (const [n, sid] of Object.entries(st.homes || {})) owner[sid] = n;
+    for (const [id, pl] of Object.entries(campLay.places)) {
+      if (pl.kind !== 'homesite') lay.places[id] = id === 'square' && !paved ? { ...pl, bare: true } : pl;
+      else if (owner[id]) lay.places['home_' + owner[id]] = { kind: 'home', box: pl.box, anchor: pl.anchor, plot: pl.plot, owner: owner[id] };
+    }
+    const id = x => owner[x] ? 'home_' + owner[x] : x, passed = new Set();
+    for (const r of campLay.routes) {
+      const a = id(r.a), b = id(r.b), n = tr[[a, b].sort().join('|')] || 0;
+      if (n) { lay.routes.push({ ...r, a, b, trail: n < roadAt }); passed.add(a); passed.add(b); }
+    }
+    for (const [pid, pl] of Object.entries(lay.places))   // a signpost stands where a path runs
+      if (pl.kind === 'waypoint' && !passed.has(pid)) lay.places[pid] = { ...pl, hidden: true };
+    lay.campers = st.camp || names.slice();
+    return lay;
+  }
+  // Bedrolls of those without a house site, in a ring around the camp fire.
+  function campAnchors() {
+    if (!campLay) return;
+    const [cx, cy] = layout.anchors[(hdr.config.settle || {}).camp || 'square'] || [W / 2, H / 2], n = names.length;
+    layout.bedrolls = [];
+    names.forEach((nm, k) => {
+      const a = Math.PI * 2 * k / n, at = [Math.round(cx + Math.cos(a) * 46), Math.round(cy + 6 + Math.sin(a) * 30)];
+      if (!genLay.campers.includes(nm)) return;
+      layout.anchors['home_' + nm] = at; layout.bedrolls.push(at);
+    });
+    layout.campfire = genLay.places.square && genLay.places.square.bare ? [cx, cy + 6] : null;
+  }
+  function campUpdate(t) {
+    const st = t.view.settle; if (!campLay || !st) return;
+    const paved = (t.view.buildings || []).some(b => b.location === ((hdr.config.settle || {}).camp || 'square'));
+    const roadAt = ((hdr.config.settle || {}).road_at) || 12;
+    const sig = JSON.stringify([st.homes, Object.entries(st.trails || {}).map(([k, n]) => k + (n < roadAt ? ':t' : ':r')).sort(), paved]);
+    if (sig === campSig) return;
+    campSig = sig; genLay = campLayout(st, paved); buildLayout(); campAnchors();
+    if (window.MapLayer) MapLayer.init({ layout, C, T, R, P, blob, tree, bush, rock, rnd });
+    if (built) BuildLayer.relayout(layout);
+    if (window.PlotLayer) PlotLayer.init({ layout, C, T, R, P, blob, rnd, fence, houseSprite, built });
+    paintBackground();
   }
 
   // Standing spots around a location so several villagers don't overlap.
@@ -614,7 +676,7 @@ const PixelMap = (() => {
   // ---------- per-frame drawing ----------
   function draw(ctx, { t, prev, frac, selected, time, tr, hourSec }) {
     const e = Math.min(1, frac), sec = time / 1000, SL = window.SeasonLayer;
-    day = t.view.day;
+    day = t.view.day; campUpdate(t);
     b.drawImage(SL ? SL.ground(bg, hdr, t.view.day) : bg, 0, 0);   // autumn / winter colours (viewer/seasonlayer.js)
     // water shimmer
     for (const [x, y] of layout.shimmer) {

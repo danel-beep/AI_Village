@@ -752,6 +752,11 @@ class BuilderBot(WorkerBot):
             return decision("sleep", None, "night")
         if hour >= end - 3:
             return go(me["home"], "home for the night")
+        # Camp start (settle.py): take a house site at the first place I work at (the camp itself from day 2).
+        sites = obs.get("house_sites")
+        if sites and sites["yours"] is None and sites["free_here"] and "settle" in acts \
+                and (loc != "square" or t["day"] >= 2):
+            return decision("settle", None, "I will live here")
         # Tax day: sell hides and other spare goods to the trader for the coins.
         if t.get("tax", 0) > me["coins"] and t.get("next_tax_day", 0) - t["day"] <= 1 \
                 and "sell" not in (obs.get("locked_actions") or []):

@@ -165,6 +165,7 @@ MODES["survival"] = {
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+                                              "settle": {"enabled": True},
                                               "animals": {"enabled": True},
                                               # each town hall founds a polity (polity.py), so a
                                               # second one may stand at any common place
@@ -186,6 +187,19 @@ MODES["survival"] = {
 }
 
 DEFAULT_MODE = "crafts"
+
+
+def camp_start(cfg: dict) -> bool:
+    """True when the run starts as an empty camp: bare_start on, progress on, start stage before `until_stage`."""
+    from . import progress
+    b = cfg.get("bare_start") or {}
+    if not b.get("enabled") or not progress.enabled(cfg):
+        return False
+    ids = progress.stage_ids(cfg)
+    start = cfg["progress"].get("start_stage", 0)
+    idx = ids.index(start) if isinstance(start, str) else int(start)
+    until = b.get("until_stage")
+    return not (until in ids and idx >= ids.index(until))
 
 
 def bare_start(cfg: dict) -> None:

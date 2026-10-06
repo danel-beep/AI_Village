@@ -54,6 +54,12 @@ def test_camp_laborer_gathers_anything_and_builds_a_house():
     step(w, {"Anna": ("sell", {"item": "fish", "qty": 1})})
     assert a.coins == 0 and a.inventory.get("fish", 0) > 0  # no market yet
     a.location = a.home
+    step(w, {"Anna": ("start_building", {"kind": "house"})})
+    assert not construction.sites(w)  # a spot at the camp has no yard: a house site first (settle.py)
+    a.location, a.busy_until, a.task = "river", w.tick, None
+    step(w, {"Anna": ("settle", {})})
+    assert w.locations[a.home].neighbors == ["river"] and a.home in w.locations["river"].neighbors
+    a.location = a.home
     ops.mint(w, a.inventory, "wood", 10)
     ops.mint(w, a.inventory, "stone", 4)
     a.busy_until, a.task = w.tick, None
