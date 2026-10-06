@@ -55,7 +55,7 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
     (outside the engine, so replay ignores it). `on_record` sees every log record as it is written
     (the live server streams them). `meta` goes into the header; who plays whom (`brains`: villager -> model
     id or "bot:<kind>") is read from `decide.agents` / `decide.bots` when not given, and LLM token use and cost
-    are logged as a `usage` record after every night and at the end (aivillage/compare.py reads both)."""
+    are logged as a `usage` record after every night and at the end (aivillage/scorecard.py reads both)."""
     log = JsonlLog(log_path)
     meta = {"brains": brains_of(decide), **(meta or {})}
     llm = getattr(decide, "agents", None) or {}
@@ -205,8 +205,6 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: env AIVILLAGE_FALLBACK_MODELS)")
     p.add_argument("--agents", type=int, default=0,
                    help="number of villagers: the first N, or more with generated names (resources scale up)")
-    p.add_argument("--rotate", type=int, default=None,
-                   help="model comparison: shift the roster (`models:` in the config) by this many seats")
     p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
                                                 "standard, peaceful, scarcity, debt, gold_rush, lawless")
     mapgen.add_args(p)
@@ -222,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     except runconfig.ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    for key in ("days", "seed", "log", "mode", "rotate"):
+    for key in ("days", "seed", "log", "mode"):
         if getattr(a, key) is not None:
             setattr(rc, key, getattr(a, key))
     if rc.mode not in modes.MODES:
@@ -233,12 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         override["population"] = {**(override.get("population") or {}), "size": a.agents}
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
     names = sorted(world.agents)
-    try:
-        roster = resolve_roster(rc, len(names))
-    except RuntimeError as e:
-        print(e, file=sys.stderr)
-        return 2
-    brains = rc.brains(names, roster)
+    brains = rc.brains(names)
     # Old-style flags cycle over agents and override the file.
     if a.models:
         models = a.models.split(",")
@@ -260,8 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         victim = names[rc.seed % len(names)]
         god.setdefault((a.fire_day - 1) * hours + 4, []).append({"name": "fire", "args": {"person": victim}})
     on_night = (lambda w, day: night_reflection(w, agents, day)) if agents else None
-    meta = {"roster": roster, "rotate": rc.rotate} if roster else None
-    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night, meta=meta)
+    stats = run(world, decide, rc.days, god, rc.log, on_night=on_night)
     print(summary(world, stats))
     for name, ag in agents.items():
         u = ag.usage
@@ -272,18 +264,10 @@ def main(argv: list[str] | None = None) -> int:
     for model, g in _GATES.items():
         print(f"  queue {model}: {g.calls} calls, max {g.limit} at once, {g.rate_limited} rate-limited, "
               f"{g.paced} paused before the limit, {g.waited:.0f}s waiting")
+    if rc.log:
+        from . import scorecard
+        print(f"  scorecard: {scorecard.write(rc.log)}")
     return 0
-
-
-def resolve_roster(rc, villagers: int) -> list[str] | None:
-    """The run config's `models` as a list ("auto" asks OpenRouter's public model list once)."""
-    if rc.models != "auto":
-        return rc.models
-    from . import roster
-    try:
-        return roster.auto(count=villagers)
-    except OSError as e:
-        raise RuntimeError(f"models: auto needs openrouter.ai to pick the models ({e}); list them instead") from None
 
 
 def night_reflection(world: World, agents: dict, day: int) -> dict:
