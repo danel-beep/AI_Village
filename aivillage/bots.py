@@ -20,6 +20,14 @@ WORK_SPOT = {"farmer": "forest", "fisher": "river", "woodcutter": "forest", "min
 FOODS = ["fish_soup", "bread", "fish", "berries"]
 
 
+def batches(obs: dict, recipe: str, default: dict) -> int:
+    """How many times the villager can make `recipe` from what it carries (inputs from the recipe table
+    when the observation has it, else `default`), e.g. bread needs wood too in the crafts mode."""
+    inv = obs["you"]["inventory"]
+    need = ((obs["board"].get("recipes") or {}).get(recipe) or {}).get("inputs") or default
+    return min(inv.get(k, 0) // n for k, n in need.items())
+
+
 def decision(name: str, args: dict | None = None, thought: str = "", say: str | None = None) -> dict:
     return {"thought": thought, "action": {"name": name, "args": args or {}}, "say": say}
 
@@ -240,10 +248,10 @@ class WorkerBot(Bot):
 
         # Cook ahead when at home with ingredients
         if loc == me["home"] and inv.get("bread", 0) + inv.get("fish_soup", 0) < 4:
-            if inv.get("grain", 0) >= 2 and "flour" not in recipes.get("bread", {}).get("inputs", {}):
-                return decision("craft", {"recipe": "bread", "times": min(3, inv["grain"] // 2)}, "bake")
-            if inv.get("fish", 0) >= 2:
-                return decision("craft", {"recipe": "fish_soup", "times": min(3, inv["fish"] // 2)}, "cook")
+            if (n := batches(obs, "bread", {"grain": 2})) and "flour" not in recipes.get("bread", {}).get("inputs", {}):
+                return decision("craft", {"recipe": "bread", "times": min(3, n)}, "bake")
+            if n := batches(obs, "fish_soup", {"fish": 2}):
+                return decision("craft", {"recipe": "fish_soup", "times": min(3, n)}, "cook")
 
         # Survive
         if me["satiety"] < 45:
@@ -331,7 +339,11 @@ class WorkerBot(Bot):
                 qty = min(qty, will_buy[k])
             return decision("sell", {"item": k, "qty": qty}) if loc == "market" else go("market", "sell")
 
-        # Work
+        # Work (the crafts mode allows only so many hours of gathering a day)
+        if (obs.get("work_today") or {}).get("hours_left") == 0:
+            return decision("wait", None, "done working today") if loc == me["home"] else go(me["home"], "home")
+        if me["profession"] == "smith" and "work_today" in obs:  # crafts: a smith gathers nothing, buys ore and wood
+            return decision("wait", None, "wait for ore and wood") if loc == "smithy" else go("smithy", "to the forge")
         spot = WORK_SPOT.get(me["profession"], "forest")
         if me["profession"] == "smith" and inv.get("wood", 0) >= 2:
             spot = "mine"
@@ -430,6 +442,8 @@ class TraderBot(WorkerBot):
                     and me["coins"] - price >= tax_reserve and price <= self._price(obs, o["give"]))
             return decision("accept" if good else "decline", {"offer_id": o["id"]}, "trade")
 
+        if self.TRADES and "work_today" in obs and (d := self._board(obs, tax_reserve)):
+            return d
         others = [v for v in obs["board"]["villagers"] if v["name"] != me["name"] and v["status"] == "active"]
         evening = t["day_ends_at"] - 5 <= t["hour"] < t["day_ends_at"] - 2
         sale = self._for_sale(obs)
@@ -441,8 +455,8 @@ class TraderBot(WorkerBot):
             # Food producers cook everything they carry, so there is food to sell in the evening.
             if loc == me["home"] and me["profession"] in ("farmer", "fisher"):
                 for recipe, raw in (("bread", "grain"), ("fish_soup", "fish")):
-                    if inv.get(raw, 0) >= 2:
-                        return decision("craft", {"recipe": recipe, "times": min(10, inv[raw] // 2)}, "cook")
+                    if n := batches(obs, recipe, {raw: 2}):
+                        return decision("craft", {"recipe": recipe, "times": min(10, n)}, "cook")
             return self._tweak(obs, super().decide(obs), tax_reserve)
 
         if loc != "square":
@@ -462,13 +476,58 @@ class TraderBot(WorkerBot):
         self.market_day = t["day"]  # nothing to do here today
         return self._tweak(obs, super().decide(obs), tax_reserve)
 
+    # Food points of what the board may offer, and what each trade lists there in the crafts mode.
+    BOARD_FOOD = {"berries": 10, "fish": 15, "bread": 40, "fish_soup": 45, "stew": 75, "meat": 25}
+    BOARD_GOODS = {"farmer": ["bread", "berries", "grain"], "fisher": ["fish_soup", "fish"], "woodcutter": ["wood"],
+                   "miner": ["ore", "stone"], "smith": ["tool"]}
+    BOARD_KEEP = 6  # units of a good the seller keeps for itself
+
+    def _board(self, obs: dict, tax_reserve: int) -> dict | None:
+        """The crafts mode (labor on): only the trade gathers its goods, so food and materials change hands on
+        the market board, from anywhere. Sellers list their surplus at the middle of the trader's prices; a
+        hungry villager with nothing to eat buys the cheapest food, the smith buys ore and wood for tools."""
+        me, acts = obs["you"], obs["available_actions"]
+        inv, budget = me["inventory"], me["coins"] - tax_reserve
+        listings = obs.get("for_sale") or []
+        if "buy_sale" in acts and me["satiety"] < 60 and not any(inv.get(f) for f in FOODS):
+            food = [(s["price"] / pts, s["id"]) for s in listings
+                    if (pts := sum(self.BOARD_FOOD.get(k, 0) * n for k, n in s["items"].items()))
+                    and s["price"] <= budget]
+            if food:
+                return decision("buy_sale", {"sale_id": min(food)[1]}, "food from the board")
+        if "buy_sale" in acts and self._wants(obs, "tool"):
+            tools = [(s["price"], s["id"]) for s in listings if s["items"] == {"tool": 1} and s["price"] <= budget]
+            if tools:
+                return decision("buy_sale", {"sale_id": min(tools)[1]}, "a new tool")
+        cook = {"farmer": ("grain", "bread"), "fisher": ("fish", "fish_soup")}.get(me["profession"])
+        if "buy_sale" in acts and cook and inv.get(cook[0], 0) >= 4 and not inv.get("wood"):
+            wood = [(s["price"], s["id"]) for s in listings if set(s["items"]) == {"wood"}
+                    and s["price"] <= min(budget, self._price(obs, s["items"]))]
+            if wood:  # bread and soup are cooked on firewood (crafts mode)
+                return decision("buy_sale", {"sale_id": min(wood)[1]}, f"firewood for {cook[1]}")
+        if "buy_sale" in acts and me["profession"] == "smith":
+            for s in listings:
+                if set(s["items"]) <= {"wood", "ore"} and all(self._wants(obs, k) for k in s["items"]) \
+                        and s["price"] <= min(budget, self._price(obs, s["items"])):
+                    return decision("buy_sale", {"sale_id": s["id"]}, "materials for tools")
+        if "post_sale" in acts:
+            listed = {k for s in obs.get("your_sales") or [] for k in s["items"]}
+            for k in self.BOARD_GOODS.get(me["profession"], []):
+                extra = inv.get(k, 0) - {"tool": 1, "ore": 0}.get(k, self.BOARD_KEEP)  # ore is the smith's
+                if (extra >= 3 or (k == "tool" and extra >= 1)) and k not in listed and len(listed) < 3:
+                    lot = {k: 1 if k == "tool" else min(extra, 6)}
+                    return decision("post_sale", {"items": lot, "price": max(1, self._price(obs, lot))},
+                                    "sell my surplus on the board")
+        return None
+
     def _tweak(self, obs: dict, d: dict, tax_reserve: int) -> dict:
         """Small fixes to WorkerBot choices: miners dig ore, meals are bought for several days."""
         act, me = d["action"], obs["you"]
         if act["name"] == "work" and me["profession"] == "miner":
             res = obs["here"]["resources"]
-            if res.get("gold"):
-                act["args"]["resource"] = "gold"  # the mine's prize, while it lasts
+            will_buy = ((obs.get("trader_today") or {}).get("will_buy") or {}).get("gold")
+            if res.get("gold") and (will_buy is None or me["inventory"].get("gold", 0) < max(2, will_buy)):
+                act["args"]["resource"] = "gold"  # the mine's prize, while it lasts (no more than the trader takes)
             elif res.get("ore"):
                 act["args"]["resource"] = "ore"  # ore is worth more than stone
         if act["name"] == "buy" and act["args"].get("item") in self.MEALS \

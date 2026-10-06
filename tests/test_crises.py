@@ -177,11 +177,11 @@ def test_rats_in_empty_chests_say_nothing_was_eaten():
     assert c["victims"] and "found no food" in c["text"] and "ate" not in c["text"]
 
 
-def test_no_market_crisis_before_the_trader_comes():
-    """«С нуля»: a caravan "at the market" before a market square sent a villager to wait there for hours."""
-    w = engine.new_world(modes.world_override("survival", {"seed": 1}))
-    spec = w.config["crises"]["kinds"]
-    assert not crises._possible(w, "caravan", spec["caravan"]) and not crises._possible(w, "shortage", spec["shortage"])
-    assert crises._possible(w, "rats", spec["rats"])
-    plain = engine.new_world({"seed": 1})
-    assert crises._possible(plain, "caravan", plain.config["crises"]["kinds"]["caravan"])
+def test_trader_crises_wait_for_the_trader():
+    """«С нуля»: no trader before the market square, so no shortage at his stall and no caravan buying from him."""
+    camp = engine.new_world(modes.world_override("survival", {"seed": 1}))
+    kinds = camp.config["crises"]["kinds"]
+    assert not any(crises._possible(camp, k, kinds[k]) for k in ("shortage", "caravan"))
+    assert crises._possible(camp, "rats", kinds["rats"])
+    village = engine.new_world(modes.world_override("survival", {"seed": 1, "progress": {"start_stage": "village"}}))
+    assert all(crises._possible(village, k, kinds[k]) for k in ("shortage", "caravan"))

@@ -93,7 +93,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Trader prices that follow his stock (aivillage/pricing.py). Off here; the crafts mode turns it on.
     # Every unit he holds (per 5 villagers) lowers both his prices of that good by drop_per_unit, down to
     # floor; each dawn he keeps keep_per_day of his stock.
-    "trader_pricing": {"stock_prices": False, "drop_per_unit": 0.08, "floor": 0.3, "keep_per_day": 0.5},
+    # `nearest`: prices are rounded to the nearest coin (off: cut down, so a good worth 3 sells for 1, not 2).
+    "trader_pricing": {"stock_prices": False, "drop_per_unit": 0.08, "floor": 0.3, "keep_per_day": 0.5,
+                       "nearest": False},
     "items": {
         "grain": {"value": 2},
         "fish": {"value": 3, "food": 15},

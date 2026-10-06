@@ -125,7 +125,7 @@ def _possible(w: World, kind: str, spec: dict) -> bool:
             b.get("crop") in spec["resources"] for p in w.plots.values() for b in p.buildings)
         return bool(sown) or any(w.locations[l].resources.get(r, 0) > 0
                                  for l, rs in _food_locations(w, spec["resources"]).items() for r in rs)
-    if kind in ("shortage", "caravan"):  # both deal at the market: not before the trader comes (progress.py)
+    if kind in ("shortage", "caravan"):  # both are about the trader: none before he comes («С нуля»)
         return progress.unlocked(w, "feature:trader") and any(i in w.config["items"] for i in spec["items"])
     return True
 

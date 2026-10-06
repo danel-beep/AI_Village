@@ -484,11 +484,12 @@ class MarketArgs(BaseModel):
     qty: int = Field(1, ge=1, le=100)
 
 
-def _price(ctx: Ctx, item: str, side: str) -> int:
+def _price(ctx: Ctx, item: str, side: str, qty: int) -> int:
+    """Coins for a lot (pricing.total: the stock-driven price slides unit by unit within the lot)."""
     info = ctx.cfg["items"].get(item)
     if info is None or not info.get("tradable", True):
         raise ActionError(f"the trader does not deal in {item}")
-    return pricing.price(ctx.world, item, side)
+    return pricing.total(ctx.world, item, side, qty)
 
 
 @ACTIONS.action("buy", "Buy from the trader at the market (expensive).", MarketArgs,
@@ -496,7 +497,7 @@ def _price(ctx: Ctx, item: str, side: str) -> int:
 def buy(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     if a.location != "market":
         raise ActionError("the trader is at the market")
-    cost = _price(ctx, args.item, "buy") * args.qty
+    cost = _price(ctx, args.item, "buy", args.qty)
     if a.coins < cost:
         raise ActionError(f"that costs {cost} coins, you have {a.coins}")
     labor.trader_deal(ctx.world, args.item, args.qty, "sell")
@@ -512,15 +513,15 @@ def buy(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
 def sell(ctx: Ctx, a: Agent, args: MarketArgs) -> None:
     if a.location != "market":
         raise ActionError("the trader is at the market")
-    price = _price(ctx, args.item, "sell")
     _need(a.inventory, {args.item: args.qty})
+    coins = _price(ctx, args.item, "sell", args.qty)
     labor.trader_deal(ctx.world, args.item, args.qty, "buy")
     pricing.trader_bought(ctx.world, args.item, args.qty)
     ops.burn(ctx.world, a.inventory, args.item, args.qty)
-    ops.mint_coins(ctx.world, a, price * args.qty)
+    ops.mint_coins(ctx.world, a, coins)
     from . import taxes  # taxes imports actions
-    taxes.record_income(ctx.world, a, price * args.qty)
-    ctx.emit("sell", f"{a.name} sold {args.qty} {args.item} to the trader for {price * args.qty} coins.",
+    taxes.record_income(ctx.world, a, coins)
+    ctx.emit("sell", f"{a.name} sold {args.qty} {args.item} to the trader for {coins} coins.",
              actor=a.name, location=a.location, visibility="location")
 
 
