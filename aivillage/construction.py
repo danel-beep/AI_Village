@@ -18,7 +18,8 @@ Effects (per level row of the catalog): `roof` (has_roof), `food_keeps_x` (spoil
 `sell_bonus` and `defense` (works.SELL_BONUS_SOURCES / DEFENSE_SOURCES), `workshop` (crafting asks
 has_building), `extra_per_batch` (a higher-level workshop adds to every batch made there; a `craft` event
 hook), `makes` + `feed` + `cap` (a pen: fed from the owner's chest at night, its stock is collected like
-a coop's). Without crafting chains, crafted materials are asked raw (`raw_instead`). Which kinds may be started at which stage: progress.DEFAULT_UNLOCKS "building:<kind>[@<level>]".
+a coop's). `opens` is text only: what village stages keep closed until one stands (shown with progress on,
+so the catalog says what a market square or town hall brings). Without crafting chains, crafted materials are asked raw (`raw_instead`). Which kinds may be started at which stage: progress.DEFAULT_UNLOCKS "building:<kind>[@<level>]".
 
 State: `world.construction` = {"sites": {id: site}, "buildings": [common buildings]}; reads never create it,
 so observing does not change the world. Log: tick `view.sites` (docs/specs/survival.md) and `view.buildings`.
@@ -361,6 +362,8 @@ def effect_text(cfg: dict, kind: str, lvl: int) -> str:
     if row.get("makes"):
         feed = f" if fed {fmt_items(row['feed'])} from the owner's chest" if row.get("feed") else ""
         parts.append(f"makes {fmt_items(row['makes'])} a day{feed} (collect)")
+    if row.get("opens") and progress.enabled(cfg):  # what village stages keep closed until one stands
+        parts.append(f"opens {row['opens']}")
     return ", ".join(parts)
 
 
@@ -452,7 +455,7 @@ def bring_materials(ctx: Ctx, a: Agent, args: BringArgs) -> None:
     rest = remaining(s)
     ctx.emit("site_supplied", f"{a.name} brought {fmt_items(useful)} to the {_level_text(ctx.cfg, s['kind'], s['level'])} "
              f"site ({s['id']}); still needed: {fmt_items(rest) or 'no materials'}, {_num(work_left(s))} hours of work.",
-             actor=a.name, location=s["location"], visibility="location", site=s["id"], items=useful)
+             actor=a.name, location=s["location"], visibility="location", site=s["id"], owner=s["owner"], items=useful)
     _maybe_finish(ctx, s)
 
 
@@ -483,7 +486,8 @@ def construct(ctx: Ctx, a: Agent, args: ConstructArgs) -> None:
     if len(team) < s["min_workers"]:
         ctx.emit("construct", f"{a.name} worked an hour on the {what} ({s['id']}). It counts once "
                  f"{s['min_workers'] - len(team)} more people work on it within this hour.", actor=a.name,
-                 location=s["location"], visibility="location", site=s["id"], counted=False, team=team)
+                 location=s["location"], visibility="location", site=s["id"], owner=s["owner"], counted=False,
+                 team=team)
         return
     c = _c(cfg)
     per = 1 + c.get("team_bonus", 0) * (min(len(team), c.get("team_max", 3)) - 1)
@@ -494,7 +498,7 @@ def construct(ctx: Ctx, a: Agent, args: ConstructArgs) -> None:
     with_ = f" with {', '.join(n for n in team if n != a.name)}" if len(team) > 1 else ""
     ctx.emit("construct", f"{a.name} worked an hour on the {what} ({s['id']}){with_}; {_num(work_left(s))} hours of "
              f"work left.", actor=a.name, location=s["location"], visibility="location", site=s["id"],
-             counted=True, team=team, per_hour=per)
+             owner=s["owner"], counted=True, team=team, per_hour=per)
     _maybe_finish(ctx, s)
 
 

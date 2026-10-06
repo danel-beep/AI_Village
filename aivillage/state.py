@@ -296,6 +296,7 @@ class World:
     progress: dict[str, Any] = field(default_factory=dict)  # progress.py: village stage and opened mechanics
     # spoilage.py: owner -> item -> [[expire_day, qty], ...] oldest first, as of the last dawn
     spoilage: dict[str, dict[str, list]] = field(default_factory=dict)
+    explore: dict[str, list[str]] = field(default_factory=dict)  # explore.py: villager -> places they know
     # construction.py: {"sites": {id: site}, "buildings": [common buildings]}
     construction: dict[str, Any] = field(default_factory=dict)
     polities: dict[str, Any] = field(default_factory=dict)  # polity.py: polity id -> polity
@@ -356,6 +357,7 @@ class World:
             chronicle=d.get("chronicle", {}),
             progress=d.get("progress", {}),
             spoilage=d.get("spoilage", {}),
+            explore=d.get("explore", {}),
             construction=d.get("construction", {}),
             polities=d.get("polities", {}),
             transport=d.get("transport", {}),

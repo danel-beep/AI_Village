@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                threats, works)
 from .bots import WorkerBot
-from . import animals, chronicle, construction, crafting, handbook, hire, luxury, market, places, reputation, spoilage, taxes, transport
+from . import animals, chronicle, construction, crafting, explore, handbook, hire, luxury, market, places, reputation, spoilage, taxes, transport
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -46,7 +46,7 @@ World facts:
 
 Rules of thumb:
 - Only use items you actually have: check "you.inventory" before eat, sell, give, craft or offer.
-- buy/sell work only at the market. Talking to, giving to or trading with someone needs them in the same place ("here.people").
+- buy/sell work only at the market. Talking to or giving to someone needs them in the same place ("here.people"); so does trading, unless World facts say trades are carried.
 - If "last_error" is set, your previous action failed: read why and do something different.
 - Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
 - Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.
@@ -133,7 +133,10 @@ def world_facts(cfg: dict) -> str:
     links = cfg.get("map", {}).get("homes")
     homes = ("; ".join(f"home_{n} -> {', '.join(to)}" for n, to in links.items()) if links
              else "every home_<Name> -> square")
-    lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
+    if explore.enabled(cfg):
+        lines[-1:] = [explore.facts(cfg)]  # replaces the gather line: what is where comes with "explored"
+    else:
+        lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
     if clock.tick_minutes(cfg) < 60:
         quick = ", ".join(n for n in clock.quick_actions(cfg) if n != "error")
         lines.append(f"- Time runs in {clock.tick_minutes(cfg)}-minute steps. Quick actions take a quarter of an "
@@ -304,8 +307,10 @@ class OpenRouterClient(Client):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
     def __init__(self, model: str, api_key: str | None = None, timeout: float = 90, retries: int = 6,
-                 max_tokens: int = 1500, temperature: float = 0.8, reasoning: dict | None = None,
+                 max_tokens: int = 1500, temperature: float | None = None, reasoning: dict | None = None,
                  fallbacks: list[str] | None = None, parallel: int | None = None):
+        # None = the provider's default, as on the OpenAI route: villagers on different models and routes
+        # sample alike (a fair comparison); helpers (summaries, translation) pass their own value.
         self.model, self.temperature = model, temperature
         self.api_key = api_key  # None: read from settings/env on every call, so a changed key applies at once
         if not self.key:
@@ -323,9 +328,10 @@ class OpenRouterClient(Client):
         return self.api_key or keys.get("openrouter_key")
 
     def _post(self, models: list[str], messages: list[dict]) -> tuple[str, dict]:
-        body = {"model": models[0], "messages": messages, "max_tokens": self.max_tokens,
-                "temperature": self.temperature, "usage": {"include": True},
+        body = {"model": models[0], "messages": messages, "max_tokens": self.max_tokens, "usage": {"include": True},
                 "response_format": {"type": "json_object"}, "reasoning": self.reasoning}
+        if self.temperature is not None:
+            body["temperature"] = self.temperature
         if len(models) > 1:
             body["models"] = models
         req = urllib.request.Request(self.URL, json.dumps(body).encode(),

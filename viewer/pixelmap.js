@@ -678,6 +678,7 @@ const PixelMap = (() => {
     if (window.AnimalLayer) AnimalLayer.draw(b, t, layout, sec);   // hares, ducks, deer, boars, elk (animals.py)
     if (window.Depth) Depth.paint(b, shown, one); else shown.forEach(one);   // trees and houses in front cover them
     if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
+    if (window.Fog) Fog.draw(b, t, layout, sec);   // places nobody has explored yet (viewer/fog.js)
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
     if (SL) SL.weather(b, hdr, t.view.day, sec, W, H);   // snowflakes, falling leaves
     // night
@@ -727,7 +728,7 @@ const PixelMap = (() => {
     for (const [id, dy] of [...Object.entries(top), ...(layout.labels || [])]) {
       if (!layout.anchors[id]) continue;  // e.g. no common field on newer maps
       if (bare && (id === 'smithy' || (id === 'market' && !BuildLayer.standing(t, 'market_square')))) continue;   // not built yet
-      const [x, y] = layout.anchors[id]; plaque(ctx, ...at(x, y + dy), t.view.locations[id] || id);
+      const [x, y] = layout.anchors[id]; plaque(ctx, ...at(x, y + dy), window.Fog && Fog.hidden(t, id) ? '?' : t.view.locations[id] || id);
     }
     for (const h of layout.houses) {
       const v = t.view.agents[h.name], asleepHome = v.asleep && v.location === 'home_' + h.name && !shown.some(a => a.n === h.name);

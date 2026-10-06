@@ -397,6 +397,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "whisper": ["both", 1], "letter": ["to", 1], "decline": ["to", -1],
             "steal_attempt": ["to", -20], "witness": ["to", -10], "default": ["lender", -15],
             "fire_out": ["owner", 10], "extinguish": ["owner", 4], "feast": ["to", 6],
+            # help on a building site in someone's yard (construction.py): per hour worked / per delivery
+            "construct": ["owner", 2], "site_supplied": ["owner", 3],
         },
     },
     # Reputation and rumors (aivillage/reputation.py). Each agent keeps its own tally of deeds it saw or
@@ -429,6 +431,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "trade": 1,           # completed a trade with you
             "contribute": 1,      # gave to a village project (public)
             "build_work": 1,      # worked on a village project (public)
+            "construct": 1,       # worked an hour on someone else's or the village's building site (seen there)
+            "site_supplied": 1,   # brought materials to someone else's or the village's building site (seen there)
             "embezzlement_found": -5,  # the books show the mayor took treasury coins (public)
         },
     },
@@ -652,6 +656,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spoilage": {"enabled": False,
                  "days": {"meat": 2, "fish": 2, "milk": 2, "berries": 3, "bread": 3, "fish_soup": 3, "stew": 3,
                           "pancakes": 3, "egg": 4, "honey_cake": 4, "grain": 14}},
+    # Exploration (aivillage/explore.py). Off here: everyone sees the whole map. On: a villager knows the places
+    # they have stood in, plus at the start their home, `center` and every place within `start_radius` roads of it.
+    "explore": {"enabled": False, "center": "square", "start_radius": 1},
     # Crafting chains and tools (aivillage/crafting.py, docs/specs/survival.md). Off here: recipes and the one
     # generic `tool` work as before. On, `items` and `recipes` below join the global tables (a recipe here
     # replaces the one of the same id), recipes may need a workshop where the crafter stands, tools speed up
@@ -770,16 +777,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 {"items": {"plank": 4, "brick": 6}, "hours": 4, "min_workers": 1, "food_keeps_x": 5,
                  "food_items": ["meat", "fish", "smoked_meat"], "workshop": True, "extra_per_batch": 1}]},
             "market_square": {"name": "Market square", "place": "village", "at": ["square"], "levels": [
-                {"items": {"wood": 15, "stone": 20}, "hours": 10, "min_workers": 2},
+                {"items": {"wood": 15, "stone": 20}, "hours": 10, "min_workers": 2,
+                 "opens": "the trader at the market (buy, sell) and the market board (post_sale, buy_sale)"},
                 {"items": {"plank": 6, "brick": 15, "iron": 2}, "hours": 10, "min_workers": 2, "sell_bonus": 0.1}]},
             "smithy": {"name": "Smithy", "place": "home", "levels": [
-                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True},
+                {"items": {"wood": 10, "stone": 15, "ore": 5}, "hours": 8, "min_workers": 2, "workshop": True,
+                 "opens": "locks (install_lock)"},
                 {"items": {"brick": 12, "iron": 3}, "hours": 8, "min_workers": 2, "workshop": True,
                  "extra_per_batch": 1}]},
             "town_hall": {"name": "Town hall", "place": "village", "at": ["square"], "levels": [
-                {"items": {"plank": 12, "stone": 20, "brick": 10}, "hours": 14, "min_workers": 3}]},
+                {"items": {"plank": 12, "stone": 20, "brick": 10}, "hours": 14, "min_workers": 3,
+                 "opens": "a government with a treasury, laws and taxes, village projects, land sales (buy_land), "
+                          "hired outsiders (hire_npc)"}]},
             "tavern": {"name": "Tavern", "place": "village", "at": ["square"], "levels": [
-                {"items": {"plank": 10, "stone": 10}, "hours": 8, "min_workers": 2}]},
+                {"items": {"plank": 10, "stone": 10}, "hours": 8, "min_workers": 2, "opens": "dice"}]},
             "palisade": {"name": "Palisade", "place": "village", "at": ["square"], "levels": [
                 {"items": {"wood": 25}, "hours": 8, "min_workers": 2, "defense": 1},
                 {"items": {"wood": 20, "stone": 15}, "hours": 10, "min_workers": 3, "defense": 2}]},
