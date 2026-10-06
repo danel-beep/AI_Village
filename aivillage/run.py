@@ -330,7 +330,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
-    off = frozenset(world.config.get("disabled_actions") or ())
+    from . import warmth
+    off = frozenset(world.config.get("disabled_actions") or ()) | warmth.hidden(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

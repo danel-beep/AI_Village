@@ -201,6 +201,8 @@ class WorkerBot(Bot):
             if here["resources"].get("berries"):
                 return decision("work", {"resource": "berries"}, "forage")
             return go("forest", "forage berries")
+        if (cold := self._keep_warm(obs)) is not None:
+            return cold
         if t["hour"] >= t["day_ends_at"] - 2:
             return decision("sleep") if loc == me["home"] else go(me["home"], "go home")
 
@@ -270,6 +272,35 @@ class WorkerBot(Bot):
             want = "ore" if spot == "mine" and me["profession"] == "smith" else None
             return decision("work", {"hours": 4, **({"resource": want} if want else {})}, "work")
         return go(spot, "go to work")
+
+
+    def _keep_warm(self, obs: dict) -> dict | None:
+        """warmth.py: sleep at home; stoke the home fire in the evening; fetch wood in the afternoon."""
+        w = obs.get("warmth")
+        me, t = obs["you"], obs["time"]
+        if not w:
+            return None
+
+        def go(dest: str, why: str) -> dict:
+            return decision("move", {"to": dest}, why) if me["location"] != dest else decision("wait", None, why)
+        if t["hour"] >= t["day_ends_at"] - 4 and me["location"] != me["home"]:
+            return go(me["home"], "a roof for the night")
+        burn, wood, here = w["wood_a_fire_burns_tonight"], me["inventory"].get("wood", 0), w["here"]
+        if not burn or me["satiety"] < 50:
+            return None
+        if here.get("fireplace") and me["location"] == me["home"]:
+            self.home_wood = here.get("fire_wood", 0)
+            if self.home_wood < burn and wood and t["hour"] >= t["day_ends_at"] - 4:
+                return decision("stoke", {"wood": min(wood, 2 * burn)}, "keep the fire going tonight")
+        short = 2 * burn - getattr(self, "home_wood", 0) - wood
+        if short > 0 and 12 <= t["hour"] < t["day_ends_at"] - 5 and getattr(self, "wood_fail_day", 0) != t["day"]:
+            if obs.get("last_error") and me["location"] == "forest":
+                self.wood_fail_day = t["day"]  # not mine to cut: do without
+                return None
+            if me["location"] == "forest" and obs["here"]["resources"].get("wood"):
+                return decision("work", {"resource": "wood"}, "firewood for the night")
+            return go("forest", "fetch firewood")
+        return None
 
 
 class ThiefBot(WorkerBot):
@@ -360,6 +391,8 @@ class TraderBot(WorkerBot):
                     and all(0 < self._wants(obs, k) >= n - 1 for k, n in o["give"].items())
                     and me["coins"] - price >= tax_reserve and price <= self._price(obs, o["give"]))
             return decision("accept" if good else "decline", {"offer_id": o["id"]}, "trade")
+        if (cold := self._keep_warm(obs)) is not None:
+            return cold
 
         others = [v for v in obs["board"]["villagers"] if v["name"] != me["name"] and v["status"] == "active"]
         evening = t["day_ends_at"] - 5 <= t["hour"] < t["day_ends_at"] - 2

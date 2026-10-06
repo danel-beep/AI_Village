@@ -289,6 +289,7 @@ class World:
     progress: dict[str, Any] = field(default_factory=dict)  # progress.py: village stage and opened mechanics
     # spoilage.py: owner -> item -> [[expire_day, qty], ...] oldest first, as of the last dawn
     spoilage: dict[str, dict[str, list]] = field(default_factory=dict)
+    warmth: dict[str, Any] = field(default_factory=dict)  # warmth.py: {"fuel": {location: wood}}
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -333,6 +334,7 @@ class World:
             chronicle=d.get("chronicle", {}),
             progress=d.get("progress", {}),
             spoilage=d.get("spoilage", {}),
+            warmth=d.get("warmth", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

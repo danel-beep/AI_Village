@@ -14,7 +14,7 @@ from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (chronicle, clock, conflict, crises, debts, dice, family, governance, graves, handbook, illness, labor,
                land, mapgen, market, ops, places, plots, pricing, progress, reputation, seasons, spoilage, taxes, threats,
-               tiles, works)
+               tiles, warmth, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -162,6 +162,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(chronicle.observe(world, name))
     obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
+    obs.update(warmth.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -449,6 +450,7 @@ def night(ctx: Ctx) -> None:
         elif (a.location == a.home and w.day >= a.evicted_until_day
               and a.satiety >= cfg["health_regen_min_satiety"]):
             a.health = min(cfg["health_max"], a.health + cfg["health_regen_night_at_home"] + plots.health_bonus(w, a))
+    warmth.night(ctx)
     check_health(ctx)
 
     w.day += 1

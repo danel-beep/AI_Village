@@ -45,7 +45,7 @@ MODULE_TOPIC = {
     "plots": "Home, chests and land", "land": "Home, chests and land", "family": "People and family",
     "graves": "People and family", "governance": "Village affairs", "works": "Village affairs",
     "reputation": "Talk and news", "conflict": "Taking and force", "threats": "Outsiders and dangers",
-    "illness": "People and family", "dice": "Trade and money",
+    "illness": "People and family", "warmth": "Home, chests and land", "dice": "Trade and money",
     "debts": "Trade and money", "market": "Trade and money", "taxes": "Village affairs", "places": "Gathering and making", "chronicle": "Talk and news",
 }
 

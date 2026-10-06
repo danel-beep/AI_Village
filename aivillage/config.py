@@ -564,6 +564,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "spoilage": {"enabled": False,
                  "days": {"meat": 2, "fish": 2, "milk": 2, "berries": 3, "bread": 3, "fish_soup": 3, "stew": 3,
                           "pancakes": 3, "egg": 4, "honey_cake": 4, "grain": 14}},
+    # Night, cold and winter (aivillage/warmth.py). Off here; the «С нуля» mode or the start screen turns it on.
+    # A night needs `need[season]` warmth: a roof where one sleeps gives 1, a burning fire there 1, `clothes`
+    # carried 1. Each point short: -`short_health` health, -`short_satiety` satiety, and in `cold_seasons` a
+    # `sick_chance` of falling ill. A fire (house hearth, campfire, `campfires` places) burns
+    # `fuel_per_night[season]` wood from its store a night someone sleeps by it; `stoke` fills it (`max_fuel`).
+    "warmth": {"enabled": False, "need": {"spring": 1, "summer": 1, "autumn": 1, "winter": 2, "default": 1},
+               "fuel_per_night": {"autumn": 1, "winter": 2}, "short_health": 6, "short_satiety": 3,
+               "cold_seasons": ["winter"], "sick_chance": 0.15, "clothes": [], "campfires": [], "max_fuel": 20},
     "agents": [
         {"name": "Anna", "profession": "farmer"},
         {"name": "Boris", "profession": "fisher"},
