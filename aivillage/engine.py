@@ -468,7 +468,7 @@ def night(ctx: Ctx) -> None:
             if crises.blocks_regrowth(w, loc.id, r):
                 continue
             cap = tiles.capacity(s) if s.get("slots") else s["max"]
-            tiles.grow(loc, r, seasons.regen(cfg, w.day, r, s["regen"]), cap, s["max"])
+            tiles.grow(loc, r, seasons.regen(cfg, w.day, r, tiles.regen(cfg, loc, r, s)), cap, s["max"])
     for loc in w.locations.values():
         if not loc.planted:
             continue
