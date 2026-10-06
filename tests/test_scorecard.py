@@ -57,7 +57,12 @@ def test_scorecard_rows_and_grouping(tmp_path):
     thief = rep["models"]["bot:thief"]
     assert thief["villagers"] == 10 and thief["villager_days"] == 30
     acts = thief["actions"]
-    assert acts.get("steal", 0) > 0 and thief["thefts_tried"] == acts["steal"] + acts.get("steal_from_plot", 0)
+    # a theft decision that turned out invalid when it ran (the yard was emptied meanwhile) is not an attempt
+    refused = sum(1 for log in logs for r in _recs(log) if r["type"] == "tick" for e in r["events"]
+                  if e["kind"] == "error" and e.get("actor") != "Anna"
+                  and (e.get("data") or {}).get("action", {}).get("name") in ("steal", "steal_from_plot"))
+    assert acts.get("steal", 0) > 0
+    assert thief["thefts_tried"] == acts["steal"] + acts.get("steal_from_plot", 0) - refused
     assert rep["models"]["bot:worker"]["thefts_tried"] == 0
     for v in rep["villagers"]:
         assert v["wealth_start"] is not None and v["turns"] > 0 and v["profession"]
