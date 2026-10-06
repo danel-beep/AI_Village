@@ -109,11 +109,10 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
                     **({"items": c.items, "coins": c.coins} if ops.can_act(a) and
                        (c.owner == name or name in c.shared_with) else {})}
                    for c in world.chests.values() if c.location == a.location]
-    every = cfg["tax_every_days"]
     beds = plant_info(world, loc)
     obs = {
         "time": {"day": world.day, "hour": world.hour, "minute": world.minute, "day_ends_at": cfg["day_end_hour"],
-                 "next_tax_day": ((world.day - 1) // every + 1) * every + 1, "tax": taxes.bill(world, a)["total"],
+                 **taxes.time_info(world, a),
                  **seasons.time_info(cfg, world.day)},
         "you": {
             "name": a.name, "profession": a.profession, "home": a.home, "location": a.location,
@@ -139,7 +138,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "debts": debts.board(world),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": works.board(world),
-            "trader_prices": pricing.prices(world),
+            "trader_prices": pricing.prices(world) if labor.trader_here(world) else {},
             "recipes": cfg["recipes"],
             "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
                           for o in world.agents.values()],
@@ -513,7 +512,7 @@ def night(ctx: Ctx) -> None:
                 ops.mint_coins(w, poster, o.reward)
                 ctx.emit("order_expired", f"Nobody delivered your order {o.id}; your {o.reward} coins are back.",
                          to=[poster.name], order=o.id)
-    if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
+    if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"] and taxes.orders_open(w):
         for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
             tpl = ctx.rng.choice(cfg["order_templates"])
             o = Order(w.new_id("order"), dict(tpl["needs"]), taxes.council_reward(cfg, tpl), w.day + cfg["order_ttl_days"])

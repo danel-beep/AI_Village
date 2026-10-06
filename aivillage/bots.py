@@ -222,8 +222,8 @@ class WorkerBot(Bot):
                 n = 1 if food_want != "fish" else 2
                 return decision("offer", {"to": who, "give": {surplus: 4}, "want": {food_want: n}},
                                 say=f"{who}, I'll give 4 {surplus} for {n} {food_want}.")
-            price = obs["board"]["trader_prices"]["bread"]["buy"]
-            if me["coins"] >= price:
+            price = obs["board"]["trader_prices"].get("bread", {}).get("buy")  # no trader yet: {} (progress.py)
+            if price is not None and me["coins"] >= price:
                 return decision("buy", {"item": "bread"}) if loc == "market" else go("market", "buy food")
             goods = [k for k in inv if k in obs["board"]["trader_prices"] and k != "tool"]
             if goods and sum(inv[k] for k in goods) >= 4:
@@ -270,7 +270,7 @@ class WorkerBot(Bot):
                 return decision("fulfill_order", {"order_id": o["id"]}) if loc == "square" else go("square", "order")
 
         # Tax money
-        if me["coins"] < t["tax"] and t["next_tax_day"] - t["day"] <= 1:
+        if me["coins"] < t.get("tax", 0) and t.get("next_tax_day", 0) - t["day"] <= 1:
             sellable = [k for k, v in inv.items() if v > 0 and k in obs["board"]["trader_prices"]]
             if sellable:
                 return decision("sell", {"item": sellable[0], "qty": inv[sellable[0]]}) if loc == "market" \
@@ -383,7 +383,7 @@ class TraderBot(WorkerBot):
     def decide(self, obs: dict) -> dict:
         me, here, t = obs["you"], obs["here"], obs["time"]
         inv, loc = me["inventory"], me["location"]
-        tax_reserve = t["tax"] if t["next_tax_day"] - t["day"] <= 2 else 0
+        tax_reserve = t.get("tax", 0) if t.get("next_tax_day", 0) - t["day"] <= 2 else 0
 
         for o in obs["offers_to_you"]:
             price = o["want"].get("coins", 0)
@@ -433,7 +433,8 @@ class TraderBot(WorkerBot):
                 act["args"]["resource"] = "gold"  # the mine's prize, while it lasts
             elif res.get("ore"):
                 act["args"]["resource"] = "ore"  # ore is worth more than stone
-        if act["name"] == "buy" and act["args"].get("item") in self.MEALS:
+        if act["name"] == "buy" and act["args"].get("item") in self.MEALS \
+                and act["args"]["item"] in obs["board"]["trader_prices"]:
             price = obs["board"]["trader_prices"][act["args"]["item"]]["buy"]
             need = max(1, self._wants(obs, act["args"]["item"]))
             act["args"]["qty"] = max(1, min(need, (me["coins"] - tax_reserve) // price))
@@ -481,7 +482,7 @@ class HomesteadBot(TraderBot):
         if not plot or me["location"] != plot["home"] or obs["fires"] or not chores:
             return super().decide(obs)
         acts = set(obs["available_actions"])
-        reserve = t["tax"] + 5
+        reserve = t.get("tax", 0) + 5
         if "collect" in acts:
             return decision("collect", None, "collect the yard")
         if "plant" in acts and inv.get("grain", 0) >= 1:
@@ -654,7 +655,7 @@ class BuilderBot(WorkerBot):
         if hour >= end - 3:
             return go(me["home"], "home for the night")
         # Tax day: sell hides and other spare goods to the trader for the coins.
-        if t["tax"] > me["coins"] and t["next_tax_day"] - t["day"] <= 1 \
+        if t.get("tax", 0) > me["coins"] and t.get("next_tax_day", 0) - t["day"] <= 1 \
                 and "sell" not in (obs.get("locked_actions") or []):
             spare = [k for k in ("hide", "meat", "stone", "wood", "ore") if inv.get(k, 0) > (4 if k != "hide" else 0)]
             if spare:
