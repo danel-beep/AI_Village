@@ -51,7 +51,10 @@ API for other modules:
 
 Mode id `survival` («С нуля»). Config `bare_start` (`enabled`, `until_stage`, default `hamlet`): a start before
 that stage has every villager at profession `laborer`, house level 0, no coins, items or yard buildings,
-gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode. A start before `coins_from_stage`
+gathering anything by hand. Trade places (`places.py`) stay on but open with `action:change_trade` (the
+market square, audit decision R2): before it they are not observed and nobody loses a place; after it a laborer
+takes a trade with `change_trade` at the square, and the rules line names each trade's goods (its skill bonus).
+The owner of a workshop keeps its trade however long they do not work at it. From `until_stage` on, the start is the ready village of the crafts mode. A start before `coins_from_stage`
 (default `village`, where the market square brings the trader) has no coins either.
 The mode adds a small clay bank at the mine (bricks are reachable on every map size). It also adds wild grain in the forest (seed for garden beds before the market square brings the trader). Village projects
 (`works.py`: `contribute`, `build_work`, the council's suggestions, the config's starting projects) open with
@@ -67,7 +70,7 @@ Others from the plan: `campfire`, `granary`, `smokehouse`, `pen`, `kiln`, `mill`
 
 ## Construction (`aivillage/construction.py`, done)
 
-Config `construction`: `enabled`, `team_window_minutes`, `team_bonus`, `team_max`, `max_open_sites`, `catalog`
+Config `construction`: `enabled`, `team_bonus`, `team_max`, `max_open_sites`, `catalog`
 (kind -> `name`, `place` "home" | "village", `at` (allowed places for village kinds), `levels`: rows of
 `items`, `hours`, `min_workers` and effects `roof`, `food_keeps_x` (+ `food_items`), `sell_bonus`, `defense`,
 `workshop`, `extra_per_batch` (a workshop adds that many to every batch made there), `makes` + `feed` + `cap`
@@ -78,11 +81,11 @@ not added up). `raw_instead` maps crafted materials to raw ones when crafting is
 `wall` 1–2 (needs `palisade@2`). Events: `workshop_bonus` {recipe, amount, building, level}.
 
 - Actions: `start_building(kind)` (here: own yard for "home" kinds, a common place for "village" ones),
-  `bring_materials(site_id, items)`, `construct(site_id)` (one hour). With `min_workers` > 1 an hour counts only
-  while that many different villagers worked on the site within the window (same day); lone hours older than the
-  window are lost (`site_work_lost`). `upgrade_house` is refused while construction is on and left out of the handbook
-  (`construction.hidden_actions`). A site with `min_workers` > 1 shows `worked_on_it_within_the_hour`: [names] in
-  `building_sites` while someone's hour there still waits for co-workers.
+  `bring_materials(site_id, items)`, `construct(site_id)` (one hour). With `min_workers` > 1 an hour counts once
+  that many different villagers worked on the site on the same day (audit decision R1, 2026-10-06: the same hour
+  never happened in 11 AI runs); hours nobody joined that day are lost at the next day's work (`site_work_lost`). `upgrade_house` is refused while construction is on and left out of the handbook
+  (`construction.hidden_actions`). Sites show `people_needed_on_the_same_day`; one with
+  `min_workers` > 1 also shows `worked_on_it_today`: [names] (whose hours today an hour of yours would count with).
 - Unlock keys: `building:<kind>` and `building:<kind>@<level>` (registered in `progress.DEFAULT_UNLOCKS`).
 - Finished "home" buildings are plot building dicts with `level` (`house` sets `plot.house`); "village" ones are
   `world.construction["buildings"]` (`{id, kind, level, location, owner: None, built_day, builders}`), counted
@@ -193,8 +196,7 @@ places. Log: tick `view.known` (sorted union of everyone's known places; absent 
 
 - `village_stage` events (above).
 - Construction sites (task 3 defines them, fields fixed here): tick `view.sites` =
-  `[{"id", "kind", "level", "location", "done": 0..1, "workers": [names]}]`; `workers` = who worked on it within
-  the last `team_window_minutes`. Common buildings: tick `view.buildings` = `[{"id", "kind", "level", "location"}]`.
+  `[{"id", "kind", "level", "location", "done": 0..1, "workers": [names]}]`; `workers` = who worked on it today. Common buildings: tick `view.buildings` = `[{"id", "kind", "level", "location"}]`.
 - Buildings with levels: plot building dicts carry `level` (default 1); works keep `works.levels`.
 - Unexplored places (task 6): tick `view.known` = location ids someone has seen.
 
