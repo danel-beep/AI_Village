@@ -38,10 +38,17 @@ API for other modules:
   buildings by `kind`, with `level` if the building dict has one) and `world.works.levels`. Leveled kinds
   count as `kind`, `kind@2`, `kind@3`. A module with its own buildings appends `fn(world) -> Counter`
   to `progress.BUILT_SOURCES`.
-- Unlocks are sticky; the stage never drops.
+- Unlocks are sticky; the stage never drops. Starting at a later stage, the buildings that stage and the
+  earlier ones require count as standing (`world.progress.prebuilt`).
 - Observation (progress on): `village_stage: {stage, next_stage, next_stage_needs_standing: {kind: "have/need"}}`.
 - Log: public event `village_stage` with `stage` (id) and `index`. State `world.progress`
   (`stage`, `reached: {id: day}`, `unlocked: [keys]`).
+
+## Empty start (task 2, `modes.py`)
+
+Mode id `survival` («С нуля»). Config `bare_start` (`enabled`, `until_stage`, default `hamlet`): a start before
+that stage has every villager at profession `laborer`, house level 0, no coins, items or yard buildings,
+gathering anything by hand. From `until_stage` on, the start is the ready village of the crafts mode.
 
 ## Building ids
 
@@ -72,6 +79,11 @@ Config `construction`: `enabled`, `team_window_minutes`, `team_bonus`, `team_max
   `defense` / `sell_bonus` (via `works.DEFENSE_SOURCES` / `works.SELL_BONUS_SOURCES`).
 - Events: `site_started` (public), `site_supplied`, `construct` (location), `site_work_lost` (private),
   `building_done` (public: who worked how many hours, who brought how much; for village buildings who did not take part).
+
+## Roof and fire (tasks 3 and 11)
+
+A villager has a roof when their plot has `house >= 1` or a `shelter` yard building
+(`construction.has_roof(world, name)`). `plot.house = 0` means no house yet.
 
 ## Item ids
 

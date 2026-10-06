@@ -978,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.agents:
         override["population"] = {"size": a.agents}
     with_tick_minutes(override, a.tick_minutes)
-    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness))
+    world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness, a.map_size))
     print(f"Village seed {a.seed} (run again with --seed {a.seed} to get the same map)")
     sim = make_sim(world, models=a.models.split(",") if a.models else None, bots=a.bots.split(","), seed=a.seed,
                    days=a.days or (3 if a.models else 30), log_path=a.log, pace=a.pace,

@@ -54,7 +54,7 @@ def setup(world: World, spec: dict, home: str) -> None:
         return
     p = _p(cfg)
     plot = Plot(owner=spec["name"], home=home, cells=int(spec.get("plot_cells", p["start_cells"])),
-                house=max(1, min(p["house_max"], int(spec.get("house_level", 1)))))
+                house=max(0, min(p["house_max"], int(spec.get("house_level", 1)))))
     world.plots[home] = plot
     given = "buildings" in spec
     starts = p.get("start_buildings", {})
@@ -426,7 +426,7 @@ def _on_event(ctx: Ctx, ev: Event, names: list[str]) -> None:
             ops.burn(ctx.world, b["items"], k, v)
         if b.get("crop"):
             b["crop"], b["ripe_day"] = None, 0
-    plot.house = max(0 if _hand_built(ctx.cfg) else 1, plot.house - 1)
+    plot.house = max(min(1, plot.house), plot.house - 1)  # a fire never takes the last level; 0 stays 0
 
 
 ops.EVENT_HOOKS.append(_on_event)

@@ -487,7 +487,7 @@ const PixelMap = (() => {
   function paintGenerated(g) {
     const at = (id, fn) => { const [dx, dy] = layout.off[id] || [0, 0]; g.save(); g.translate(dx, dy); fn(g); g.restore(); return [dx, dy]; };
     const move = ([x, y], [dx, dy]) => [x + dx, y + dy];
-    terrain(g) || paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock, SP, fence, planks });
+    terrain(g) || paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock, SP, fence, planks, tree });
     if (layout.off.field) at('field', field);  // newer villages have no common field
     const sq = at('square', square); layout.lamps = layout.lamps.map(p => move(p, sq));
     at('market', market);
