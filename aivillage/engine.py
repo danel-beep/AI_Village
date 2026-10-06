@@ -14,7 +14,7 @@ from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (animals, chronicle, luxury, clock, conflict, construction, crafting, crises, debts, dice, family, governance, graves, handbook, hire, illness,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
-               taxes, threats, tiles, works)
+               taxes, threats, tiles, transport, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -66,6 +66,7 @@ def new_world(config: dict | None = None) -> World:
         w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]), structure=spec.get("structure"),
                                   level=1 if spec.get("structure") else 0, proposer="council")
     animals.setup(w)
+    transport.setup(w)
     progress.setup(w)
     for a in w.agents.values():
         a.busy_until = w.tick + wake_offset(w, a.name)
@@ -169,6 +170,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(crafting.observe(world, name))
     obs.update(conflict.observe(world, name))
     obs.update(construction.observe(world, name))
+    obs.update(transport.observe(world, name))
     obs.update(hire.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
@@ -362,6 +364,7 @@ def end_of_hour(ctx: Ctx) -> None:
         burn_for(ctx, f, 1)
     threats.end_of_hour(ctx)
     animals.end_of_hour(ctx)  # hunt parties; herds move and breed on the day's last hour
+    transport.end_of_hour(ctx)  # riders' pace; animals' upkeep on the day's last hour
     illness.end_of_hour(ctx, rng_for(w, "illness"))
     for o in list(w.offers.values()):
         if o.expires_tick <= w.tick:

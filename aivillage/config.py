@@ -37,7 +37,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
             "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
             "propose_build", "fund_project", "embezzle", "start_building", "bring_materials",
-            "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care")},
+            "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care",
+            "take_animal", "leave_animal", "lend_animal", "return_animal", "give_animal", "feed_animal", "buy_animal")},
         "error": 15,  # a failed action only costs a quarter hour
     },
     # Survival
@@ -778,12 +779,51 @@ DEFAULT_CONFIG: dict[str, Any] = {
                  "cap": 9},
                 {"items": {"plank": 6, "stone": 4}, "hours": 4, "min_workers": 1, "makes": {"egg": 2, "milk": 3},
                  "feed": {"grain": 2}, "cap": 9}]},
+            # task 17 (transport.py): `stalls` = animals that rest there at night
+            "stable": {"name": "Stable", "place": "home", "levels": [
+                {"items": {"wood": 12, "stone": 4}, "hours": 4, "min_workers": 1, "stalls": 2},
+                {"items": {"plank": 8, "stone": 6}, "hours": 4, "min_workers": 1, "stalls": 4}]},
             "wall": {"name": "Stone wall", "place": "village", "at": ["square"], "levels": [
                 {"items": {"stone": 30, "plank": 10}, "hours": 12, "min_workers": 3, "defense": 3},
                 {"items": {"brick": 30, "iron": 4}, "hours": 14, "min_workers": 3, "defense": 5}]},
         },
         # without crafting chains (crafting.enabled off) crafted materials are asked as these raw ones
         "raw_instead": {"plank": {"wood": 2}, "brick": {"stone": 1}, "iron": {"ore": 2}, "clay": {"stone": 1}},
+    },
+    # Riding and pack animals, carts and the carry limit (aivillage/transport.py, «С нуля» plan task 17). Off here.
+    # On (and, with progress on, from the village stage): more than `carry` items carried (coins do not count, a
+    # cart counts 0) makes every road take 1 / `overloaded_pace` times as long; a led animal walks `speed` roads an
+    # hour and carries `carry` more; weak (strength <= `weak_at`): a person's pace, half the carry. Animals are
+    # caught (`wild` per place of their `habitat` resources, `catch_chance` a try; `habitats` {loc: {kind: n}}
+    # overrides) or bought from the trader (`price`, `trader_per_day`). Each night one eats `eats_per_night` units
+    # from its trough (`food` units per item, `trough_max`) or grazes at a place with `graze_resources`; fed at
+    # the owner's home in a free stable stall it regains `stable_rest`, unfed it loses 1, at 0 it runs off.
+    "transport": {
+        "enabled": False,
+        "carry": 20,
+        "overloaded_pace": 0.5,
+        "lead_max": 1,
+        "kinds": {
+            "horse": {"speed": 2.0, "carry": 15, "price": 60, "catch_chance": 0.25, "wild": 2,
+                      "habitat": ["berries", "grain"]},
+            "donkey": {"speed": 1.5, "carry": 30, "price": 35, "catch_chance": 0.4, "wild": 2,
+                       "habitat": ["stone", "clay"]},
+        },
+        "habitats": None,
+        "strength_max": 4,
+        "strength_start": 3,
+        "weak_at": 1,
+        "stable_rest": 1,
+        "eats_per_night": 1,
+        "food": {"hay": 1, "grain": 1},
+        "trough_max": 6,
+        "graze_resources": ["berries", "grain"],
+        "hay_per_hour": 4,
+        "trader_per_day": 1,
+        "cart": {"carry_led": 40, "carry_hand": 10,
+                 "recipe": {"inputs": {"plank": 4, "wood": 2}, "output": 1, "building": "workbench"},
+                 "recipe_plain": {"inputs": {"wood": 12}, "output": 1, "where": "home", "profession": None}},
+        "items": {"hay": {"value": 1}, "cart": {"value": 30}},
     },
     # Hiring (aivillage/hire.py, «С нуля» plan task 18). Off here; the survival mode turns it on.
     # Contracts between villagers (offer_job / accept_job, opened at the hamlet stage): `max_hours` per job,
