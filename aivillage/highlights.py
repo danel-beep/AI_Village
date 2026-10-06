@@ -43,6 +43,7 @@ DRAMA = {
     # debt book (debts.py)
     "debt_collected": 8, "pledge_forfeited": 7, "debt_claim": 6, "debt_rejected": 6, "debt_forgiven": 5,
     "promise": 4, "debt_transferred": 4,
+    "dice": 4,
 }
 DRAMATIC = 3  # a day's highlights are these first; lower scores only fill a quiet day
 TITLES = {
@@ -50,7 +51,7 @@ TITLES = {
     "debt_rejected": "Мэр отказал", "debt_forgiven": "Долг прощён", "promise": "Расписка",
     "debt_transferred": "Долг перепродан",
     "fight": "Драка", "arson_seen": "Поджог", "set_fire": "Поджог", "land_bought": "Купил землю",
-    "land_sold": "Продал землю", "land_offer": "Продаёт землю",
+    "land_sold": "Продал землю", "dice": "Игра в кости", "land_offer": "Продаёт землю",
     "death": "Смерть в деревне", "house_burned": "Сгорел дом", "steal": "Кража", "robbed": "Кража",
     "fire": "Пожар", "default": "Долг не вернули", "evicted": "Выселение", "steal_attempt": "Попытка кражи",
     "hospital": "В больнице", "extinguish": "Тушат пожар", "witness": "Свидетель кражи",

@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, conflict, crises, debts, governance, keys, land, plots
+from . import clock, conflict, crises, debts, dice, governance, keys, land, plots
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -132,7 +132,8 @@ def world_facts(cfg: dict) -> str:
     if fam:
         lines.append(f"- Relations: your feelings about people grow from gifts, loans, trades, help and hang_out, "
                      f"fall after theft, violence or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
-                     f"share a house and chests; a spouse (else your best friend) inherits if you die.")
+                     f"share a house and chests; the proposer chooses a public or a secret wedding. If you die, your debts are paid "
+                     f"from what you leave, and the rest (things, coins, houses) goes to your spouse, else your best friend.")
     if governance.enabled(cfg):
         lines.append(governance.facts(cfg))
     if plots.enabled(cfg):
@@ -147,6 +148,8 @@ def world_facts(cfg: dict) -> str:
         lines.append(f"- Slow digging: {', '.join(caps)}, whatever your profession and tools.")
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
+    if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []):
+        lines.append(dice.facts(cfg))
     return "\n".join(lines)
 
 

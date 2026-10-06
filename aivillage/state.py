@@ -38,6 +38,8 @@ class Agent:
     # reputation.py: own tally of what this agent saw others do, and rumors it heard
     reputation: dict[str, dict] = field(default_factory=dict)
     rumors: list[dict] = field(default_factory=list)
+    # dice.py: an open challenge {"to", "stake", "expires_tick"}
+    dice_offer: dict | None = None
 
 
 @dataclass
@@ -165,6 +167,7 @@ class Marriage:
     spouses: list[str]
     home: str  # the shared house (the proposer's)
     since_day: int
+    public: bool = True  # announced to the village, or known only to the couple
 
 
 @dataclass
@@ -173,6 +176,7 @@ class Proposal:
     sender: str
     to: str
     expires_day: int
+    public: bool = True  # the wedding will be announced (False: secret)
 
 
 @dataclass

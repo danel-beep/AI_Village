@@ -96,6 +96,14 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "debt_late_fee", "path": "debts.late_fee_pct", "group": "Долги", "type": "range",
      "label": "Пеня за просрочку в ночь", "min": 0, "max": 30, "step": 5, "unit": "%",
      "hint": "0: долг не растёт. Рекомендуем 0 для честного прогона, 10 для жёсткого."},
+    # --- dice (aivillage/dice.py) ---
+    {"key": "dice", "path": "dice.enabled", "group": "Азарт", "type": "toggle", "label": "Кости на деньги",
+     "hint": "На площади жители могут играть в кости на монеты и проигрываться в долг."},
+    {"key": "dice_max_stake", "path": "dice.max_stake", "group": "Азарт", "type": "range",
+     "label": "Наибольшая ставка", "min": 1, "max": 100, "step": 1, "unit": " мон."},
+    {"key": "dice_credit", "path": "dice.credit", "group": "Азарт", "type": "range",
+     "label": "Можно ставить в долг сверх кармана", "min": 0, "max": 100, "step": 5, "unit": " мон.",
+     "hint": "0: играют только на свои. Больше: проигравший без денег остаётся должен победителю."},
 
     # --- crises (aivillage/crises.py) ---
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
