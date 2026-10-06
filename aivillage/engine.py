@@ -100,7 +100,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     ctx = Ctx(world, rng_for(world, "observe"))
     loc = world.locations[a.location]
     cfg = world.config
-    people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {})}
+    people = [{"name": o.name, "asleep": o.asleep, **({"sick": True} if world.day < o.sick_until_day else {}),
+               **conflict.seen_gear(cfg, o)}
               for o in world.agents.values()
               if o.name != name and o.status == "active" and o.location == a.location]
     chest = world.chests[f"chest_{name}"]
@@ -166,6 +167,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(progress.observe(world, name))
     obs.update(spoilage.observe(world, name))
     obs.update(crafting.observe(world, name))
+    obs.update(conflict.observe(world, name))
     obs.update(construction.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)

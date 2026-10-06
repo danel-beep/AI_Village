@@ -199,6 +199,7 @@ def world_facts(cfg: dict) -> str:
         lines.append(f"- Slow digging: {', '.join(caps)}, whatever your skill and tools.")
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
+    lines += conflict.gear_facts(cfg)
     if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []):
         lines.append(dice.facts(cfg))
     return "\n".join(lines)

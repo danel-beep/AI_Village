@@ -197,11 +197,12 @@ def hunt(ctx: Ctx, a: Agent, args: HuntArgs) -> None:
         seen = ", ".join(f"{k} x{v}" for k, v in sorted(herd.items())) or "none"
         raise ActionError(f"there is no {sp} here (animals here: {seen})")
     s, c = _species(cfg)[sp], cfg["combat"]
-    item, atk, dmg = conflict.weapon(cfg, a)
+    item, atk, dmg = conflict.hunt_weapon(cfg, a)
     arms = f" with a {item}" if item else " bare-handed"
     if int(s["min_hunters"]) <= 1:
         _press(w, a.location)
         roll, hit, _ = _strike(ctx.rng, c, s, atk, dmg)
+        conflict.wear(ctx, a, item)
         if not hit:
             ctx.emit("hunt_miss", f"{a.name} hunted a {sp}{arms} and it got away.", actor=a.name,
                      location=a.location, visibility="location", species=sp, roll=roll, weapon=item)
@@ -241,7 +242,7 @@ def _run_party(ctx: Ctx, rng: random.Random, p: dict, hunters: list[str]) -> Non
     hp, killer = int(s["hp"]), None
     dealt: dict[str, int] = {n: 0 for n in hunters}
     hurt: dict[str, int] = {}
-    gear = {n: conflict.weapon(cfg, w.agents[n]) for n in hunters}
+    gear = {n: conflict.hunt_weapon(cfg, w.agents[n]) for n in hunters}
     for _ in range(int(_c(cfg).get("rounds", 4))):
         order = list(hunters)
         rng.shuffle(order)
@@ -260,9 +261,11 @@ def _run_party(ctx: Ctx, rng: random.Random, p: dict, hunters: list[str]) -> Non
             victim = w.agents[rng.choice(sorted(hunters))]
             back = rng.randint(1, c["die"])
             if back == c["die"] or (back != 1 and back + int(s["attack"]) >= c["hit_at"]):
-                h = min(victim.health, rng.randint(1, int(s["damage_die"])))
+                h = min(victim.health, conflict.soak(ctx, victim, rng.randint(1, int(s["damage_die"]))))
                 victim.health -= h
                 hurt[victim.name] = hurt.get(victim.name, 0) + h
+    for n in hunters:
+        conflict.wear(ctx, w.agents[n], gear[n][0])
     wounds = "".join(f", {n} was hurt (-{h} health)" for n, h in sorted(hurt.items()))
     names = ", ".join(hunters)
     if killer is None:
