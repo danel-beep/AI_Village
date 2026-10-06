@@ -27,7 +27,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import clock, honors, ops, progress
+from . import clock, honors, ops, progress, theft
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -592,6 +592,10 @@ def audit(ctx: Ctx, who: str, actor: str | None = None) -> None:
         return
     knowers = [n for n in voters(w) if n not in g.embezzled]
     for mayor, n in sorted(g.embezzled.items()):
+        if mayor == theft.UNKNOWN:  # theft.py: a thief, not the mayor, took these
+            ctx.emit("embezzlement_found", f"{who}: {n} coins are missing from the treasury; nobody knows who took "
+                     f"them. The books now show {g.coins} coins.", actor=actor, visibility="public", coins=n)
+            continue
         ctx.emit("embezzlement_found", f"{who}: {n} coins are missing from the treasury. They were taken by "
                  f"{mayor} while mayor. The books now show {g.coins} coins.", actor=actor, visibility="public",
                  mayor=mayor, coins=n)

@@ -42,7 +42,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import clock, construction, debts, governance, honors, ops, progress
+from . import clock, construction, debts, governance, honors, ops, progress, theft
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -439,6 +439,11 @@ def audit(ctx: Ctx, p: dict, who: str, actor: str | None = None) -> None:
                  f"{coin_name(p)}.", actor=actor, visibility="public", polity=p["id"], coins=p["coins"])
         return
     for name, n in sorted(p["embezzled"].items()):
+        if name == theft.UNKNOWN:  # theft.py: a thief, not the holder, took these
+            ctx.emit("polity_embezzlement_found", f"{who}: {n} {coin_name(p)} are missing from the treasury of "
+                     f"{title(p)}; nobody knows who took them. The books now show {p['coins']}.",
+                     actor=actor, visibility="public", polity=p["id"], coins=n)
+            continue
         ctx.emit("polity_embezzlement_found", f"{who}: {n} {coin_name(p)} are missing from the treasury of "
                  f"{title(p)}. They were taken by {name} while holding it. The books now show {p['coins']}.",
                  actor=actor, visibility="public", polity=p["id"], keeper=name, coins=n)

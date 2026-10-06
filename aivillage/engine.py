@@ -14,7 +14,7 @@ from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (addressed, animals, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, spoilage,
-               taxes, threats, tiles, transport, works)
+               taxes, theft, threats, tiles, transport, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -164,6 +164,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(market.observe(world, name))
     obs.update(works.observe(world, name))
     obs.update(taxes.observe(world, name))
+    obs.update(taxes.board(world))
     obs.update(places.observe(world, name))
     obs.update(chronicle.observe(world, name))
     obs.update(honors.observe(world, name))
@@ -175,6 +176,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(polity.observe(world, name))
     obs.update(transport.observe(world, name))
     obs.update(hire.observe(world, name))
+    theft.observe(world, name, obs)
     obs.update(explore.observe(world, name))
     obs.update(addressed.observe(world, name))
     if governance.enabled(cfg):
@@ -476,7 +478,7 @@ def night(ctx: Ctx) -> None:
     for a in w.agents.values():
         if a.status != "active":
             continue
-        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"])
+        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"] - seasons.night_hunger(cfg, w.day))
         if a.satiety == 0:
             a.health = max(0, a.health - cfg["starving_health_loss_night"])
         elif (a.location == a.home and w.day >= a.evicted_until_day

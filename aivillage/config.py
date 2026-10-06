@@ -35,7 +35,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "store", "take", "share_chest", "unshare_chest", "install_lock", "pick_up",
             "contribute", "fulfill_order", "buy", "sell", "extinguish", "collect",
             "expand_plot", "propose", "answer_proposal", "divorce", "run_for_mayor", "vote",
-            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "attack", "set_fire", "dice",
+            "propose_law", "vote_law", "report_theft", "gossip", "announce", "buy_land", "sell_land", "give_land", "attack", "set_fire", "dice",
             "propose_build", "fund_project", "embezzle", "start_building", "bring_materials",
             "offer_job", "accept_job", "decline_job", "end_job", "pay_job", "hire_npc", "defend", "help_stranger", "chase_stranger", "care",
             "join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
@@ -80,6 +80,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "steal_notice_chance": 0.5,
     "steal_awake_target_success": 0.5,
     "max_steal_qty": 3,
+    # What there is to steal and who sees it (aivillage/theft.py), off by default; on in «С нуля» and «Беззаконие».
+    # see_stores: coins and food in other people's chests where you stand and in the pockets of the people next to
+    # you are visible. Waking hours from dark_from_hour (winter_dark_hours earlier in winter) and before
+    # dark_until_hour are dark: every notice chance x dark_factor. owner_notice_chance: a chest's owner at home and
+    # awake sees the thief; victim_notice_chance: an awake person robbed notices. treasury: anyone may steal coins
+    # from the treasury where it is kept (the square, a polity's town hall); the books hide it until an audit.
+    "theft": {
+        "enabled": False,
+        "see_stores": True,
+        "dark_from_hour": 20,
+        "dark_until_hour": 7,
+        "winter_dark_hours": 2,
+        "dark_factor": 0.4,
+        "owner_notice_chance": 0.9,
+        "victim_notice_chance": 0.8,
+        "treasury": True,
+    },
     "max_text_len": 200,
     "inbox_size": 30,
     "order_every_days": 3,
@@ -279,6 +296,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "winter": {"grain": 0, "berries": 0, "fish": 0.5},
         },
         "wither": {},  # {season: {location: [resources]}} emptied at the season's first dawn
+        "night_hunger": {"winter": 0},  # {season: extra satiety lost each night of it}
         "announce": {
             "spring": "Gardens can be sown again.",
             "winter": "The ground is frozen: garden beds cannot be sown until spring, crops still growing froze, "
@@ -342,6 +360,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "laws": {
         "enforcement": "auto",
         "bill_days": 3,  # a bill not paid within this many days is marked overdue (public), nothing more
+        # voluntary laws: observation "tax_board" = who paid the tax bills of the last tax_board_rounds tax days,
+        # who has not yet, whose bill is overdue (taxes.board). Only visibility, no rule follows from it.
+        "tax_board": True,
+        "tax_board_rounds": 2,
     },
     # Mayor, treasury and laws (aivillage/governance.py). When enabled, the weekly tax goes to the
     # village treasury instead of vanishing; the mayor proposes laws and villagers vote on them.
@@ -492,6 +514,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cells": [6, 8, 10],
         "price_per_cell": 7,
         "sale_ttl_hours": 6,  # how long a sell_land offer stays open
+        # "buy": empty lots are bought from the village (buy_land). "first": nobody sells them, whoever stands on an
+        # empty lot first takes it for free (claim_land), and there is no court. claim_jump: a lot with nothing
+        # built on it can be taken by anyone standing there while its owner is away. give_land works in both.
+        "claim": "buy",
+        "claim_jump": True,
     },
     # Fights and arson (aivillage/conflict.py). attack: a few D&D-like rounds of automatic dice rolls:
     # each round the attacker, then the defender swings: d`die` + weapon attack >= `hit_at` hits for
