@@ -2,7 +2,7 @@
 // (720x1280, 9:16) for social media, right in the browser: the viewer replays each moment with the camera on its
 // villager (or the director camera when nobody is named), this module crops the map canvas to 9:16, draws the
 // title, the highlight line and the villager's thought (translated when RU is on), and MediaRecorder saves it.
-// Sound: if a sound module offers window.VillageSound.captureStream() (a MediaStream), its audio is recorded too.
+// Sound: the music and ambience of viewer/sound.js (Sound.captureStream()) are recorded too, as the sound button sets them.
 // Uses the viewer globals ticks / i / frac / playing / userPaused / selected / lastPanel / header / tr / Camera.
 const Clip = (() => {
   const OW = 720, OH = 1280, FPS = 30, INTRO = 2.5, MOMENT = 7, OUTRO = 2.5;
@@ -127,7 +127,7 @@ const Clip = (() => {
     const saved = { i, frac, playing, userPaused, selected, dir };
     playing = false; userPaused = true;   // the clip drives i / frac itself; live ticks keep arriving but do not move it
     const m = mime(), stream = out.captureStream(FPS);
-    const snd = window.VillageSound && VillageSound.captureStream && VillageSound.captureStream();
+    const snd = window.Sound && Sound.captureStream && Sound.captureStream();
     if (snd) snd.getAudioTracks().forEach(a => stream.addTrack(a));
     const rec = new MediaRecorder(stream, { mimeType: m, videoBitsPerSecond: 5e6 }), chunks = [];
     rec.ondataavailable = e => e.data.size && chunks.push(e.data);
