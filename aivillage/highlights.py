@@ -139,7 +139,7 @@ def by_rules(cands: list[dict], n: int = MAX_PICKS) -> list[int]:
 
 def _item(c: dict, title: str | None = None, text: str | None = None) -> dict:
     return {"tick": c["tick"], "day": c["day"], "hour": c["hour"], "time": f"день {c['day']}, {c['hour']:02d}:{c.get('minute', 0):02d}",
-            "kind": c["kind"], "who": c["who"], "title": title or TITLES.get(c["kind"], c["kind"]),
+            "kind": c["kind"], "score": c["score"], "who": c["who"], "title": title or TITLES.get(c["kind"], c["kind"]),
             "text": text or c["event"] + (f" (×{c['times']} за день)" if c["times"] > 1 else ""),
             "event": c["event"], "times": c["times"]}
 
