@@ -56,10 +56,18 @@ def test_settle_moves_the_home_first_come_once():
     assert len(settle.free_sites(w, place)) == free - 1
     assert w.locations[a.home].name == "Anna's house"
     step(w, {"Anna": ("settle", {})})
-    assert w.locations[a.home].neighbors == [place] and a.last_error  # once
+    assert w.locations[a.home].neighbors == [place] and a.last_error  # already here
+    a.location = "square"  # an empty yard may still move: the old site is free again
+    step(w, {"Anna": ("settle", {})})
+    assert w.locations[a.home].neighbors == ["square"] and len(settle.free_sites(w, place)) == free
+    a.location = place
+    step(w, {"Anna": ("settle", {})})
     a.location = a.home
     step(w, {"Anna": ("start_building", {"kind": "shelter"})})
     assert construction.sites(w)  # now there is a yard
+    a.location = "square"
+    step(w, {"Anna": ("settle", {})})
+    assert w.locations[a.home].neighbors == [place] and "stays" in a.last_error  # a site in the yard: it stays
     obs = engine.observe(w, "Boris")
     assert obs["house_sites"]["yours"] is None and obs["house_sites"]["free_here"] == free - 1
     assert "settle" in obs["available_actions"]

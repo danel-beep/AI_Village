@@ -3,7 +3,8 @@
 Everyone starts at the camp (`settle.camp`, the square) with no house site: their home location
 (`home_<Name>`, with their chest and bed) is a spot at the camp, one road from it. `settle` takes one free
 house site at the place where the villager stands, first come: the home then hangs off that place instead of
-the camp (same id, so chest, yard and everything keyed by it moves along). It is done once. Until then the
+the camp (same id, so chest, yard and everything keyed by it moves along). While the yard is still empty (no house,
+no building, no open building site) the villager may move to another free site; after that the home stays. Until then the
 villager has no yard: nothing can be built or kept in it (plots.plot_here sees no plot there).
 
 House sites come from the map: a generated map (mapgen.py) puts a few around each place a villager may want to
@@ -82,18 +83,35 @@ def free_sites(world: World, place: str) -> list[str]:
     return [sid for sid, s in sites(world.config).items() if s["near"] == place and sid not in taken]
 
 
+def movable(world: World, a: Agent) -> bool:
+    """No site yet, or the yard is still empty: the home may still go elsewhere."""
+    if unsettled(world, a.name):
+        return True
+    if a.name not in (world.settle or {}).get("homes", {}):
+        return False
+    from . import construction
+    plot = world.plots.get(a.home)
+    building = any(s["location"] == a.home for s in construction.sites(world).values())
+    return not building and (plot is None or (not plot.house and not plot.buildings))
+
+
 def _avail(ctx: Ctx, a: Agent) -> bool:
-    return unsettled(ctx.world, a.name) and bool(free_sites(ctx.world, a.location))
+    return movable(ctx.world, a) and bool(free_sites(ctx.world, a.location)) \
+        and a.home not in ctx.world.locations[a.location].neighbors
 
 
 @ACTIONS.action("settle", "Take a free house site at the place where you stand: your home (bed, chest, yard) moves "
-                "there, one road from this place. Free, first come, once.", available=_avail)
+                "there, one road from this place. Free, first come. Once something stands or is being built in your "
+                "yard, the home stays where it is.", available=_avail)
 def settle(ctx: Ctx, a: Agent, args) -> None:
     w = ctx.world
     if not active(ctx.cfg):
         raise ActionError("homes here stand where they stand")
-    if not unsettled(w, a.name):
-        raise ActionError(f"you already have a house site ({a.home})")
+    if not movable(w, a):
+        raise ActionError(f"your home ({a.home}) stays by {w.locations[a.home].neighbors[0]}: something stands or is "
+                          "being built in your yard")
+    if a.home in w.locations[a.location].neighbors:
+        raise ActionError(f"your home ({a.home}) is already one road from here")
     free = free_sites(w, a.location)
     if not free:
         open_at = sorted({s["near"] for s in sites(ctx.cfg).values()} - {a.location})
@@ -106,8 +124,9 @@ def settle(ctx: Ctx, a: Agent, args) -> None:
     home.neighbors = [place]
     w.locations[place].neighbors.append(a.home)
     home.name = f"{a.name}'s house"
-    w.settle["camp"].remove(a.name)
-    w.settle["homes"][a.name] = sid
+    if a.name in w.settle["camp"]:
+        w.settle["camp"].remove(a.name)
+    w.settle["homes"][a.name] = sid  # a site left behind is free again
     ctx.emit("settled", f"{a.name} took a house site at {w.locations[place].name}: {a.name}'s home ({a.home}) is "
              f"now one road from there.", actor=a.name, location=place, visibility="public", site=sid, home=a.home)
 
@@ -131,9 +150,10 @@ def facts(cfg: dict) -> str:
     if not active(cfg):
         return ""
     return (f"- Homes: everyone starts at the camp ({camp(cfg)}) without a house site; home_<Name> is your spot "
-            "there, one road from it. settle takes a free house site at the place where you stand (first come, "
-            "once): your home (bed, chest, yard) moves there and is one road from that place. Until then you have "
-            "no yard to build or keep things in. \"house_sites\" lists the free sites by place.")
+            "there, one road from it, with no yard to build or keep things in. settle takes a free house site at the "
+            "place where you stand (first come): your home (bed, chest, yard) moves there and is one road from that "
+            "place. It can move again until something stands or is being built in the yard. \"house_sites\" lists "
+            "your site and the free sites by place.")
 
 
 def _trail(ctx: Ctx, ev: Event, recipients: list[str]) -> None:
