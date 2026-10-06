@@ -18,7 +18,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import ops, plots, tiles
+from . import ops, plots, progress, tiles
 from .ops import Ctx
 from .registry import GOD, ActionError
 from .state import World
@@ -125,8 +125,8 @@ def _possible(w: World, kind: str, spec: dict) -> bool:
             b.get("crop") in spec["resources"] for p in w.plots.values() for b in p.buildings)
         return bool(sown) or any(w.locations[l].resources.get(r, 0) > 0
                                  for l, rs in _food_locations(w, spec["resources"]).items() for r in rs)
-    if kind in ("shortage", "caravan"):
-        return any(i in w.config["items"] for i in spec["items"])
+    if kind in ("shortage", "caravan"):  # both deal at the market: not before the trader comes (progress.py)
+        return progress.unlocked(w, "feature:trader") and any(i in w.config["items"] for i in spec["items"])
     return True
 
 

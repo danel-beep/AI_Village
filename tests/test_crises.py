@@ -175,3 +175,13 @@ def test_rats_in_empty_chests_say_nothing_was_eaten():
     w = world(enabled=False)
     c = start(w, "rats")
     assert c["victims"] and "found no food" in c["text"] and "ate" not in c["text"]
+
+
+def test_no_market_crisis_before_the_trader_comes():
+    """«С нуля»: a caravan "at the market" before a market square sent a villager to wait there for hours."""
+    w = engine.new_world(modes.world_override("survival", {"seed": 1}))
+    spec = w.config["crises"]["kinds"]
+    assert not crises._possible(w, "caravan", spec["caravan"]) and not crises._possible(w, "shortage", spec["shortage"])
+    assert crises._possible(w, "rats", spec["rats"])
+    plain = engine.new_world({"seed": 1})
+    assert crises._possible(plain, "caravan", plain.config["crises"]["kinds"]["caravan"])
