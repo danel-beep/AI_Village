@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, explore, graves, hire, labor, mapgen, modes, plots, pricing, threats, tiles, transport, works
+from . import animals, clock, construction, crises, engine, explore, graves, hire, labor, land, mapgen, modes, plots, pricing, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -347,7 +347,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
     off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config) \
         | transport.hidden_actions(world.config) \
-        | hire.hidden_actions(world.config) | construction.hidden_actions(world.config)
+        | hire.hidden_actions(world.config) | construction.hidden_actions(world.config) \
+        | land.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

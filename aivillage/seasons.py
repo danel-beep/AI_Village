@@ -112,4 +112,14 @@ def fact(cfg: dict) -> str:
     frost = ", ".join(s.get("frost", []))
     return (f"- Seasons: {', '.join(s['order'])}, {s['length_days']} day(s) each, then again. In winter nothing "
             f"can be sown, berries are gone and fish are scarce"
-            + (f"; at the first dawn of {frost} any crop still growing freezes" if frost else "") + ".")
+            + (f"; at the first dawn of {frost} any crop still growing freezes" if frost else "")
+            + "".join(f"; a {season} night costs {n} more satiety" for season, n in (s.get("night_hunger") or {}).items()
+                      if n) + ".")
+
+
+def night_hunger(cfg: dict, day: int) -> int:
+    """Extra satiety lost tonight in this season (config `seasons.night_hunger`, e.g. {"winter": 10})."""
+    s = cfg.get("seasons", {})
+    if not s.get("enabled") or not s.get("night_hunger"):
+        return 0
+    return int(s["night_hunger"].get(season_of(cfg, day), 0))
