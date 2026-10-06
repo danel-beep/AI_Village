@@ -12,7 +12,8 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import clock, conflict, crises, dice, family, governance, land, mapgen, ops, plots, reputation, seasons, tiles, works
+from . import (clock, conflict, crises, dice, family, governance, graves, labor, land, mapgen, ops, plots,
+               reputation, seasons, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -148,6 +149,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(plots.observe(world, name))
     obs.update(crises.observe(world, name))
     obs.update(land.observe(world, name))
+    obs.update(labor.observe(world, name))
+    obs.update(graves.observe(world, name))
     obs.update(dice.observe(world, name))
     obs.update(works.observe(world, name))
     if governance.enabled(cfg):
@@ -184,6 +187,8 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
             GOD.run(ctx, None, g["name"], g.get("args"))
         except ActionError as e:
             ctx.emit("god_error", f"[god] {g['name']} failed: {e}")
+    if any(g["name"] == "lightning" for g in god_events or []):
+        check_health(ctx)  # lightning: the struck villager falls at once, before acting this tick
 
     deliver_mail(ctx)
 
@@ -282,7 +287,7 @@ WAKE_RULES: dict[str, str] = {
     "whisper": "direct", "letter": "direct", "offer": "direct", "trade": "direct", "decline": "direct",
     "give": "direct", "lend": "direct", "gift": "direct",
     "steal_attempt": "direct", "witness": "direct", "robbed": "direct", "take_shared": "direct",
-    "fire": "heard",
+    "fire": "heard", "death": "heard", "order_delivered": "direct",
     "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
     "inheritance": "direct",
     "fight": "direct", "arson_seen": "direct", "land_offer": "direct", "land_sold": "direct",
@@ -377,8 +382,11 @@ def check_health(ctx: Ctx) -> None:
         a.task, a.asleep = None, False
         if cfg["death_mode"] == "death":
             a.status = "dead"
-            ctx.emit("death", f"{a.name} has died.", visibility="public")
+            graves.bury(ctx, a)
+            for n in wake_targets(w, ctx.events[-1]):  # the hour's wake-up pass is over: wake them here
+                interrupt(w, n)
             continue
+        a.harm = ""
         for k, v in list(a.inventory.items()):
             ops.burn(w, a.inventory, k, v - v // 2)
         a.status, a.status_until_day = "hospital", w.day + cfg["hospital_days"]
@@ -405,6 +413,7 @@ def night(ctx: Ctx) -> None:
     w.day += 1
     w.hour = cfg["day_start_hour"]
     seasons.new_day(ctx)
+    labor.new_day(w)
     governance.new_day(ctx)
     crises.new_day(ctx, rng_for(w, "crises"))
     for loc in w.locations.values():
@@ -456,6 +465,11 @@ def night(ctx: Ctx) -> None:
     for o in w.orders.values():
         if o.status == "open" and w.day > o.expires_day:
             o.status = "expired"
+            poster = w.agents.get(o.by)
+            if poster is not None and poster.status != "dead":  # a villager's order: the held coins come back
+                ops.mint_coins(w, poster, o.reward)
+                ctx.emit("order_expired", f"Nobody delivered your order {o.id}; your {o.reward} coins are back.",
+                         to=[poster.name], order=o.id)
     if (w.day - 2) % cfg["order_every_days"] == 0 and cfg["order_templates"]:
         for _ in range(cfg.get("orders_per_post", 1)):  # population.resolve raises it for big villages
             tpl = ctx.rng.choice(cfg["order_templates"])

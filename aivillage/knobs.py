@@ -86,6 +86,28 @@ KNOBS: list[dict[str, Any]] = [
                  ["winter", "❄️ Зима"]],
      "hint": "Авто: так, чтобы к концу прогона наступила зима."},
 
+    # --- division of labour (aivillage/labor.py) ---
+    {"key": "labor", "path": "labor.enabled", "group": "Ремёсла", "type": "toggle", "label": "Каждый добывает только своё",
+     "hint": "Рыбу ловит только рыбак, лес рубит лесоруб, зерно сеет фермер, камень, руду и золото копает шахтёр "
+             "(в режиме «Ремёсла» и ягоды собирает только фермер). Остальное жители берут друг у друга."},
+    {"key": "trade_anywhere", "path": "labor.trade_anywhere", "group": "Ремёсла", "type": "toggle",
+     "label": "Сделки на расстоянии",
+     "hint": "Предложение обмена можно принять, не стоя рядом: товар доставят. Выключено: оба должны быть в одном месте."},
+    {"key": "work_hours", "path": "labor.work_hours_per_day", "group": "Ремёсла", "type": "range",
+     "label": "Часов работы в день", "min": 0, "max": 12, "step": 1, "unit": " ч",
+     "hint": "0: без ограничения. Работает, только когда включено «Каждый добывает только своё»."},
+    {"key": "skill_bonus", "path": "labor.skill_bonus", "group": "Ремёсла", "type": "range",
+     "label": "Прибавка за уровень мастерства", "min": 0, "max": 3, "step": 1, "unit": " в час",
+     "hint": "Мастерство растёт от часов работы по своей профессии (3 уровня)."},
+    {"key": "trader_buys", "path": "labor.trader_buys_per_day.default", "group": "Ремёсла", "type": "range",
+     "label": "Торговец скупает в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
+     "hint": "Сколько штук каждого товара торговец покупает за день у всей деревни (на 5 жителей). Кто первый, тот и продал."},
+    {"key": "trader_buys_gold", "path": "labor.trader_buys_per_day.gold", "group": "Ремёсла", "type": "range",
+     "label": "Из них золота", "min": 0, "max": 40, "step": 1, "unit": " шт."},
+    {"key": "trader_sells", "path": "labor.trader_sells_per_day.default", "group": "Ремёсла", "type": "range",
+     "label": "Торговец продаёт в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
+     "hint": "Сколько штук каждого товара у торговца есть на продажу за день (на 5 жителей)."},
+
     # --- theft ---
     {"key": "steal_notice_chance", "path": "steal_notice_chance", "group": "Кражи", "type": "range", "scale": 0.01,
      "label": "Шанс, что кражу заметят", "min": 0, "max": 100, "step": 5, "unit": "%"},

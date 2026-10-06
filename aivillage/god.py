@@ -109,3 +109,14 @@ def gift(ctx: Ctx, _god, args: GiftArgs) -> None:
     elif args.coins < 0:
         ops.burn_coins(ctx.world, who, min(who.coins, -args.coins))
     ctx.emit("gift", "Something strange happened: your belongings changed overnight.", to=[who.name])
+
+
+@GOD.action("lightning", "Strike a villager with lightning: they drop to 0 health (die if death is on, "
+            "else go to the hospital).", PersonArgs)
+def lightning(ctx: Ctx, _god, args: PersonArgs) -> None:
+    victim = _agent(ctx, args.person)
+    if victim.status != "active":
+        raise ActionError(f"{victim.name} is not in the village")
+    victim.health, victim.harm = 0, "lightning"
+    ctx.emit("lightning", f"Lightning strikes {victim.name} at {ctx.world.locations[victim.location].name}!",
+             actor=victim.name, location=victim.location, visibility="public", victim=victim.name)
