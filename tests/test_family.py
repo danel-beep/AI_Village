@@ -94,6 +94,31 @@ def test_spouse_inherits_on_death(w):
     assert w.agents["Boris"].home == "home_Boris"
 
 
+def test_secret_wedding_is_known_only_to_the_couple(w):
+    w.kin.feelings = {"Anna": {"Boris": 30}, "Boris": {"Anna": 30}}
+    ev = act(w, "Anna", "propose", person="Boris", public=False)
+    assert [e.visibility for e in ev if e.kind == "proposal"] == ["private"]
+    ev = act(w, "Boris", "answer_proposal", person="Anna", accept=True)
+    (wed,) = [e for e in ev if e.kind == "wedding"]
+    assert wed.visibility == "private" and set(wed.to) | {wed.actor} == {"Anna", "Boris"}
+    assert family.spouse_of(w, "Boris") == "Anna" and not next(iter(w.kin.marriages.values())).public
+
+
+def test_estate_pays_debts_then_passes_houses(w):
+    from aivillage.state import Debt
+    w.config["death_mode"] = "death"
+    marry(w)
+    w.debts["d1"] = Debt("d1", "Clara", "Anna", 15, 5)
+    clara, total = w.agents["Clara"].coins, w.agents["Anna"].coins + w.chests["chest_Boris"].coins
+    houses = [h for h, p in w.plots.items() if p.owner == "Anna"]
+    w.agents["Anna"].health = 0
+    ev = engine.step(w, {})
+    check(w)
+    assert any(e.kind == "estate_debt" for e in ev) and w.debts["d1"].status == "repaid"
+    assert w.agents["Clara"].coins == clara + 15 and w.chests["chest_Boris"].coins == total - 15
+    assert houses and all(w.plots[h].owner == "Boris" for h in houses)
+
+
 def test_best_friend_inherits_without_spouse(w):
     w.config["death_mode"] = "death"
     w.kin.feelings = {"Anna": {"Clara": 50, "Boris": 35, "Elena": -40}}

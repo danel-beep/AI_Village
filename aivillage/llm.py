@@ -20,7 +20,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import clock, conflict, crises, governance, graves, keys, labor, land, plots
+from . import clock, conflict, crises, dice, governance, graves, keys, labor, land, plots, seasons, works
 from .bots import WorkerBot
 from . import reputation
 from .registry import ACTIONS
@@ -132,25 +132,32 @@ def world_facts(cfg: dict) -> str:
     if fam:
         lines.append(f"- Relations: your feelings about people grow from gifts, loans, trades, help and hang_out, "
                      f"fall after theft, violence or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
-                     f"share a house and chests; a spouse (else your best friend) inherits if you die.")
+                     f"share a house and chests; the proposer chooses a public or a secret wedding. If you die, your debts are paid "
+                     f"from what you leave, and the rest (things, coins, houses) goes to your spouse, else your best friend.")
     if governance.enabled(cfg):
         lines.append(governance.facts(cfg))
     if plots.enabled(cfg):
         lines.append(plots.facts(cfg))
     if crisis := crises.fact(cfg):
         lines.append(crisis)
+    if season := seasons.fact(cfg):
+        lines.append(season)
     if land.enabled(cfg):
         lines.append(land.facts(cfg))
     if labor.enabled(cfg):
         lines.append(labor.facts(cfg))
     if death := graves.facts(cfg):
         lines.append(death)
+    if works.enabled(cfg):
+        lines.append(works.facts(cfg))
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:
         lines.append(f"- Slow digging: {', '.join(caps)}, whatever your skill and tools.")
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
+    if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []):
+        lines.append(dice.facts(cfg))
     return "\n".join(lines)
 
 

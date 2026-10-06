@@ -42,6 +42,8 @@ class Agent:
     worked_today: int = 0
     skill_hours: int = 0
     harm: str = ""  # graves.py: what last hurt this agent beyond hunger (e.g. "lightning"), for the cause of death
+    # dice.py: an open challenge {"to", "stake", "expires_tick"}
+    dice_offer: dict | None = None
 
 
 @dataclass
@@ -108,6 +110,19 @@ class Project:
     contributed: dict[str, int] = field(default_factory=dict)
     contributors: dict[str, int] = field(default_factory=dict)  # agent -> units given
     done: bool = False
+    # works.py: a project that builds or upgrades a village structure (well, wall, bridge, watchtower)
+    structure: str | None = None
+    level: int = 0  # the structure's level once this project is done
+    proposer: str | None = None  # mayor / villager / "council"
+    opened_day: int = 1
+    labor: dict[str, int] = field(default_factory=dict)  # agent -> hours of build_work
+
+
+@dataclass
+class Works:
+    """Village structures (works.py): built levels and the day the village last had no open project."""
+    levels: dict[str, int] = field(default_factory=dict)
+    quiet_since: int = 1
 
 
 @dataclass
@@ -150,6 +165,10 @@ class Governance:
     # Witnessed thefts that can still be reported: {"thief", "victim", "day", "known_by": [...]}
     crimes: list[dict] = field(default_factory=list)
     exiled: dict[str, int] = field(default_factory=dict)  # name -> exiled until this day
+    # Coins the mayor quietly took from the treasury and nobody has found yet (books = coins + hidden),
+    # and who took them (mayor -> coins).
+    hidden: int = 0
+    embezzled: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Governance":
@@ -164,6 +183,7 @@ class Marriage:
     spouses: list[str]
     home: str  # the shared house (the proposer's)
     since_day: int
+    public: bool = True  # announced to the village, or known only to the couple
 
 
 @dataclass
@@ -172,6 +192,7 @@ class Proposal:
     sender: str
     to: str
     expires_day: int
+    public: bool = True  # the wedding will be announced (False: secret)
 
 
 @dataclass
@@ -230,6 +251,7 @@ class World:
     # labor.py: what the trader bought from / sold to villagers today, per item (reset at dawn)
     trader_day: dict[str, dict[str, int]] = field(default_factory=lambda: {"bought": {}, "sold": {}})
     graves: list[dict] = field(default_factory=list)  # graves.py: one per dead villager
+    works: Works = field(default_factory=Works)  # village structures (works.py)
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -267,6 +289,7 @@ class World:
             crises=d.get("crises", []),
             trader_day=d.get("trader_day", {"bought": {}, "sold": {}}),
             graves=d.get("graves", []),
+            works=Works(**d.get("works", {})),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

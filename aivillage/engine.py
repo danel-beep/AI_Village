@@ -12,8 +12,8 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (clock, conflict, crises, family, governance, graves, labor, land, mapgen, ops, plots, reputation,
-               seasons, tiles)
+from . import (clock, conflict, crises, dice, family, governance, graves, labor, land, mapgen, ops, plots,
+               reputation, seasons, tiles, works)
 from .actions import step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -58,7 +58,8 @@ def new_world(config: dict | None = None) -> World:
         w.chests[f"chest_{name}"] = Chest(f"chest_{name}", name, home)
         plots.setup(w, spec, home)
     for pid, spec in cfg["projects"].items():
-        w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]))
+        w.projects[pid] = Project(pid, spec["name"], dict(spec["needs"]), structure=spec.get("structure"),
+                                  level=1 if spec.get("structure") else 0, proposer="council")
     for a in w.agents.values():
         a.busy_until = w.tick + wake_offset(w, a.name)
     return w
@@ -128,12 +129,13 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "board": {
             "debts": [vars(d) for d in world.debts.values() if d.status != "repaid"],
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
-            "projects": [{"id": p.id, "name": p.name, "needs": p.needs, "contributed": p.contributed}
-                         for p in world.projects.values() if not p.done],
+            "projects": works.board(world),
             "trader_prices": {i: {"buy": max(1, int(v["value"] * cfg["npc_sell_ratio"]
-                                                    * crises.price_factor(world, i, "buy"))),
+                                                    * crises.price_factor(world, i, "buy")
+                                                    * works.sell_factor(world, "buy"))),
                                   "sell": max(1, int(v["value"] * cfg["npc_buy_ratio"]
-                                                     * crises.price_factor(world, i, "sell")))}
+                                                     * crises.price_factor(world, i, "sell")
+                                                     * works.sell_factor(world, "sell")))}
                               for i, v in cfg["items"].items() if v.get("tradable", True)},
             "recipes": cfg["recipes"],
             "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
@@ -149,6 +151,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(land.observe(world, name))
     obs.update(labor.observe(world, name))
     obs.update(graves.observe(world, name))
+    obs.update(dice.observe(world, name))
+    obs.update(works.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -287,6 +291,7 @@ WAKE_RULES: dict[str, str] = {
     "proposal": "direct", "proposal_refused": "direct", "wedding": "direct", "divorce": "direct",
     "inheritance": "direct",
     "fight": "direct", "arson_seen": "direct", "land_offer": "direct", "land_sold": "direct",
+    "dice_challenge": "direct", "dice": "direct",
     "say": "mention",
 }
 
@@ -339,7 +344,7 @@ def end_of_hour(ctx: Ctx) -> None:
 def burn_for(ctx: Ctx, f: Fire, hours: int) -> None:
     """The fire burns `hours` more: it grows every fire_grow_hours and takes the house when time is up."""
     cfg = ctx.cfg
-    grow = cfg["fire_grow_hours"]
+    grow = cfg["fire_grow_hours"] + works.fire_grow_bonus(ctx.world)
     before = f.water_needed
     for _ in range(hours):
         f.hours += 1
@@ -474,5 +479,6 @@ def night(ctx: Ctx) -> None:
                      f"until day {o.expires_day}.", visibility="public")
     plots.after_night(ctx)
     family.after_night(ctx)
+    works.after_night(ctx)
     conflict.random_fire(ctx)
     ctx.emit("morning", f"Day {w.day} begins.", visibility="public")

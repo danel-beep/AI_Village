@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import clock, crises, labor, ops, plots, seasons, tiles
+from . import clock, crises, labor, ops, plots, seasons, tiles, works
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Debt, Letter, Offer, Order
@@ -471,7 +471,8 @@ def _price(ctx: Ctx, item: str, side: str) -> int:
     if info is None or not info.get("tradable", True):
         raise ActionError(f"the trader does not deal in {item}")
     ratio = ctx.cfg["npc_sell_ratio"] if side == "buy" else ctx.cfg["npc_buy_ratio"]
-    return max(1, int(info["value"] * ratio * crises.price_factor(ctx.world, item, side)))
+    return max(1, int(info["value"] * ratio * crises.price_factor(ctx.world, item, side)
+                      * works.sell_factor(ctx.world, side)))
 
 
 @ACTIONS.action("buy", "Buy from the trader at the market (expensive).", MarketArgs,
@@ -620,7 +621,8 @@ def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
     qty = min(qty, stock)
     witnesses = [o.name for o in ctx.world.agents.values()
                  if o.status == "active" and not o.asleep and o.location == a.location
-                 and o.name not in (a.name, victim_name) and ctx.rng.random() < cfg["steal_notice_chance"]]
+                 and o.name not in (a.name, victim_name)
+                 and ctx.rng.random() < cfg["steal_notice_chance"] + works.notice_bonus(ctx.world)]
     for w in witnesses:
         ctx.emit("witness", f"You saw {a.name} steal {args.item} from {victim_name}!", actor=a.name, to=[w],
                  thief=a.name, victim=victim_name)
@@ -660,7 +662,7 @@ class ContributeArgs(BaseModel):
     items: ItemMap
 
 
-@ACTIONS.action("contribute", "Give items to a village project at the square. When done, everyone is rewarded.",
+@ACTIONS.action("contribute", "Give items or coins ('coins') to a village project at the square.",
                 ContributeArgs, available=lambda c, a: a.location == "square" and
                 any(not p.done for p in c.world.projects.values()))
 def contribute(ctx: Ctx, a: Agent, args: ContributeArgs) -> None:
@@ -669,29 +671,10 @@ def contribute(ctx: Ctx, a: Agent, args: ContributeArgs) -> None:
     p = ctx.world.projects.get(args.project_id)
     if p is None or p.done:
         raise ActionError(f"no open project '{args.project_id}'")
-    useful = {k: min(v, p.needs.get(k, 0) - p.contributed.get(k, 0)) for k, v in args.items.items()}
-    useful = {k: v for k, v in useful.items() if v > 0}
-    if not useful:
-        raise ActionError(f"{p.name} does not need that; it needs {fmt_items(_remaining(p))}")
-    _need(a.inventory, useful)
-    for k, v in useful.items():
-        ops.burn(ctx.world, a.inventory, k, v)
-        p.contributed[k] = p.contributed.get(k, 0) + v
-    p.contributors[a.name] = p.contributors.get(a.name, 0) + sum(useful.values())
+    useful = works.contribute(ctx, a, p, args.items)
     ctx.emit("contribute", f"{a.name} contributed {fmt_items(useful)} to {p.name}.", actor=a.name,
              visibility="public", project=p.id)
-    if not _remaining(p):
-        p.done = True
-        reward = ctx.cfg["projects"][p.id]["reward_coins_each"]
-        for other in ctx.world.agents.values():
-            if other.status != "dead":
-                ops.mint_coins(ctx.world, other, reward)
-        ctx.emit("project_done", f"{p.name} is finished! Every villager receives {reward} coins.",
-                 visibility="public", project=p.id)
-
-
-def _remaining(p) -> dict:
-    return {k: v - p.contributed.get(k, 0) for k, v in p.needs.items() if p.contributed.get(k, 0) < v}
+    works.maybe_finish(ctx, p)
 
 
 class OrderArgs(BaseModel):
