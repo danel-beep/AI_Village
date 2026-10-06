@@ -80,6 +80,8 @@
       #su .vr input, #su .vr select { width:100%; box-sizing:border-box; background:#1d2321; color:#e8efe9;
         border:1px solid #4a5650; border-radius:6px; padding:6px 8px; font:13px system-ui; }
       #su .vr .own { grid-column:1 / -1; }
+      #su .vr select.look { grid-column:1 / 3; }
+      #su .vr .face { width:30px; height:39px; image-rendering:pixelated; align-self:center; }
       #su .vr .hint { grid-column:1 / -1; margin:0; }
       @media (max-width:560px) { #su .vr { grid-template-columns:1fr 1fr; } #su .vr select.ch { grid-column:1 / -1; } }
       #su .vbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
@@ -297,7 +299,24 @@
           showAbout(); remember();
         };
         showAbout();
-        r.append(name, prof, ch, own, about);
+        // Look (viewer/sprites.js): automatic = by the name's sex and the profession; or any of the drawn villagers.
+        const look = document.createElement('select');
+        look.className = 'look'; look.title = 'Внешность';
+        look.add(new Option('🎲 Внешность: авто', ''));
+        const S = window.Sprites, nl = (S && S.LOOKS) || 0;
+        for (let k = 0; k < nl; k++) look.add(new Option(`${S.lookIsFemale(k) ? '👩' : '👨'} Внешность ${k + 1}`, String(k)));
+        look.value = Number.isInteger(v.look) ? String(v.look) : '';
+        const face = document.createElement('canvas');
+        face.className = 'face'; face.width = 20; face.height = 26;
+        const showFace = () => {
+          const g = face.getContext('2d'); g.clearRect(0, 0, face.width, face.height);
+          const sheet = Number.isInteger(v.look) && S && S.ok && S.villager(v.look);
+          face.hidden = !sheet;
+          if (sheet) g.drawImage(sheet, 0, 0, sheet.fw, sheet.fh, (face.width - sheet.fw) / 2, face.height - sheet.fh, sheet.fw, sheet.fh);
+        };
+        look.onchange = () => { if (look.value === '') delete v.look; else v.look = +look.value; showFace(); remember(); };
+        if (S && !S.ok) S.onReady(showFace); else showFace();
+        r.append(name, prof, ch, look, face, own, about);
         list.appendChild(r);
       });
     }

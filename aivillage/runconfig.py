@@ -38,6 +38,8 @@ class AgentSpec(Strict):
     # Character hint for an LLM villager (aivillage/llm.py CHARACTERS): a preset key, free text, or
     # "default" for the neutral prompt; None = follow the run's `characters`.
     character: str | None = Field(default=None, max_length=300)
+    # Viewer look (viewer/sprites.js villager sheets v0..v23); None = picked by name and profession.
+    look: int | None = Field(default=None, ge=0, le=23)
 
     @model_validator(mode="after")
     def one_brain(self):
@@ -130,7 +132,7 @@ class RunConfig(Strict):
             out["characters"] = self.characters
         if self.agents is not None:
             out["agents"] = [{"name": a.name, "profession": a.profession,
-                              **a.model_dump(include={"plot_cells", "house_level", "buildings", "character"}, exclude_none=True)}
+                              **a.model_dump(include={"plot_cells", "house_level", "buildings", "character", "look"}, exclude_none=True)}
                              for a in self.agents]
         if self.villagers:
             out["population"] = {**(out.get("population") or {}), "size": self.villagers}
