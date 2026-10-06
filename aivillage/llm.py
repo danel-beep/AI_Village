@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                theft, threats, works)
 from .bots import WorkerBot
-from . import animals, chronicle, construction, crafting, explore, handbook, hire, luxury, market, places, progress, reputation, spoilage, taxes, transport
+from . import addressed, animals, chronicle, construction, crafting, explore, handbook, hire, luxury, market, places, progress, reputation, spoilage, taxes, transport
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -46,7 +46,7 @@ World facts:
 
 Rules of thumb:
 - Only use items you actually have: check "you.inventory" before eat, sell, give, craft or offer.
-- buy/sell work only at the market. Talking to or giving to someone needs them in the same place ("here.people"); so does trading, unless World facts say trades are carried.
+- buy/sell work only at the market. Talking to someone needs them in the same place ("here.people"); so do giving and trading, unless World facts say trades and gifts are carried.
 - If "last_error" is set, your previous action failed: read why and do something different.
 - Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
 - Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.
@@ -121,6 +121,11 @@ def world_facts(cfg: dict) -> str:
     food = ", ".join(f"{k} +{v['food']}" for k, v in items.items() if v.get("food"))
     lines = [f"- Food (satiety gained per item): {food}. Nothing else is edible.",
              f"- You lose {cfg['satiety_loss_per_hour']} satiety per hour awake and {cfg['satiety_loss_night']} at night."]
+    if cfg.get("hungry_seen_below"):
+        lines.append(f"- \"here.people\" shows a person as \"hungry\" below {cfg['hungry_seen_below']} satiety and "
+                     "\"starving\" at 0.")
+    if said := addressed.facts(cfg):
+        lines.append(said)
     for rid, r in ({} if crafting.enabled(cfg) else cfg["recipes"]).items():
         ins = " + ".join(f"{n} {k}" for k, n in r["inputs"].items())
         who = f", only a {r['profession']}" if r["profession"] else ""
