@@ -39,6 +39,12 @@ const MapLayer = (() => {
 
   function bed(g, [x, y, w, h], have, cap, sown, sec) {
     const { R, P, C, rnd } = K;
+    if (window.Sprites && Sprites.has('soil_ripe')) {   // a row of SpriteCook soil patches at the crop's stage
+      const f = have / cap, n = Math.max(1, Math.round(w / 14)),
+            name = have >= cap ? 'soil_ripe' : have ? (f < .5 ? 'soil_sprout' : 'soil_growing') : sown ? 'soil_sprout' : 'soil';
+      for (let k = 0; k < n; k++) SP(g, name, x + (k + .5) * w / n, y + h + 1, { s: Math.min(1, (w / n + 2) / 16) });
+      return;
+    }
     R(g, x - 1, y - 1, w + 2, h + 2, C.soilD); R(g, x, y, w, h, C.soil);
     for (let yy = y + 3; yy < y + h; yy += 4) R(g, x + 1, yy, w - 2, 1, C.soilD);
     const ripe = have >= cap, f = have / cap;

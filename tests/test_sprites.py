@@ -24,22 +24,24 @@ def test_frames_inside_atlas_png():
 
 def test_every_sprite_the_viewer_names_exists():
     frames = atlas()["frames"]
-    code = "".join((VIEWER / f).read_text() for f in ("pixelmap.js", "maplayer.js", "plotlayer.js"))
+    code = "".join((VIEWER / f).read_text() for f in ("pixelmap.js", "maplayer.js", "plotlayer.js", "mapgen.js", "sprites.js"))
     named = set(re.findall(r"SP\(g, '(\w+)'", code))   # literal names; the conditional ones below
     for a, b in re.findall(r"\? '(\w+)' : '(\w+)'", "\n".join(ln for ln in code.splitlines() if "SP(g" in ln)):
         named |= {a, b}
     named |= {"pine", "oak", "apple_tree", "copper_rock", "gold_rock", "crystal_rock", "boulder", "fire0", "fire3"}
     assert named <= set(frames), named - set(frames)
+    named |= set(re.findall(r"'(tex_\w+)'", code))
     for level in (1, 2, 3):
-        for roof in range(6):
-            assert f"house{level}_r{roof}" in frames
-    for look in range(12):
+        for style in ("", "a", "b", "c"):
+            for roof in range(6):
+                assert f"house{level}{style}_r{roof}" in frames
+    for look in range(24):
         for pose in ("down", "step", "up", "side"):
             assert f"v{look}_{pose}" in frames
 
 
 def test_house_meta_for_smoke_and_lights():
     meta = atlas()["meta"]
-    for level in (1, 2, 3):
-        m = meta[f"house{level}"]
-        assert m["chimney"][1] < 0 and m["windows"]
+    for name in [f"house{level}{style}" for level in (1, 2, 3) for style in ("", "a", "b", "c")]:
+        m = meta[name]
+        assert m["chimney"][1] < 0 and (m["windows"] or name[-1] in "abc"), name   # a template may have shutters only

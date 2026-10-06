@@ -146,6 +146,89 @@ const PixelMap = (() => {
     }
   }
 
+  // Ground from the SpriteCook textures (tex_* in the atlas). Every kind of ground is a layer; a pixel takes the top
+  // layer whose tile plan, blended bilinearly between tile centres plus one shared value noise, is over one half,
+  // so edges come out rounded and a little ragged instead of square. Then edges get shading: a wet bank and foam
+  // along water, a dark rim on cobbles and beds, a soft shadow along roads. Returns false without the textures.
+  const LAYER = { grass: 0, block: 0, forest: 1, soil: 2, path: 3, cobble: 4, water: 5, dock: 5 };
+  const LAYER_TEX = ['tex_grass2', 'tex_moss', 'tex_soil', 'tex_dirt', 'tex_cobble', 'tex_water'];
+  function terrain(g) {
+    if (!window.Sprites || !Sprites.has('tex_grass2')) return false;
+    const tex = {}; [...LAYER_TEX, 'tex_grass', 'tex_flowers', 'tex_deep'].forEach(n => { tex[n] = Sprites.pixels(n); });
+    const tc = Math.ceil(W / T) + 2, tr = Math.ceil(H / T) + 2, tl = new Int8Array(tc * tr);
+    const tile = (x, y) => tl[(Math.max(-1, Math.min(tc - 2, y)) + 1) * tc + Math.max(-1, Math.min(tc - 2, x)) + 1];
+    for (let y = -1; y < tr - 1; y++) for (let x = -1; x < tc - 1; x++) {
+      const k = layout.kind[x + ',' + y] || (x < 0 && kindAt(0, Math.max(0, y)) === 'water' ? 'water' : 'grass');
+      tl[(y + 1) * tc + x + 1] = LAYER[k] ?? 0;
+    }
+    // roads drawn with diagonal steps touch only at corners: fill one side so they stay connected
+    for (let y = -1; y < tr - 2; y++) for (let x = -1; x < tc - 2; x++) for (const L of [3, 4]) {
+      const a = tile(x, y) === L, b = tile(x + 1, y + 1) === L, c = tile(x + 1, y) === L, d = tile(x, y + 1) === L;
+      if (a && b && !c && !d && tile(x + 1, y) < L) tl[(y + 1) * tc + x + 2] = L;
+      if (c && d && !a && !b && tile(x, y) < L) tl[(y + 1) * tc + x + 1] = L;
+    }
+    const deep = (x, y) => { for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (tile(x + i, y + j) !== 5) return 0; return 1; };
+    const smooth = t => t * t * (3 - 2 * t);
+    const noise = (X, Y, s, seed) => {
+      const u = X / s, v = Y / s, i = Math.floor(u), j = Math.floor(v), fx = smooth(u - i), fy = smooth(v - j);
+      const a = rnd(i, j, seed), b = rnd(i + 1, j, seed), c = rnd(i, j + 1, seed), d = rnd(i + 1, j + 1, seed);
+      return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+    };
+    const lay = new Int8Array(W * H), deepAt = new Uint8Array(W * H);
+    for (let Y = 0; Y < H; Y++) {
+      const v = (Y + .5) / T - .5, ty = Math.floor(v), fy = v - ty;
+      for (let X = 0; X < W; X++) {
+        const u = (X + .5) / T - .5, tx = Math.floor(u), fx = u - tx;
+        const t00 = tile(tx, ty), t10 = tile(tx + 1, ty), t01 = tile(tx, ty + 1), t11 = tile(tx + 1, ty + 1);
+        const n = (noise(X, Y, 6, 1) - .5) * .32 + (rnd(X, Y, 2) - .5) * .06;
+        let L = 0;
+        for (let l = Math.max(t00, t10, t01, t11); l > 0; l--) {
+          const w = ((t00 >= l) * (1 - fx) + (t10 >= l) * fx) * (1 - fy) + ((t01 >= l) * (1 - fx) + (t11 >= l) * fx) * fy;
+          if (w + n > .5) { L = l; break; }
+        }
+        lay[Y * W + X] = L;
+        if (L === 5) {
+          const w = (deep(tx, ty) * (1 - fx) + deep(tx + 1, ty) * fx) * (1 - fy) + (deep(tx, ty + 1) * (1 - fx) + deep(tx + 1, ty + 1) * fx) * fy;
+          deepAt[Y * W + X] = Math.round(255 * Math.max(0, Math.min(1, (w + (noise(X, Y, 9, 3) - .5) * .5 - .25) * 1.6)));
+        }
+      }
+    }
+    const img = g.createImageData(W, H), out = img.data;
+    const at = (n, X, Y) => { const t = tex[n], i = ((Y % t.height) * t.width + X % t.width) * 4; return t.data.subarray(i, i + 3); };
+    const near = (X, Y, r, test) => {   // is any pixel within r (4-neighbour rings) passing test?
+      for (let d = 1; d <= r; d++) for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) {
+        const x = X + dx, y = Y + dy;
+        if (x >= 0 && y >= 0 && x < W && y < H && test(lay[y * W + x])) return d;
+      }
+      return 0;
+    };
+    for (let Y = 0; Y < H; Y++) for (let X = 0; X < W; X++) {
+      const i = Y * W + X, L = lay[i];
+      let c = at(LAYER_TEX[L], X, Y), f = 1, mix = null, mixA = 0;
+      if (L === 5 && deepAt[i]) { mix = at('tex_deep', X, Y); mixA = deepAt[i] / 255 * .85; }
+      if (L === 0) {   // soft patches of lighter grass and a few flower meadows break the repetition
+        const m = noise(X, Y, 40, 5);
+        mix = at('tex_grass', X, Y); mixA = Math.max(.2, Math.min(.6, .2 + (m - .5) * 2));
+        if (noise(X, Y, 24, 6) > .8) { mix = at('tex_flowers', X, Y); mixA = 1; }
+      }
+      if (L === 5) {
+        const d = near(X, Y, 2, l => l !== 5);
+        if (d === 1) { mix = [214, 236, 246]; mixA = .55; } else if (d === 2) { mix = [190, 224, 240]; mixA = .25; }
+      } else {
+        const w = near(X, Y, 2, l => l === 5);
+        if (w) f = w === 1 ? .62 : .8;   // wet bank
+        else if (L === 4 && near(X, Y, 1, l => l < 4)) f = .62;
+        else if ((L === 2 || L === 3) && near(X, Y, 1, l => l < L)) f = .82;
+        else if (L < 3 && near(X, Y, 1, l => l === 3 || l === 4)) f = .86;
+      }
+      const o = i * 4;
+      for (let k = 0; k < 3; k++) out[o + k] = Math.round(((mix ? c[k] * (1 - mixA) + mix[k] * mixA : c[k])) * f);
+      out[o + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return true;
+  }
+
   // Sprite art (viewer/sprites.js) when the atlas is loaded; the code-drawn art below is the fallback.
   const SP = (g, n, x, y, o) => window.Sprites && Sprites.draw(g, n, x, y, o);
   const ORE = { '#d4a83a': 'gold_rock', '#7ad0e0': 'crystal_rock' };
@@ -174,7 +257,27 @@ const PixelMap = (() => {
   function rock(g, x, y, ore) { if (SP(g, ore ? ORE[ore] || 'copper_rock' : 'boulder', x + 8, y + 16)) return;
     blob(g, x + 8, y + 10, 6, 5, [C.stoneL, C.stone, C.stoneD]);
     if (ore) { P(g, x + 6, y + 9, ore); P(g, x + 9, y + 11, ore); P(g, x + 10, y + 8, ore); } }
+  // Wooden planks (dock, bridge) from the tex_planks texture, code-drawn without it.
+  function planks(g, x, y, w, h) {
+    const pat = window.Sprites && Sprites.has('tex_planks') && Sprites.pattern(g, 'tex_planks');
+    if (pat) { g.fillStyle = pat; g.fillRect(x, y, w, h); R(g, x, y, w, 1, C.k); R(g, x, y + h - 1, w, 1, C.k); R(g, x, y + h, w, 1, 'rgba(0,0,0,.25)'); }
+    else for (let xx = x; xx < x + w; xx++) for (let yy = y; yy < y + h; yy++)
+      P(g, xx, yy, yy === y || yy === y + h - 1 ? C.k : xx % 5 === 0 ? C.woodD : C.woodL);
+  }
+  // Fence around a rectangle (x0, y0)-(x1, y1) with a gap in the bottom side at gapX: sprite rails and posts.
+  function fenceSprite(g, x0, y0, x1, y1, gapX) {
+    if (!window.Sprites || !Sprites.has('fence_h') || !Sprites.has('fence_v')) return false;
+    const [, vh] = Sprites.size('fence_v'), step = Math.max(8, vh - 4);
+    for (let y = y0 + step; y < y1; y += step) { SP(g, 'fence_v', x0 + 1, Math.min(y + 4, y1 + 2)); SP(g, 'fence_v', x1, Math.min(y + 4, y1 + 2)); }
+    const xs = []; for (let x = x0; x < x1 - 4; x += 16) xs.push(Math.min(x, x1 - 16));
+    for (const x of xs) {
+      SP(g, 'fence_h', x + 8, y0 + 5);
+      if (gapX == null || Math.abs(x + 8 - gapX) >= 12) SP(g, 'fence_h', x + 8, y1 + 5);
+    }
+    return true;
+  }
   function fence(g, x0, y0, x1, y1, gapX) {
+    if (fenceSprite(g, x0, y0, x1, y1, gapX)) return;
     for (let x = x0; x <= x1; x++) for (const y of [y0, y1]) if (!(y === y1 && Math.abs(x - gapX) < 9)) {
       P(g, x, y + 2, C.woodD); P(g, x, y + 5, C.woodD); if (x % 8 === 0) R(g, x, y, 2, 8, C.wood); }
     for (let y = y0; y <= y1; y += 8) for (const x of [x0, x1]) R(g, x, y, 2, 8, C.wood);
@@ -183,7 +286,11 @@ const PixelMap = (() => {
   // A house sprite of the given level (1-3) in the owner's roof colour, standing on the 3x3 lot; sets the chimney
   // (smoke) and windows (night lights) to the sprite's. Returns false when there is no sprite art.
   function houseSprite(g, h, level) {
-    const n = 'house' + level, k = Math.max(0, ROOFS.indexOf(h.roof)), bx = h.x + 24, by = h.y + 47;
+    // four looks per level: the first generated house or one of the three templates, picked by the owner's name
+    const style = h.name ? [...h.name].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) % 4 : 0;
+    let n = 'house' + level + (style ? 'abc'[style - 1] : '');
+    if (!window.Sprites || !Sprites.has(n + '_r0')) n = 'house' + level;
+    const k = Math.max(0, ROOFS.indexOf(h.roof)), bx = h.x + 24, by = h.y + 47;
     if (!window.Sprites || !Sprites.has(n + '_r' + k)) return false;
     if (level > 1 && layout.ground) g.drawImage(layout.ground, h.x, h.y - 2, 3 * T, 3 * T + 2, h.x, h.y - 2, 3 * T, 3 * T + 2);
     SP(g, n + '_r' + k, bx, by);
@@ -268,17 +375,22 @@ const PixelMap = (() => {
 
   function river(g) {
     // dock planks
-    for (let x = 1 * T; x < 4 * T; x++) for (let y = 9 * T + 3; y < 10 * T - 2; y++)
-      P(g, x, y, y === 9 * T + 3 || y === 10 * T - 3 ? C.k : x % 5 === 0 ? C.woodD : C.woodL);
+    planks(g, T, 9 * T + 3, 3 * T, T - 5);
     for (const x of [T + 2, 2 * T + 6]) R(g, x, 10 * T - 2, 2, 4, C.woodD);
     for (let y = 0; y < H; y += 9) if (rnd(3, y) < .45 && Math.abs(y - 9 * T) > 20) {
-      const x = 3 * T - 2 + (rnd(y, 3) * 3 | 0); R(g, x, y, 1, 5, C.leafD); R(g, x + 2, y + 1, 1, 4, C.leaf); P(g, x, y - 1, '#7a5030'); }
+      const x = 3 * T - 2 + (rnd(y, 3) * 3 | 0);
+      if (rnd(y, 4) < .5 && SP(g, 'reeds', x + 2, y + 8)) continue;
+      R(g, x, y, 1, 5, C.leafD); R(g, x + 2, y + 1, 1, 4, C.leaf); P(g, x, y - 1, '#7a5030'); }
+    for (let y = 2 * T; y < H; y += 5 * T) SP(g, 'lilypads', T + (rnd(y, 6) * T | 0), y + (rnd(y, 7) * 2 * T | 0));
     rock(g, 2 * T + 2, 13 * T, null); rock(g, 2 * T + 6, 4 * T, null);
   }
 
   function smithy(g) {
     const x = 20 * T, y = 8 * T;
-    if (SP(g, 'smithy', x + 32, y + 64)) { layout.forge = [x + 29, y + 49]; layout.smithyChimney = [x + 47, y + 1]; return; }
+    if (SP(g, 'smithy', x + 32, y + 64)) {   // spots measured on the 60 px wide sprite, scaled to its size now
+      const k = Sprites.size('smithy')[0] / 60;
+      layout.forge = [x + 32 - 3 * k, y + 64 - 15 * k]; layout.smithyChimney = [x + 32 + 15 * k, y + 64 - 63 * k]; return;
+    }
     R(g, x + 2, y + 62, 60, 2, 'rgba(0,0,0,.2)');
     R(g, x + 2, y + 26, 60, 36, C.k);
     for (let yy = y + 27; yy < y + 61; yy++) for (let xx = x + 3; xx < x + 61; xx++)
@@ -297,7 +409,8 @@ const PixelMap = (() => {
 
   function mine(g) {
     const x0 = 25 * T, y0 = 8 * T;
-    if (SP(g, 'mine', x0 + 38, y0 + 62)) {
+    if (SP(g, 'mine', x0 + 38, y0 + 62)) {   // a cart of ore and a coal crate by the shared mine's mouth
+      SP(g, 'mine_cart', x0 + 68, y0 + 62); SP(g, 'coal_crate', x0 + 8, y0 + 60);
       if (!window.MapLayer) { rock(g, 29 * T - 4, 12 * T, '#d4a83a'); rock(g, 25 * T + 2, 12 * T + 2, '#7ad0e0'); rock(g, 28 * T, 13 * T + 4, null); }
       return;
     }
@@ -348,10 +461,13 @@ const PixelMap = (() => {
     layout.ground = c;
   }
   function paintBackground() {
+    layout.shimmer = [];   // glints on open water (the river, wherever it runs, and ponds)
+    for (let y = 2; y < H; y += 7) for (let x = 2; x < W - 4; x += 11)
+      if (kindAt(x / T | 0, y / T | 0) === 'water' && kindAt((x + 4) / T | 0, y / T | 0) === 'water') layout.shimmer.push([x, y]);
     bg = document.createElement('canvas'); bg.width = W; bg.height = H;
     const g = bg.getContext('2d');
     if (layout.gen) return paintGenerated(g);
-    paintGround(g); river(g); field(g); square(g); market(g); smithy(g); mine(g); decor(g);
+    terrain(g) || paintGround(g); river(g); field(g); square(g); market(g); smithy(g); mine(g); decor(g);
     groundCopy(); layout.houses.forEach(h => house(g, h)); forest(g);
   }
 
@@ -359,7 +475,7 @@ const PixelMap = (() => {
   function paintGenerated(g) {
     const at = (id, fn) => { const [dx, dy] = layout.off[id] || [0, 0]; g.save(); g.translate(dx, dy); fn(g); g.restore(); return [dx, dy]; };
     const move = ([x, y], [dx, dy]) => [x + dx, y + dy];
-    paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock });
+    terrain(g) || paintGround(g); GenMap.paint(g, layout, { T, C, R, P, blob, rnd, rock, SP, fence, planks });
     at('field', field);
     const sq = at('square', square); layout.lamps = layout.lamps.map(p => move(p, sq));
     at('market', market);
@@ -371,9 +487,10 @@ const PixelMap = (() => {
   // ---------- characters ----------
   // Sprite villagers: a look that fits the profession (straw hat for the farmer, apron for the smith...), each look once
   // while there are enough of them.
-  const PROF_LOOK = { farmer: [0, 5], smith: [4, 10], fisher: [9, 6], woodcutter: [6, 2], miner: [10, 3] };
+  const PROF_LOOK = { farmer: [0, 5, 23], smith: [4, 10], fisher: [9, 6], woodcutter: [16, 6, 2], miner: [12, 10, 3],
+                      trader: [18], merchant: [18] };
   function pickLooks(agents) {
-    const used = new Set(), out = {}, n = 12;
+    const used = new Set(), out = {}, n = (window.Sprites && Sprites.LOOKS) || 12;
     agents.forEach((a, k) => {
       const pref = [...(PROF_LOOK[a.profession] || []), ...Array.from({ length: n }, (_, i) => (k + i) % n)];
       const look = pref.find(i => !used.has(i)) ?? k % n; used.add(look); out[a.name] = look;
@@ -474,7 +591,7 @@ const PixelMap = (() => {
     const e = Math.min(1, frac), sec = time / 1000;
     b.drawImage(bg, 0, 0);
     // water shimmer
-    for (let y = 2; y < H; y += 7) for (let x = 2; x < 3 * T - 6; x += 11) {
+    for (const [x, y] of layout.shimmer) {
       const ph = (sec * .8 + rnd(x, y) * 6) % 6; if (ph > 1.2) continue;
       R(b, x + (ph * 3 | 0), y, 3, 1, C.waterL);
     }
