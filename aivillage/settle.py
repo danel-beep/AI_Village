@@ -97,7 +97,7 @@ def movable(world: World, a: Agent) -> bool:
 
 def _avail(ctx: Ctx, a: Agent) -> bool:
     return movable(ctx.world, a) and bool(free_sites(ctx.world, a.location)) \
-        and a.home not in ctx.world.locations[a.location].neighbors
+        and (unsettled(ctx.world, a.name) or a.home not in ctx.world.locations[a.location].neighbors)
 
 
 @ACTIONS.action("settle", "Take a free house site at the place where you stand: your home (bed, chest, yard) moves "
@@ -110,7 +110,7 @@ def settle(ctx: Ctx, a: Agent, args) -> None:
     if not movable(w, a):
         raise ActionError(f"your home ({a.home}) stays by {w.locations[a.home].neighbors[0]}: something stands or is "
                           "being built in your yard")
-    if a.home in w.locations[a.location].neighbors:
+    if a.home in w.locations[a.location].neighbors and not unsettled(w, a.name):  # the camp spot is no site
         raise ActionError(f"your home ({a.home}) is already one road from here")
     free = free_sites(w, a.location)
     if not free:

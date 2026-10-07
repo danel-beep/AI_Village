@@ -73,6 +73,23 @@ def test_settle_moves_the_home_first_come_once():
     assert "settle" in obs["available_actions"]
 
 
+def test_settle_at_the_camp_itself():
+    """The camp spot hangs off the camp but is no house site: a free site at the camp can still be taken
+    (live run 2026-10-07: Elena was told "already one road from here" and had no yard for 4 days)."""
+    w = world()
+    a = w.agents["Elena"]
+    a.location = "square"
+    assert settle.free_sites(w, "square") and "settle" in engine.observe(w, "Elena")["available_actions"]
+    step(w, {"Elena": ("settle", {})})
+    assert not a.last_error and "Elena" not in w.settle["camp"] and w.settle["homes"]["Elena"]
+    a.location = a.home
+    step(w, {"Elena": ("start_building", {"kind": "shelter"})})
+    assert construction.sites(w)  # a yard now
+    a.location = "square"
+    step(w, {"Elena": ("settle", {})})
+    assert a.last_error  # settled: no second site at the same place
+
+
 def test_walks_leave_trails():
     w = world()
     a = w.agents["Anna"]
