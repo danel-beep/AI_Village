@@ -10,6 +10,9 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
   economy mode (so switching the mode moves the slider), and the value lands in the run's world override.
   A knob whose path is not in DEFAULT_CONFIG yet is hidden, so knobs can be listed before their feature lands.
 - no `path`: a run option handled in `to_run()` (villagers, days, mode, pace, ...).
+- `action`: a toggle that switches one action on or off (off = added to `disabled_actions`); its default
+  follows the mode, like `path` knobs.
+- `also`: more config paths that get the same value as `path`.
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
 - `only`: "llm" or "bots" shows the knob for that kind of village only; `mode`: shown in that economy mode only.
 - `group`: fallback section title. Where a knob shows is set by MAIN (always on top) and SECTIONS (folded
@@ -333,6 +336,25 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "0: играют только на свои. Больше: проигравший без денег остаётся должен победителю."},
 
     # --- crises (aivillage/crises.py) ---
+    {"key": "combat", "path": "combat.enabled", "group": "Драки", "type": "toggle", "label": "Драки",
+     "hint": "Несколько раундов кубиков; оружие (инструмент, дубинка, копьё) помогает, победитель забирает добычу."},
+    {"key": "combat_rounds", "path": "combat.rounds", "group": "Драки", "type": "range", "label": "Раундов в драке",
+     "min": 1, "max": 6, "step": 1},
+    {"key": "combat_loot", "path": "combat.loot_max", "group": "Драки", "type": "range",
+     "label": "Победитель забирает вещей", "min": 0, "max": 10, "step": 1, "unit": " шт."},
+    {"key": "combat_loot_coins", "path": "combat.loot_coins_max", "group": "Драки", "type": "range",
+     "label": "Победитель забирает монет", "min": 0, "max": 50, "step": 5},
+    {"key": "combat_min_health", "path": "combat.min_health", "group": "Драки", "type": "range",
+     "label": "Нельзя начать драку при здоровье ниже", "min": 0, "max": 80, "step": 5},
+
+    {"key": "land", "path": "land.enabled", "group": "Земля и шахта", "type": "toggle", "label": "Продажа участков",
+     "hint": "Пустые участки можно купить у деревни и перепродать друг другу."},
+    {"key": "land_price", "path": "land.price_per_cell", "group": "Земля и шахта", "type": "range",
+     "label": "Цена клетки земли", "min": 1, "max": 30, "step": 1, "unit": " мон."},
+    {"key": "gold", "path": "locations.mine.resources.gold.start", "also": ["locations.mine.resources.gold.max"],
+     "group": "Земля и шахта", "type": "range", "label": "Золота в шахте", "min": 0, "max": 100, "step": 2,
+     "unit": " шт.", "hint": "Запас конечный: выкопанное золото не возвращается."},
+
     {"key": "crises", "path": "crises.enabled", "group": "Кризисы", "type": "toggle", "label": "Кризисы мира",
      "hint": "Неурожай, засуха, крысы, нехватка у торговца, караван: бьют по жителям неравномерно."},
     {"key": "crisis_chance", "path": "crises.chance_per_day", "group": "Кризисы", "type": "range", "scale": 0.01,
@@ -409,6 +431,10 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Пересчёт казны при смене мэра"},
 
     # --- fires ---
+    {"key": "allow_arson", "action": "set_fire", "group": "Пожары и заказы", "type": "toggle",
+     "label": "Жители могут поджигать чужие дома", "hint": "Поджог стоит дров; семья дома видит, кто это сделал."},
+    {"key": "arson_wood", "path": "combat.arson_wood", "group": "Пожары и заказы", "type": "range",
+     "label": "Дров на поджог", "min": 0, "max": 5, "step": 1, "unit": " шт."},
     {"key": "fire_ticks", "path": "fire_ticks", "group": "Пожары и заказы", "type": "range",
      "label": "Сколько часов горит дом до потери", "min": 2, "max": 24, "step": 1, "unit": " ч"},
     {"key": "fire_water_needed", "path": "fire_water_needed", "group": "Пожары и заказы", "type": "range",
@@ -456,6 +482,12 @@ KNOBS: list[dict[str, Any]] = [
 
 # Short plain-word hints for knobs that have no `hint` of their own (the start screen shows one under every knob).
 HINTS = {
+    "combat_rounds": "Сколько раз противники по очереди бросают кубики в одной драке.",
+    "combat_loot": "Сколько вещей победитель может отнять у проигравшего.",
+    "combat_loot_coins": "Сколько монет победитель может отнять у проигравшего.",
+    "combat_min_health": "Слабый житель не может начать драку, пока не подлечится.",
+    "arson_wood": "Сколько дров поджигатель тратит на растопку. 0: поджечь можно бесплатно.",
+    "land_price": "Сколько монет стоит одна клетка пустого участка у деревни.",
     "days": "Сколько игровых суток длится деревня. Один день проходит за несколько минут.",
     "bot_mix": "Боты: простые программы вместо ИИ. Выберите, какие повадки будут у большинства.",
     "start_coins": "Сколько денег у каждого жителя в первый день.",
@@ -522,17 +554,19 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🕵️ Кражи", "Насколько легко украсть и попасться.",
      ["theft_rules", "see_stores", "steal_notice_chance", "steal_awake_target_success", "max_steal_qty",
       "dark_factor", "owner_notice", "victim_notice"]),
+    ("⚔️ Драки", "Можно ли драться, сколько длится драка и что забирает победитель.",
+     ["combat", "combat_rounds", "combat_loot", "combat_loot_coins", "combat_min_health"]),
     ("🗣 Слухи и разговоры", "Как искажаются пересказы и сколько стоит объявление.",
      ["mishear_number", "mishear_name", "overhear", "origin_hops", "announce_cost"]),
     ("⚡ Беды и случайности", "Пожары, болезни, набеги, звери и кризисы. Наверху один общий переключатель.",
      ["chaos", "random_fire", "sickness_chance", "illness_spread", "raid_chance", "beast_chance", "threat_warn",
       "threat_warn_days", "traveler_chance", "scout_chance", "fire_ticks", "fire_water_needed", "fire_spread_hours",
-      "crises", "crisis_chance", "crisis_first_day", "crisis_max_quiet", "crisis_gap", "crisis_w_crop_failure",
+      "allow_arson", "arson_wood", "crises", "crisis_chance", "crisis_first_day", "crisis_max_quiet", "crisis_gap", "crisis_w_crop_failure",
       "crisis_w_drought", "crisis_w_rats", "crisis_w_shortage", "crisis_w_caravan"]),
     ("🐗 Звери, транспорт и азарт", "Охота, лошади и телеги, кости на деньги.",
      ["animals", "transport", "dice", "dice_max_stake", "dice_credit"]),
     ("🗺 Карта и земля", "Размер карты, разведка, участки под дома и номер деревни.",
-     ["map_size", "explore", "settle", "settle_spread", "land_claim", "land_jump", "regrowth", "fixed_map", "seed"]),
+     ["map_size", "explore", "settle", "settle_spread", "land_claim", "land_jump", "land", "land_price", "gold", "regrowth", "fixed_map", "seed"]),
     ("⏱ Скорость", "Как быстро идёт время на экране и как часто жители думают.",
      ["pace", "tick_minutes"]),
 ]
@@ -647,13 +681,16 @@ def _to_ui(knob: dict, value: Any) -> Any:
 def mode_defaults(mode: str) -> dict[str, Any]:
     """Slider positions for `mode`: the effective config value of every path knob."""
     cfg = make_config(modes.world_override(mode))
-    return {k["key"]: _to_ui(k, _get(cfg, k["path"])) for k in active() if "path" in k}
+    off = set(modes.disabled(mode))
+    out = {k["key"]: _to_ui(k, _get(cfg, k["path"])) for k in active() if "path" in k}
+    out.update({k["key"]: k["action"] not in off for k in active() if "action" in k})
+    return out
 
 
 def schema() -> dict:
     ordered, sections = layout(active())
     return {"knobs": ordered, "sections": sections, "characters": characters(), "professions": sorted(DEFAULT_CONFIG["professions"]),
-            "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k},
+            "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k and "action" not in k},
             "mode_defaults": {m: mode_defaults(m) for m in modes.MODES}}
 
 
@@ -711,7 +748,11 @@ def to_run(opts: dict) -> dict:
             v = val[key]
             if k.get("scale") and not isinstance(v, bool):
                 v = round(v * k["scale"], 6)
-            _set(override, k["path"], v)
+            for path in [k["path"], *k.get("also", [])]:
+                _set(override, path, v)
+        elif "action" in k:
+            off = set(override.get("disabled_actions", [])) - {k["action"]}
+            override["disabled_actions"] = sorted(off if val[key] else off | {k["action"]})
     if val["food"] == "scarce" and mode != "scarcity":
         override = _merge(override, modes.scarce_food(make_config(override)))
     override["population"] = {"size": val["villagers"]}

@@ -149,14 +149,15 @@
     const start = Object.assign({}, info.defaults, info.last || {}, saved);
     if (!(start.mode in info.mode_defaults)) start.mode = info.defaults.mode;
     const modeVals = m => info.mode_defaults[m] || {};
+    const follows = k => !!(k.path || k.action);  // config and action knobs move with the mode
     // Config knobs follow the mode until the user moves them; `touched` keeps what they set by hand.
     let touched = new Set(Object.keys(saved.__touched || {}));
     const values = {};
     // A choice with `sets` (random-events preset) moves its sliders like the mode does: mode < preset < hand.
     const presetVals = () => Object.assign({}, ...knobs.filter(k => k.sets).map(k => k.sets[values[k.key]] || {}));
     const base = m => Object.assign({}, modeVals(m), presetVals());
-    for (const k of knobs) if (!k.path) values[k.key] = k.key in start ? start[k.key] : k.default;
-    for (const k of knobs) if (k.path)
+    for (const k of knobs) if (!follows(k)) values[k.key] = k.key in start ? start[k.key] : k.default;
+    for (const k of knobs) if (follows(k))
       values[k.key] = touched.has(k.key) && k.key in start ? start[k.key] : base(start.mode)[k.key];
 
     const fmt = (k, v) => k.type === 'toggle' ? (v ? 'да' : 'нет')
@@ -216,7 +217,7 @@
       else for (const b of r.control.children) b.classList.toggle('on', b.dataset.v === String(v));
       if (r.val.isConnected) {
         r.val.textContent = fmt(k, v);
-        r.val.classList.toggle('changed', !!k.path && v !== base(values.mode)[k.key]);
+        r.val.classList.toggle('changed', follows(k) && v !== base(values.mode)[k.key]);
       }
       r.about.textContent = [k.about ? k.about[v] : '', k.hint || ''].filter(Boolean).join(' ');
       // hide_if: hidden while every listed knob holds one of the listed values (knobs.py)
@@ -226,10 +227,10 @@
 
     function set(k, v) {
       values[k.key] = v;
-      if (k.path) touched.add(k.key);
+      if (follows(k)) touched.add(k.key);
       if (k.sets) for (const c of Object.keys(k.sets[v] || {})) touched.delete(c);  // the preset takes them back
       if (k.key === 'mode' || k.sets) {  // the mode / preset moves every slider the user has not set by hand
-        for (const c of knobs) if (c.path && !touched.has(c.key)) values[c.key] = base(values.mode)[c.key];
+        for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = base(values.mode)[c.key];
       }
       knobs.forEach(paint);
       sections();
@@ -266,7 +267,7 @@
     function sections() {
       for (const b of Object.values(boxes)) {
         const shown = b.knobs.filter(k => rows[k.key].el.style.display !== 'none');
-        const changed = shown.filter(k => k.path && values[k.key] !== base(values.mode)[k.key]).length;
+        const changed = shown.filter(k => follows(k) && values[k.key] !== base(values.mode)[k.key]).length;
         b.box.style.display = shown.length ? '' : 'none';
         b.cnt.textContent = changed ? 'изменено: ' + changed : '';
         b.cnt.hidden = !changed;

@@ -11,7 +11,7 @@ from aivillage.config import DEFAULT_CONFIG
 def test_every_mode_has_a_slider_position_for_every_config_knob():
     for m in modes.MODES:
         d = knobs.mode_defaults(m)
-        assert set(d) == {k["key"] for k in knobs.active() if "path" in k}
+        assert set(d) == {k["key"] for k in knobs.active() if "path" in k or "action" in k}
     assert knobs.mode_defaults("peaceful")["start_coins"] == 40
     assert knobs.mode_defaults("peaceful")["unfairness"] == 1  # 0.1 on a 0..10 slider
     assert knobs.mode_defaults("standard")["steal_notice_chance"] == round(DEFAULT_CONFIG["steal_notice_chance"] * 100)
@@ -46,7 +46,7 @@ def test_to_run_defaults_follow_the_mode_and_answers_win():
     assert o["start_coins"] == 7 and o["steal_notice_chance"] == 0.25 and o["map"]["unfairness"] == 1.0
     assert o["seasons"]["enabled"] is False and o["map"]["procedural"] is False
     assert o["population"]["size"] == 60  # clamped to the slider
-    assert o["disabled_actions"] == modes.disabled("lawless")
+    assert set(o["disabled_actions"]) == set(modes.disabled("lawless"))
     assert not r["llm"] and r["bots"] == knobs.BOT_MIXES["mixed"]
 
 
@@ -189,3 +189,15 @@ def test_villager_look_from_the_editor():
     agents = knobs.to_run({"villagers": 3, "roster": rows})["override"]["agents"]
     assert [a.get("look") for a in agents] == [13, None, None]
     assert knobs.roster(3, 1, [{"name": "Вера", "profession": "farmer", "look": 13}])[0]["look"] == 13
+
+
+def test_arson_fights_land_and_gold_knobs():
+    from aivillage import engine
+    r = knobs.to_run({"brains": "bots", "allow_arson": False, "combat": False, "gold": 50, "land_price": 12})
+    o = r["override"]
+    assert "set_fire" in o["disabled_actions"] and o["combat"]["enabled"] is False
+    assert o["land"]["price_per_cell"] == 12
+    gold = engine.new_world({**o, "seed": 2}).config["locations"]["mine"]["resources"]["gold"]
+    assert gold["start"] == gold["max"] and 35 <= gold["start"] <= 70  # the map's unfairness nudges resources
+    assert "set_fire" not in knobs.to_run({})["override"].get("disabled_actions", [])
+    assert knobs.mode_defaults("standard")["allow_arson"] is True
