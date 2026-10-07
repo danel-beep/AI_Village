@@ -120,6 +120,8 @@ Updated: 2026-10-06. Each backlog item is independent and sized for one thread /
 
 - Фикс выбора места (branch `claude/project-thread-qaiv5y`, живой прогон со злодеем 2026-10-07, `/mnt/project-files/reports/villain-run-2026-10-07/`): житель без места, стоящий в самом лагере, не мог занять свободное место у лагеря («your home is already one road from here»: место у костра тоже висит на площади) и `settle` там даже не показывался; Елена 4 дня ходила без двора. Теперь проверка «уже здесь» только для тех, у кого место есть. Тест `test_settle_at_the_camp_itself`.
 
+- Random villagers on every app start (branch `claude/project-thread-y0bq71`, Danel 2026-10-07): without a one-by-one roster, `knobs.to_run` sets `agents: []`, so `population.py` draws every name and profession from the seed (before, the first five were always Anna/farmer, Boris/fisher, Clara, Dmitri, Elena, which tied a name to the same seat in every run). The "one by one" editor (`/api/roster`) starts from the same seeded names. CLI, YAML, scenarios and tests keep the default five.
+
 ## In progress: план «С нуля»
 
 Владельцы зон, чтобы треды не мешали друг другу (план: `/mnt/project-files/reports/survival-plan/plan.md`, спека `docs/specs/survival.md`):

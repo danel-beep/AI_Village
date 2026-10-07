@@ -607,7 +607,7 @@ def roster(n: int, seed: int, existing: list[dict] | None = None) -> list[dict]:
     """Default villagers for the "one by one" editor: `existing` kept, the rest named like population.py does."""
     from .population import generate_agents
     cfg = make_config({"seed": seed})
-    base = cfg["agents"] if existing is None else existing
+    base = [] if existing is None else existing  # fresh roster: all names seeded, like an app start
     return [{"name": a["name"], "profession": a["profession"], "character": a.get("character", "default"),
              **({"look": a["look"]} if a.get("look") is not None else {})}
             for a in generate_agents(base, n, cfg)]
@@ -757,8 +757,9 @@ def to_run(opts: dict) -> dict:
         override = _merge(override, modes.scarce_food(make_config(override)))
     override["population"] = {"size": val["villagers"]}
     override["characters"] = val["characters"]
-    if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter
-        override["agents"] = clean_roster(rows, val["villagers"])
+    # Villagers set one by one; population.py fills up to `villagers` if the list is shorter. Without a
+    # list every name and profession is drawn from the seed, so no name keeps the same seat run after run.
+    override["agents"] = clean_roster(rows, val["villagers"]) if rows else []
     override.setdefault("map", {})["procedural"] = not val["fixed_map"]
     if val["seasons"]:
         cal = seasons.calendar(val["days"], val["season_days"])
