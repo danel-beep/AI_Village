@@ -59,6 +59,13 @@ def generate_agents(existing: list[dict], n: int, cfg: dict) -> list[dict]:
         prof = rng.choice([p for p in profs if load.get(p) == low])
         count[prof] += 1
         agents.append({"name": pool.pop(), "profession": prof})
+    # `population.always`: names every village has (Danel's test subject Boris). Each takes a random
+    # generated seat, so it keeps that seat's profession and place like anyone else.
+    free = [i for i in range(len(existing[:n]), n)]
+    for name in (cfg.get("population") or {}).get("always") or []:
+        if name in {a["name"] for a in agents} or not free:
+            continue
+        agents[free.pop(rng.randrange(len(free)))]["name"] = name
     return agents
 
 
