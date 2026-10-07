@@ -38,7 +38,7 @@ def test_a_knob_missing_from_the_layout_falls_back_to_its_group():
 
 def test_to_run_defaults_follow_the_mode_and_answers_win():
     r = knobs.to_run({"mode": "peaceful"})
-    assert r["llm"] and r["days"] == 3 and r["override"]["population"] == {"size": 5}
+    assert r["llm"] and r["days"] == 3 and r["override"]["population"] == {"size": 5, "always": ["Boris"]}
     assert r["override"]["start_coins"] == 40 and r["override"]["map"] == {"unfairness": 0.1, "procedural": True, "size": "normal"}
     r = knobs.to_run({"mode": "lawless", "brains": "bots", "start_coins": 7, "steal_notice_chance": 25,
                       "unfairness": 10, "seasons": False, "fixed_map": True, "villagers": 999})
@@ -201,3 +201,19 @@ def test_arson_fights_land_and_gold_knobs():
     assert gold["start"] == gold["max"] and 35 <= gold["start"] <= 70  # the map's unfairness nudges resources
     assert "set_fire" not in knobs.to_run({})["override"].get("disabled_actions", [])
     assert knobs.mode_defaults("standard")["allow_arson"] is True
+
+
+def test_app_village_always_has_boris_on_a_random_seat():
+    from aivillage import engine
+    seats, profs = set(), set()
+    for seed in range(1, 21):
+        run = knobs.to_run({"seed": seed})
+        w = engine.new_world({**run["override"], "seed": seed})
+        names = list(w.agents)
+        assert names.count("Boris") == 1
+        seats.add(names.index("Boris"))
+        profs.add(w.agents["Boris"].profession)
+    assert len(seats) > 2 and len(profs) > 2  # nothing else about him is fixed
+    assert "Boris" in [a["name"] for a in knobs.roster(5, 4)]
+    assert "Boris" not in [a["name"] for a in knobs.roster(2, 4, [{"name": "Вера", "profession": "farmer"},
+                                                                  {"name": "Ян", "profession": "smith"}])]
