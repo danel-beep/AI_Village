@@ -156,8 +156,9 @@ def observe(world: World, name: str) -> dict:
     cfg = world.config
     if not enabled(cfg):
         return {}
+    by = ops.name_key(world)
     out = {"wealth": {a.name: level(cfg, worth(world, a.name))
-                      for a in sorted(world.agents.values(), key=lambda x: x.name) if a.status != "dead"}}
+                      for a in sorted(world.agents.values(), key=lambda x: by(x.name)) if a.status != "dead"}}
     if world.chronicle.get("last"):
         out["last_chronicle"] = world.chronicle["last"]
     return out

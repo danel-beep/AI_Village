@@ -767,7 +767,7 @@ def observe(world: World, name: str) -> dict:
                                      "closes": _say_time(cfg, pr["closes"]), "yes": list(pr["yes"]),
                                      "no": list(pr["no"])} for pr in p["proposals"].values()]
             if p["petition"]:
-                row["petition"] = {f: sorted(n for n, x in p["petition"].items() if x == f)
+                row["petition"] = {f: sorted((n for n, x in p["petition"].items() if x == f), key=ops.name_key(world))
                                    for f in sorted(set(p["petition"].values()))}
             if p["form"]:
                 row["votes_on_laws"] = deciders(p)

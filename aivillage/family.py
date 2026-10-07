@@ -336,9 +336,10 @@ def _settle_all(ctx: Ctx) -> None:
 
 def observe(world: World, name: str) -> dict:
     m = _marriage(world, name)
+    by = ops.name_key(world)
     return {
         "feelings": {b: {"score": v, "label": label(world, v)}
-                     for b, v in sorted(world.kin.feelings.get(name, {}).items())},
+                     for b, v in sorted(world.kin.feelings.get(name, {}).items(), key=lambda x: by(x[0]))},
         "spouse": spouse_of(world, name),
         "family_home": m.home if m else None,
         "proposals_to_you": [{"from": p.sender, "expires_day": p.expires_day}

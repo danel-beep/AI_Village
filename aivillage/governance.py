@@ -277,7 +277,8 @@ def vote(ctx: Ctx, a: Agent, args: VoteArgs) -> None:
         raise ActionError(f"the next election is on day {next_election_day(ctx.cfg, ctx.world.day)}")
     cand = _agent(ctx, args.candidate).name
     if cand not in g.candidates:
-        raise ActionError(f"{cand} is not a candidate; candidates: {', '.join(sorted(g.candidates)) or 'none'}")
+        names = ", ".join(sorted(g.candidates, key=ops.name_key(ctx.world)))
+        raise ActionError(f"{cand} is not a candidate; candidates: {names or 'none'}")
     g.votes[a.name] = cand
     ctx.emit("vote", f"You voted for {cand} for mayor (secret ballot).", actor=a.name, to=[a.name])
 
@@ -538,7 +539,7 @@ def new_day(ctx: Ctx) -> None:
         ops.move_coins(g, w.agents[g.mayor], salary)
         ctx.emit("salary", f"You received your mayor salary of {salary} coins from the treasury.", to=[g.mayor])
     if is_election_day(cfg, w.day):
-        names = ", ".join(sorted(g.candidates)) or "nobody yet (run_for_mayor)"
+        names = ", ".join(sorted(g.candidates, key=ops.name_key(w))) or "nobody yet (run_for_mayor)"
         ctx.emit("election_day", f"Election day! Vote for mayor with vote before night. Candidates: {names}.",
                  visibility="public")
     elif is_election_day(cfg, w.day + 1):
