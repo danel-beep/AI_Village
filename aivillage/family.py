@@ -13,6 +13,8 @@ Feelings hook in via `ops.EVENT_HOOKS`; the engine calls `after_hour` (estates) 
 
 from __future__ import annotations
 
+import random
+
 from pydantic import BaseModel, Field
 
 from . import ops
@@ -221,15 +223,16 @@ def divorce(ctx: Ctx, a: Agent, args) -> None:
 # ---------- inheritance ----------
 
 def heir_of(world: World, name: str) -> str | None:
-    """Living spouse, else the friend the deceased liked most (ties: alphabetical)."""
+    """Living spouse, else the friend the deceased liked most (ties: a seeded draw, not the alphabet)."""
     gone = set(_cfg(world)["estate_statuses"])
     sp = spouse_of(world, name)
     if sp and world.agents[sp].status not in gone:
         return sp
     t = _cfg(world)["friend_at"]
-    friends = [(-v, b) for b, v in world.kin.feelings.get(name, {}).items()
+    tie = lambda b: random.Random(f"{world.config['seed']}:heir:{name}:{b}").random()
+    friends = [(-v, tie(b), b) for b, v in world.kin.feelings.get(name, {}).items()
                if v >= t and world.agents[b].status not in gone]
-    return min(friends)[1] if friends else None
+    return min(friends)[2] if friends else None
 
 
 def settle_estate(ctx: Ctx, name: str) -> None:

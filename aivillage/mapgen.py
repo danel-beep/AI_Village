@@ -439,7 +439,9 @@ def _build(cfg: dict, p: dict, rng: random.Random) -> dict:
     if camp:  # nobody has a house yet: everyone sleeps at the camp, house sites wait around the places
         homes = {name: [settle.camp(cfg)] for name in names}
         site_near = _house_sites(g, rng, places, cfg, n, p["home_road"])
-    for name in ([] if camp else names):
+    # Who builds first gets the least crowded spot, so go in a random order: in roster order the own-AI seats
+    # (the roster's first rows) would always pick first.
+    for name in ([] if camp else rng.sample(names, n)):
         options = ["square"] + hamlets
         # fair: the shortest walk to work and market first; unfair: wherever
         options.sort(key=lambda c: (1 - u) * walk(name, c) + 0.5 * taken.get(c, 0) + rng.random() * (0.5 + 2 * u))

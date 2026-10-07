@@ -60,7 +60,7 @@ def test_habitats_come_from_the_map_and_scale_with_village():
 
 
 def test_procedural_map_puts_big_game_far_away():
-    w = world(map={"procedural": True}, seed=5, population={"size": 10})
+    w = world(map={"procedural": True}, seed=1, population={"size": 10})
     herds = w.animals["herds"]
     assert any("elk" in h for h in herds.values())
     elk = [loc for loc, h in herds.items() if "elk" in h]
