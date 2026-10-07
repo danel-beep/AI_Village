@@ -600,13 +600,14 @@ CHARACTER_LABELS = {
     "lazy": "Ленивый",
 }
 NAME_MAX = 20
+ALWAYS = ("Boris",)  # Danel's test subject: in every app village, otherwise an ordinary random villager
 LOOKS = 24  # villager looks in viewer/sprites.js
 
 
 def roster(n: int, seed: int, existing: list[dict] | None = None) -> list[dict]:
     """Default villagers for the "one by one" editor: `existing` kept, the rest named like population.py does."""
     from .population import generate_agents
-    cfg = make_config({"seed": seed})
+    cfg = make_config({"seed": seed, "population": {"always": list(ALWAYS)}})
     base = [] if existing is None else existing  # fresh roster: all names seeded, like an app start
     return [{"name": a["name"], "profession": a["profession"], "character": a.get("character", "default"),
              **({"look": a["look"]} if a.get("look") is not None else {})}
@@ -755,7 +756,7 @@ def to_run(opts: dict) -> dict:
             override["disabled_actions"] = sorted(off if val[key] else off | {k["action"]})
     if val["food"] == "scarce" and mode != "scarcity":
         override = _merge(override, modes.scarce_food(make_config(override)))
-    override["population"] = {"size": val["villagers"]}
+    override["population"] = {"size": val["villagers"], "always": list(ALWAYS)}
     override["characters"] = val["characters"]
     # Villagers set one by one; population.py fills up to `villagers` if the list is shorter. Without a
     # list every name and profession is drawn from the seed, so no name keeps the same seat run after run.

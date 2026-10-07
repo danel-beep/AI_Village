@@ -353,6 +353,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "scale_projects": True,
         "scale_orders": True,  # more council orders at once: they are the main coin source besides the trader
         "profession_weights": {"farmer": 1.2, "fisher": 1.2, "woodcutter": 1, "miner": 1, "smith": 0.6},
+        "always": [],  # names put on a random generated seat in every village (the app adds Boris)
     },
     # The debt book (aivillage/debts.py): IOUs with pledges, late fees, collection through the mayor.
     "debts": {
