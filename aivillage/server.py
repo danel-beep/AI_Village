@@ -862,7 +862,10 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if not name.replace("-", "").replace("_", "").isalnum() or not log.is_file():
             raise HTTPException(404)
         out = log.with_suffix(".html")
-        if not out.is_file() or out.stat().st_mtime < log.stat().st_mtime:
+        # rebuilt when the log, the bundler or the viewer is newer (an app update makes old replays fast too)
+        newest = max([log.stat().st_mtime, (ROOT / "scripts" / "build_demo.py").stat().st_mtime,
+                      *(f.stat().st_mtime for f in (ROOT / "viewer").iterdir() if f.is_file())])
+        if not out.is_file() or out.stat().st_mtime < newest:
             subprocess.run([sys.executable, str(ROOT / "scripts" / "build_demo.py"), str(log), str(out)],
                            check=True, stdout=subprocess.DEVNULL)
         return FileResponse(out, media_type="text/html")
