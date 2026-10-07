@@ -31,7 +31,7 @@ def test_builder_is_a_worker_outside_survival():
 
 def test_clay_goes_to_the_kiln_owner():
     w = survival(n=5, seed=3, progress={"start_stage": "village"})
-    living = sorted(w.agents)
+    living = BuilderBot.yard_order(w.agents, 1)
     owner = living[BuilderBot.YARD_RANK["kiln"] % len(living)]
     me = next(n for n in living if n != owner)
     for n in (me, owner):

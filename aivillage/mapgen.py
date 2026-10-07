@@ -66,9 +66,10 @@ WAYPOINT_NAMES = ["Crossroads", "Old oak", "Windmill", "Stone cross", "Meadow", 
                   "Twin elms", "Boundary stone", "Goat track", "Dry ditch", "Rabbit warren", "Tall cross",
                   "Ash grove path", "Cart ruts", "Owl tree"]
 # Empty lots for sale (aivillage/land.py): a fenced patch of bare land, 2 plot cells per tile column.
+# No villager names here (population.NAMES): "Daisy lot" read as Daisy's land.
 LOT_NAMES = ["Meadow lot", "Hilltop lot", "Brook lot", "Old orchard lot", "Stony lot", "Sunny lot", "Willow lot",
              "Fern lot", "Clover lot", "Heather lot", "Thistle lot", "Barley lot", "Mossy lot", "Windy lot",
-             "Pine lot", "Daisy lot", "Rush lot", "Elder lot", "Bramble lot", "Poppy lot"]
+             "Pine lot", "Nettle lot", "Rush lot", "Elder lot", "Bramble lot", "Poppy lot"]
 
 # Far wild zones of a large map (`map.size`): the village core stays as compact as on the normal map, and
 # the plenty and the rare lie two or more hours of walking away. `from` + `share` copy a share of a base
