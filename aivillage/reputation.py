@@ -186,7 +186,8 @@ def observe(world, name: str) -> dict:
     a = world.agents[name]
     out: dict = {}
     if a.reputation:
-        out["reputation"] = {k: dict(v, seen=list(v["seen"])) for k, v in sorted(a.reputation.items())}
+        by = ops.name_key(world)
+        out["reputation"] = {k: dict(v, seen=list(v["seen"])) for k, v in sorted(a.reputation.items(), key=lambda x: by(x[0]))}
     if a.rumors:
         out["rumors"] = [dict(r) for r in a.rumors]
     if "announce_cost" in _cfg(world):

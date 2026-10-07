@@ -145,7 +145,7 @@ def observe(world: World, name: str) -> dict:
                            "free_by_place": {p: n for p in places if (n := len(free_sites(world, p)))},
                            # who lives by which place: each settle is a public event
                            "homes": {n: world.locations[world.agents[n].home].neighbors[0]
-                                     for n in sorted(world.settle["homes"]) if n != name}}}
+                                     for n in sorted(world.settle["homes"], key=ops.name_key(world)) if n != name}}}
     return out
 
 

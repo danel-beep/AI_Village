@@ -142,3 +142,12 @@ def fmt_items(items: Items) -> str:
 
 def can_act(a: Agent) -> bool:
     return a.status == "active" and not a.asleep
+
+
+def name_key(world: World):
+    """Sort key for villager names in what villagers see: one seeded order per village, the same all run long
+    (so prompts stay cacheable), instead of the alphabet, which would always list the same names first."""
+    order = sorted(world.agents)
+    random.Random(f"{world.config['seed']}:names").shuffle(order)
+    rank = {n: i for i, n in enumerate(order)}
+    return lambda n: (rank.get(n, len(rank)), n)

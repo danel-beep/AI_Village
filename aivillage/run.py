@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import sys
+import random
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -217,8 +218,16 @@ def start_of(header: dict) -> World:
     return World.from_dict(header["start"]) if "start" in header else engine.new_world(header["config"])
 
 
+def seat_order(names, seed: int) -> list[str]:
+    """Villagers in a seeded random order, for handing out a cycled list of models or bot kinds: by name
+    order the alphabetically first villager (often Boris, who is in every village) would always get the first one."""
+    order = sorted(names)
+    random.Random(f"{seed}:seats").shuffle(order)
+    return order
+
+
 def bots_decider(world: World, kinds: list[str], seed: int) -> DecideFn:
-    names = sorted(world.agents)
+    names = seat_order(world.agents, seed)
     bots = {n: BOT_TYPES[kinds[i % len(kinds)]](n, seed) for i, n in enumerate(names)}
 
     def decide(name: str, obs: dict) -> dict:
@@ -290,13 +299,14 @@ def main(argv: list[str] | None = None) -> int:
     world = engine.new_world(mapgen.for_run(override, a.fixed_map, a.unfairness, a.map_size))
     names = sorted(world.agents)
     brains = rc.brains(names)
+    seats = seat_order(names, rc.seed)
     # Old-style flags cycle over agents and override the file.
     if a.models:
         models = a.models.split(",")
-        brains = {n: ("model", models[i % len(models)]) for i, n in enumerate(names)}
+        brains = {n: ("model", models[i % len(models)]) for i, n in enumerate(seats)}
     elif a.bots:
         kinds = a.bots.split(",")
-        brains = {n: ("bot", kinds[i % len(kinds)]) for i, n in enumerate(names)}
+        brains = {n: ("bot", kinds[i % len(kinds)]) for i, n in enumerate(seats)}
     fallbacks = a.fallback.split(",") if a.fallback else (rc.fallback_models or None)
     agents = llm_agents(world, {n: m for n, (kind, m) in brains.items() if kind == "model"}, fallbacks)
     bots = {n: BOT_TYPES[k](n, rc.seed) for n, (kind, k) in brains.items() if kind == "bot"}
@@ -351,7 +361,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     llm.make_client picks the provider.
     `fallbacks`: backup models (None = env AIVILLAGE_FALLBACK_MODELS)."""
     if isinstance(models, list):
-        models = {n: models[i % len(models)] for i, n in enumerate(sorted(world.agents))}
+        seats = seat_order(world.agents, world.config["seed"])
+        models = {n: models[i % len(models)] for i, n in enumerate(seats)}
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts

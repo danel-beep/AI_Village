@@ -34,7 +34,7 @@ def decision(name: str, args: dict | None = None, thought: str = "", say: str | 
 
 class Bot:
     def __init__(self, name: str, seed: int = 0):
-        self.name = name
+        self.name, self.seed = name, seed
         self.rng = random.Random(f"{seed}:{name}")
 
     def decide(self, obs: dict) -> dict:
@@ -682,9 +682,15 @@ class BuilderBot(WorkerBot):
     TEAM_HOUR = 13             # from this hour the village's team site is worked together
     SPOT = {"wood": "forest", "stone": "mine", "ore": "mine", "fish": "river", "berries": "forest"}
     TOOL = {"wood": "stone_axe", "stone": "stone_pick", "ore": "stone_pick", "clay": "stone_pick"}
-    YARD_RANK = {"workbench": 0, "smithy": 1, "kiln": 2}  # which villager (by name) raises a yard workshop
+    YARD_RANK = {"workbench": 0, "smithy": 1, "kiln": 2}  # which villager (seeded order) raises a yard workshop
     VILLAGE_AT = {"market_square": "square", "town_hall": "square", "tavern": "square", "palisade": "square"}
     STOCK = {"wood": 6, "stone": 4}  # carried ahead when no site needs anything
+
+    @staticmethod
+    def yard_order(names, seed: int) -> list[str]:
+        """Who raises which yard workshop (YARD_RANK): a seeded order every bot agrees on. By name it would always
+        be the alphabetically first villagers, Boris among them since he is in every village."""
+        return sorted(names, key=lambda n: (random.Random(f"{seed}:rank:{n}").random(), n))
 
     def __init__(self, name: str, seed: int = 0):
         super().__init__(name, seed)
@@ -882,7 +888,7 @@ class BuilderBot(WorkerBot):
         sites = obs["building_sites"]
         plot = obs.get("plot") or {}
         startable = obs.get("can_start_building_here") or {}
-        living = sorted(v["name"] for v in obs["board"]["villagers"] if v["status"] != "dead")
+        living = self.yard_order((v["name"] for v in obs["board"]["villagers"] if v["status"] != "dead"), self.seed)
         rank = living.index(name) if name in living else 0
         stage = obs.get("village_stage") or {}
         missing = {}
