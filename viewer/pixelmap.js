@@ -153,6 +153,9 @@ const PixelMap = (() => {
   // along water, a dark rim on cobbles and beds, a soft shadow along roads. Returns false without the textures.
   const LAYER = { grass: 0, block: 0, forest: 1, soil: 2, path: 3, trail: 3, cobble: 4, water: 5, dock: 5 };
   const LAYER_TEX = ['tex_grass2', 'tex_moss', 'tex_soil', 'tex_dirt', 'tex_cobble', 'tex_water'];
+  // A camp village repaints the background whenever a trail or a home appears (campUpdate): only the tiles that
+  // changed since the last paint, and a margin for the blending and the edge shading, are computed again.
+  let terr = null;   // the last paint: {W, H, code (tile layer * 2 + trail), lay, deepAt, img}
   function terrain(g) {
     if (!window.Sprites || !Sprites.has('tex_grass2')) return false;
     const tex = {}; [...LAYER_TEX, 'tex_grass', 'tex_flowers', 'tex_deep'].forEach(n => { tex[n] = Sprites.pixels(n); });
@@ -175,26 +178,52 @@ const PixelMap = (() => {
       const a = rnd(i, j, seed), b = rnd(i + 1, j, seed), c = rnd(i, j + 1, seed), d = rnd(i + 1, j + 1, seed);
       return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
     };
-    const lay = new Int8Array(W * H), deepAt = new Uint8Array(W * H);
-    for (let Y = 0; Y < H; Y++) {
-      const v = (Y + .5) / T - .5, ty = Math.floor(v), fy = v - ty;
-      for (let X = 0; X < W; X++) {
-        const u = (X + .5) / T - .5, tx = Math.floor(u), fx = u - tx;
-        const t00 = tile(tx, ty), t10 = tile(tx + 1, ty), t01 = tile(tx, ty + 1), t11 = tile(tx + 1, ty + 1);
-        const n = (noise(X, Y, 6, 1) - .5) * .32 + (rnd(X, Y, 2) - .5) * .06;
-        let L = 0;
-        for (let l = Math.max(t00, t10, t01, t11); l > 0; l--) {
-          const w = ((t00 >= l) * (1 - fx) + (t10 >= l) * fx) * (1 - fy) + ((t01 >= l) * (1 - fx) + (t11 >= l) * fx) * fy;
-          if (w + n > .5) { L = l; break; }
+    // A pixel's layer depends on the tiles up to 2 around its own (bilinear blend over the next tile, deep water one
+    // more) and its colour on the layers 2 pixels around it: a changed tile redoes layers 2 tiles around, colours 3.
+    const code = new Int8Array(tc * tr);
+    for (let y = -1; y < tr - 1; y++) for (let x = -1; x < tc - 1; x++)
+      code[(y + 1) * tc + x + 1] = tl[(y + 1) * tc + x + 1] * 2 + (layout.kind[x + ',' + y] === 'trail');
+    const fresh = !terr || terr.W !== W || terr.H !== H || terr.tc !== tc;
+    const layMask = new Uint8Array(tc * tr), colMask = new Uint8Array(tc * tr);
+    let dirty = 0;
+    if (fresh) { layMask.fill(1); colMask.fill(1); }
+    else for (let k = 0; k < tc * tr; k++) {
+      if (code[k] === terr.code[k]) continue;
+      dirty++;
+      const x0 = k % tc, y0 = (k / tc) | 0;
+      for (let y = Math.max(0, y0 - 3); y <= Math.min(tr - 1, y0 + 3); y++)
+        for (let x = Math.max(0, x0 - 3); x <= Math.min(tc - 1, x0 + 3); x++) {
+          colMask[y * tc + x] = 1;
+          if (Math.abs(x - x0) <= 2 && Math.abs(y - y0) <= 2) layMask[y * tc + x] = 1;
         }
-        lay[Y * W + X] = L;
-        if (L === 5) {
-          const w = (deep(tx, ty) * (1 - fx) + deep(tx + 1, ty) * fx) * (1 - fy) + (deep(tx, ty + 1) * (1 - fx) + deep(tx + 1, ty + 1) * fx) * fy;
-          deepAt[Y * W + X] = Math.round(255 * Math.max(0, Math.min(1, (w + (noise(X, Y, 9, 3) - .5) * .5 - .25) * 1.6)));
-        }
-      }
     }
-    const img = g.createImageData(W, H), out = img.data;
+    if (!fresh && !dirty) { g.putImageData(terr.img, 0, 0); return true; }
+    const lay = fresh ? new Int8Array(W * H) : terr.lay, deepAt = fresh ? new Uint8Array(W * H) : terr.deepAt;
+    const img = fresh ? g.createImageData(W, H) : terr.img, out = img.data;
+    // every pixel of the grid tiles marked in mask (grid tile k covers map tile x = k % tc - 1)
+    const each = (mask, fn) => {
+      for (let k = 0; k < tc * tr; k++) if (mask[k]) {
+        const tx = k % tc - 1, ty = ((k / tc) | 0) - 1;
+        for (let Y = Math.max(0, ty * T); Y < Math.min(H, ty * T + T); Y++)
+          for (let X = Math.max(0, tx * T); X < Math.min(W, tx * T + T); X++) fn(X, Y);
+      }
+    };
+    each(layMask, (X, Y) => {
+      const v = (Y + .5) / T - .5, ty = Math.floor(v), fy = v - ty;
+      const u = (X + .5) / T - .5, tx = Math.floor(u), fx = u - tx;
+      const t00 = tile(tx, ty), t10 = tile(tx + 1, ty), t01 = tile(tx, ty + 1), t11 = tile(tx + 1, ty + 1);
+      const n = (noise(X, Y, 6, 1) - .5) * .32 + (rnd(X, Y, 2) - .5) * .06;
+      let L = 0;
+      for (let l = Math.max(t00, t10, t01, t11); l > 0; l--) {
+        const w = ((t00 >= l) * (1 - fx) + (t10 >= l) * fx) * (1 - fy) + ((t01 >= l) * (1 - fx) + (t11 >= l) * fx) * fy;
+        if (w + n > .5) { L = l; break; }
+      }
+      lay[Y * W + X] = L; deepAt[Y * W + X] = 0;
+      if (L === 5) {
+        const w = (deep(tx, ty) * (1 - fx) + deep(tx + 1, ty) * fx) * (1 - fy) + (deep(tx, ty + 1) * (1 - fx) + deep(tx + 1, ty + 1) * fx) * fy;
+        deepAt[Y * W + X] = Math.round(255 * Math.max(0, Math.min(1, (w + (noise(X, Y, 9, 3) - .5) * .5 - .25) * 1.6)));
+      }
+    });
     const at = (n, X, Y) => { const t = tex[n], i = ((Y % t.height) * t.width + X % t.width) * 4; return t.data.subarray(i, i + 3); };
     const near = (X, Y, r, test) => {   // is any pixel within r (4-neighbour rings) passing test?
       for (let d = 1; d <= r; d++) for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) {
@@ -203,7 +232,7 @@ const PixelMap = (() => {
       }
       return 0;
     };
-    for (let Y = 0; Y < H; Y++) for (let X = 0; X < W; X++) {
+    each(colMask, (X, Y) => {
       const i = Y * W + X, L = lay[i];
       let c = at(LAYER_TEX[L], X, Y), f = 1, mix = null, mixA = 0;
       if (L === 5 && deepAt[i]) { mix = at('tex_deep', X, Y); mixA = deepAt[i] / 255 * .85; }
@@ -228,7 +257,8 @@ const PixelMap = (() => {
       const o = i * 4;
       for (let k = 0; k < 3; k++) out[o + k] = Math.round(((mix ? c[k] * (1 - mixA) + mix[k] * mixA : c[k])) * f);
       out[o + 3] = 255;
-    }
+    });
+    terr = { W, H, tc, code, lay, deepAt, img };
     g.putImageData(img, 0, 0);
     return true;
   }

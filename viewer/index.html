@@ -106,6 +106,8 @@ function setPlaying(p, quiet) {
   if (!quiet) window.dispatchEvent(new CustomEvent('viewer-play', { detail: p }));
 }
 function push(row) {
+  // scripts/build_demo.py leaves out view keys equal to the previous tick's ("_keep"): take them from there
+  if (row._keep && row.view && ticks.length) { const pv = ticks[ticks.length - 1].view; for (const k of row._keep) row.view[k] = pv[k]; delete row._keep; }
   if (row.type === 'diary') diaries.push({ ...row, at: ticks.length - 1 });
   else if (row.view) {
     // Per-villager state carried from tick to tick (quarter-hour ticks: one walk hop or one hour of work spans
@@ -170,7 +172,7 @@ document.getElementById('file').onchange = e => {
 };
 const qs = new URLSearchParams(location.search).get('log');
 if (window.EMBEDDED_TR) setTr(window.EMBEDDED_TR);
-if (window.EMBEDDED_LOG) load(window.EMBEDDED_LOG);
+if (window.EMBEDDED_LOG) { load(window.EMBEDDED_LOG); window.EMBEDDED_LOG = null; }   // free the big string (~40 MB for 40 days)
 else if (qs) {
   fetch(qs.replace(/\.jsonl$/, '') + '.ru.json').then(r => r.ok ? r.json() : null).then(setTr, () => {});
   fetch(qs).then(r => r.text()).then(load);
