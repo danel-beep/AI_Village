@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, land, mapgen, modes, plots, pricing, settle, threats, tiles, transport, works
+from . import animals, clock, construction, crises, engine, explore, graves, hire, honors, labor, land, mapgen, modes, plots, pricing, remote, settle, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -170,6 +170,7 @@ def view(world: World) -> dict:
             "fire_info": {f.location: {"water_needed": f.water_needed, "hours_left": f.ticks_left, "hours": f.hours}
                           for f in world.fires.values()},
             **({"known": k} if (k := explore.view(world)) is not None else {}),  # explore.py: places someone knows
+            **explore.view_by(world),  # explore.py: what each villager knows, on ticks where it changed
             **settle.view(world),  # settle.py: house sites taken, trails walked (camp start)
             "map": {l.id: tiles.snapshot(l, world.config["locations"][l.id]["resources"])
                     for l in world.locations.values() if l.slots},
@@ -346,7 +347,8 @@ def night_reflection(world: World, agents: dict, day: int) -> dict:
 
 def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list[str] | None = None) -> dict:
     """models: ids cycled over agents, or agent name -> id. An id is an OpenRouter model,
-    'default' (saved model, else llm.DEFAULT_MODEL) or 'stub'; llm.make_client picks the provider.
+    'default' (saved model, else llm.DEFAULT_MODEL), 'stub' or 'mcp' (the player's own AI, aivillage/remote.py);
+    llm.make_client picks the provider.
     `fallbacks`: backup models (None = env AIVILLAGE_FALLBACK_MODELS)."""
     if isinstance(models, list):
         models = {n: models[i % len(models)] for i, n in enumerate(sorted(world.agents))}
@@ -360,11 +362,21 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")
+    own = world.config.get("own_ai") or {}
+    if "mcp" in models.values():  # own AIs over MCP (aivillage/remote.py): new links and new consent every time
+        remote.HUB.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
+                         info={"villagers": len(world.agents)})
     out = {}
     for name, m in models.items():
-        client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
+        character = character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name)
+        if m == "mcp":
+            client = remote.RemoteClient(remote.HUB.add(name, world.agents[name].profession))
+            if remote.HUB.style == "owner":
+                character = remote.OWNER_CHARACTER
+        else:
+            client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
-                             character=character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name),
+                             character=character,
                              own_goals=bool(world.config.get("own_goals", True)),
                              memory=world.config.get("llm_memory", "day"))
     return out

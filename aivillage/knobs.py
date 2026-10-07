@@ -15,6 +15,10 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
 - `also`: more config paths that get the same value as `path`.
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
 - `only`: "llm" or "bots" shows the knob for that kind of village only; `mode`: shown in that economy mode only.
+- `group`: fallback section title. Where a knob shows is set by MAIN (always on top) and SECTIONS (folded
+  sections) below KNOBS; add a new knob's key there. `hint` (or HINTS) is the plain-word line under it.
+- `hide_if`: {knob key: [values]}: hidden while every listed knob's value is in its list (tax rates with
+  polities on: each polity sets its own; start coins at a camp start: there are none).
 - `roster` (not a knob): optional list of {name, profession, character} from "Жители по одному".
 - `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
 - `sets` (on a choice): {option: {knob key: slider value}}, a preset. Picking the option moves those sliders;
@@ -27,7 +31,7 @@ import copy
 from typing import Any
 
 from . import modes, seasons
-from .config import DEFAULT_CONFIG, make_config
+from .config import DEFAULT_CONFIG, _merge, make_config
 
 BOT_MIXES = {
     "mixed": ["worker", "worker", "thief", "worker", "random"],
@@ -36,6 +40,9 @@ BOT_MIXES = {
     "thieves": ["thief", "worker"],
     "homestead": ["homestead", "worker"],
 }
+
+# With polities on, whether there is a tax, how much and how often is up to each polity (polity.py): no world rate.
+NO_WORLD_TAX = {"polities": [True]}
 
 KNOBS: list[dict[str, Any]] = [
     # --- village ---
@@ -70,6 +77,21 @@ KNOBS: list[dict[str, Any]] = [
              "поэтому помнит просьбы и свои планы до вечера. Ночью беседа заканчивается, день переходит в дневник. "
              "Стоит столько же: повторяющееся начало беседы провайдер берёт в 10 раз дешевле. «Каждый ход заново»: "
              "житель видит только последние 3 действия и свои заметки."},
+    {"key": "own_ai_seats", "path": "own_ai.seats", "group": "Свои ИИ", "type": "range",
+     "label": "Жителей играют свои ИИ (MCP)", "min": 0, "max": 10, "step": 1, "only": "llm",
+     "hint": "Первыми жителями играют ИИ людей: свой Claude, ChatGPT, Gemini или Codex по подписке, подключённый к "
+             "деревне как коннектор. После «Играть» кнопка «🔌 Свои ИИ» даст ссылку на каждого жителя. Такой житель "
+             "получает те же запросы, что и ИИ-жители по ключу. Остальными играет ИИ по ключу. 0: выключено."},
+    {"key": "own_ai_wait", "path": "own_ai.wait_minutes", "group": "Свои ИИ", "type": "range",
+     "label": "Сколько ждать ход своего ИИ", "min": 1, "max": 30, "step": 1, "unit": " мин", "only": "llm",
+     "hint": "Деревня ждёт ответа каждого подключённого ИИ столько минут, потом его житель пропускает ход. Пока ИИ "
+             "не подключился и игрок не сказал «да», деревня ждёт его (или нажмите «Играть без него»)."},
+    {"key": "own_ai_style", "path": "own_ai.style", "group": "Свои ИИ", "type": "choice",
+     "label": "Как играет свой ИИ", "only": "llm",
+     "options": [["owner", "🪞 Как его владелец"], ["self", "🔬 Сам за себя"]],
+     "hint": "«Как владелец»: мир описан тем же нейтральным текстом, а характер ИИ берёт из своей памяти о человеке, "
+             "чей он. «Сам за себя»: тот же текст, что у всех жителей. Оба режима не идут в честное сравнение "
+             "моделей: у приложения ИИ своя память и свой скрытый промпт."},
     {"key": "luxury", "path": "luxury.enabled", "group": "Деревня", "type": "toggle", "label": "Праздники и вещи на виду",
      "hint": "Житель может устроить праздник: делит свою еду поровну со всеми, кто рядом и не спит, гостям он становится "
              "ближе, а деревня узнаёт, кто кого угощал. При встрече видно, у кого кольцо, оружие или инструмент."},
@@ -87,28 +109,42 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "mode", "group": "Правила", "type": "choice", "label": "Режим экономики", "default": modes.DEFAULT_MODE,
      "options": [[m, v["title"]] for m, v in modes.MODES.items()],
      "about": {m: v["about"] for m, v in modes.MODES.items()},
-     "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах."},
+     "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах. Выбирается один режим: "
+             "«С нуля» (пустая поляна, жители строят деревню сами) и «Дефицит» (готовая деревня, мало еды) "
+             "разные. Чтобы начать с нуля при нехватке еды, выберите «С нуля» и ниже «Еды в мире: мало»."},
     {"key": "start_stage", "path": "progress.start_stage", "group": "Правила", "type": "choice", "mode": "survival",
      "label": "С какой стадии начать", "options": [["camp", "🔥 Лагерь (с нуля)"], ["hamlet", "🛖 Хутор"],
                                                   ["village", "🏘 Деревня"], ["town", "🏰 Посёлок"]],
      "hint": "Лагерь: ни домов, ни денег, ни профессий. Со стадии повыше всё, что нужно для неё, уже построено "
              "и открыто, старт как в «Обычном»."},
+    {"key": "food", "group": "Правила", "type": "choice", "label": "Еды в мире", "default": "mode",
+     "options": [["mode", "🍞 Как в режиме"], ["scarce", "🥖 Мало, как в «Дефиците»"]],
+     "hide_if": {"mode": ["scarcity"]},
+     "hint": "«Мало»: грядка даёт вдвое меньше зерна, рыбы, ягод и дикого зерна вдвое меньше и они медленно "
+             "отрастают, еда у торговца дорогая, все начинают полуголодными. Работает с любым режимом, например "
+             "«С нуля» с нехваткой еды. Дерево, камень и руда не меняются."},
     {"key": "unfairness", "path": "map.unfairness", "group": "Правила", "type": "range", "scale": 0.1,
      "label": "Нечестный старт", "min": 0, "max": 10, "step": 1,
      "hint": "0: у всех одинаковые участки, деньги и дорога до работы. 10: у кого-то большой участок и "
              "запасы, у кого-то клочок земли и пустой карман."},
     {"key": "start_coins", "path": "start_coins", "group": "Правила", "type": "range", "label": "Монет на старте",
-     "min": 0, "max": 200, "step": 5},
+     "min": 0, "max": 200, "step": 5, "hide_if": {"mode": ["survival"], "start_stage": ["camp", "hamlet"]},
+     "hint": "В «С нуля» монеты появляются с рынком (стадия «Деревня»): при старте с лагеря или хутора их нет ни у кого."},
     {"key": "tax_amount", "path": "tax_amount", "group": "Правила", "type": "range", "label": "Налог на землю",
-     "min": 0, "max": 100, "step": 5, "unit": " мон."},
+     "min": 0, "max": 100, "step": 5, "unit": " мон.", "hide_if": NO_WORLD_TAX,
+     "hint": "Сколько монет каждый житель платит в казну в налоговый день. Староста может поменять законом."},
     {"key": "sales_pct", "path": "taxes.sales_pct", "group": "Правила", "type": "range",
-     "label": "Налог с продаж торговцу и совету", "min": 0, "max": 30, "step": 1, "unit": "%"},
+     "label": "Налог с продаж торговцу и совету", "min": 0, "max": 30, "step": 1, "unit": "%",
+     "hide_if": NO_WORLD_TAX, "hint": "Доля монет, полученных от торговца и заказов совета. Сделки между жителями не облагаются."},
     {"key": "wealth_pct", "path": "taxes.wealth_pct", "group": "Правила", "type": "range",
-     "label": "Налог с богатства (с монет сверх 100)", "min": 0, "max": 20, "step": 1, "unit": "%"},
+     "label": "Налог с богатства (с монет сверх 100)", "min": 0, "max": 20, "step": 1, "unit": "%",
+     "hide_if": NO_WORLD_TAX, "hint": "Богатые платят больше: доля от монет, которые у жителя сверх 100."},
     {"key": "burn_pct", "path": "taxes.burn_pct", "group": "Правила", "type": "range",
-     "label": "Доля налогов, которая уходит из игры", "min": 0, "max": 100, "step": 5, "unit": "%"},
+     "label": "Доля налогов, которая уходит из игры", "min": 0, "max": 100, "step": 5, "unit": "%",
+     "hide_if": NO_WORLD_TAX, "hint": "Эта часть налога исчезает, остальное идёт в казну. Не даёт монетам копиться без конца."},
     {"key": "tax_every_days", "path": "tax_every_days", "group": "Правила", "type": "range",
-     "label": "Налог раз в", "min": 1, "max": 14, "step": 1, "unit": " дн."},
+     "label": "Налог раз в", "min": 1, "max": 14, "step": 1, "unit": " дн.", "hide_if": NO_WORLD_TAX,
+     "hint": "Как часто бывает налоговый день."},
     {"key": "law_enforcement", "path": "laws.enforcement", "group": "Правила", "type": "choice",
      "label": "Налоги и штрафы", "options": [["auto", "🏛 Забираются сами"], ["voluntary", "🤝 По желанию"]],
      "hint": "По желанию: налог и штраф становятся счётом в книге долгов, житель сам решает, платить ли. "
@@ -444,6 +480,118 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Как часто жители могут действовать. Короче: живее, чуть дороже (занятой работой житель не думает)."},
 ]
 
+# Short plain-word hints for knobs that have no `hint` of their own (the start screen shows one under every knob).
+HINTS = {
+    "combat_rounds": "Сколько раз противники по очереди бросают кубики в одной драке.",
+    "combat_loot": "Сколько вещей победитель может отнять у проигравшего.",
+    "combat_loot_coins": "Сколько монет победитель может отнять у проигравшего.",
+    "combat_min_health": "Слабый житель не может начать драку, пока не подлечится.",
+    "arson_wood": "Сколько дров поджигатель тратит на растопку. 0: поджечь можно бесплатно.",
+    "land_price": "Сколько монет стоит одна клетка пустого участка у деревни.",
+    "days": "Сколько игровых суток длится деревня. Один день проходит за несколько минут.",
+    "bot_mix": "Боты: простые программы вместо ИИ. Выберите, какие повадки будут у большинства.",
+    "start_coins": "Сколько денег у каждого жителя в первый день.",
+    "tax_amount": "Сколько монет житель платит за свою землю каждый налоговый день.",
+    "sales_pct": "Какая часть цены продажи торговцу уходит в общую казну.",
+    "wealth_pct": "Какую часть монет сверх 100 богатый житель отдаёт в казну.",
+    "burn_pct": "Какая часть собранных налогов исчезает совсем, а не копится в казне.",
+    "tax_every_days": "Как часто приходит налог на землю.",
+    "eviction_days": "Через сколько дней неуплаты налога житель теряет дом.",
+    "satiety_loss_per_hour": "На сколько падает сытость (из 100) за каждый игровой час. Больше: еды нужно больше.",
+    "death_mode": "«Больница»: житель выпадает на несколько дней и возвращается. «Смерть»: уходит из игры насовсем.",
+    "hospital_days": "Сколько дней житель лежит в больнице и ничего не делает.",
+    "winter_fish": "Сколько рыбы зимой по сравнению с летом. 100%: столько же.",
+    "trader_buys_gold": "Сколько золота торговец готов купить в день из общей дневной скупки.",
+    "price_floor": "Даже при полном запасе торговец платит не меньше этой доли обычной цены.",
+    "stock_keep": "Какую часть купленного торговец оставляет себе к утру. Остальное «уезжает», и цены снова растут.",
+    "start_tool": "Сколько инструментов у каждого жителя в первый день. Инструмент ускоряет работу.",
+    "steal_notice_chance": "Как часто прохожие замечают кражу.",
+    "steal_awake_target_success": "Шанс украсть у того, кто не спит. У спящего украсть проще.",
+    "max_steal_qty": "Сколько вещей вор уносит за одну кражу.",
+    "owner_notice": "Шанс, что хозяин, стоящий дома, поймает вора у своего сундука.",
+    "victim_notice": "Шанс, что житель заметит, как у него тащат из кармана.",
+    "debt_collect_fee": "Какую часть взысканного долга мэр забирает в казну.",
+    "dice_max_stake": "Больше этой суммы за одну игру в кости поставить нельзя.",
+    "crisis_chance": "Шанс, что утром начнётся беда: неурожай, засуха, крысы и т.п.",
+    "crisis_first_day": "Первые дни спокойные: так жители успеют освоиться.",
+    "crisis_max_quiet": "Если бед давно не было, следующая придёт не позже этого срока.",
+    "crisis_gap": "Сколько дней после беды точно ничего не случится.",
+    "crisis_w_drought": "Насколько часто среди бед выпадает засуха. 0: никогда.",
+    "crisis_w_rats": "Насколько часто крысы портят запасы. 0: никогда.",
+    "crisis_w_shortage": "Насколько часто у торговца кончается товар. 0: никогда.",
+    "crisis_w_caravan": "Насколько часто приходит караван (это хорошая новость). 0: никогда.",
+    "threat_warn_days": "Если набег объявлен заранее, то за столько дней.",
+    "audit_on_handover": "Новый мэр пересчитывает казну, и все узнают, если старый что-то взял.",
+    "fire_ticks": "Сколько часов можно тушить горящий дом, прежде чем он сгорит.",
+    "fire_water_needed": "Сколько вёдер воды надо вылить на дом, чтобы погасить огонь.",
+    "order_every_days": "Как часто на доске появляется заказ от города с наградой.",
+}
+
+# Start-screen layout (viewer/setup.js). MAIN: the few knobs always shown at the top; the rest sit in folded
+# SECTIONS (title, one-line about, keys in order). A knob in neither lands in a section named by its own `group`.
+MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days"]
+SECTIONS: list[tuple[str, str, list[str]]] = [
+    ("🧠 Жители и их ИИ", "Характеры, память, свои цели и что жители видят друг о друге.",
+     ["characters", "own_goals", "llm_memory", "craft_hint", "summaries", "luxury", "hungry_seen_below",
+      "said_to_you_days"]),
+    ("💰 Деньги и налоги", "Монеты на старте, налоги, казна, государства и неравенство.",
+     ["unfairness", "start_coins", "law_enforcement", "tax_amount", "tax_every_days", "sales_pct", "wealth_pct",
+      "burn_pct", "tax_board", "eviction_days", "polities"]),
+    ("🏛 Общие стройки и казна", "Стройки всей деревней и может ли мэр запустить руку в казну.",
+     ["works", "works_council", "embezzle", "audit_on_handover", "steal_treasury"]),
+    ("🤝 Долги", "Можно ли взыскивать долги силой и пени за просрочку.",
+     ["debt_collection", "debt_auto_collect", "debt_seize_pct", "debt_collect_fee", "debt_late_fee"]),
+    ("❤️ Голод, здоровье и смерть", "Как быстро хочется есть и что бывает с обессилевшим.",
+     ["satiety_loss_per_hour", "death_mode", "lives", "hospital_days"]),
+    ("❄️ Времена года", "Длина сезонов и насколько сурова зима.",
+     ["seasons", "season_days", "season_start", "winter_hunger", "winter_fish"]),
+    ("🔨 Работа и ремёсла", "Кто что добывает, крафт, инструменты, мастерство, заказы.",
+     ["labor", "crafting", "secret_recipes", "work_hours", "skill_bonus", "spoilage", "start_tool", "tool_hours",
+      "order_every_days"]),
+    ("🏪 Торговец и рынок", "Сколько торговец покупает и продаёт, его цены, сделки между жителями.",
+     ["trade_anywhere", "market_board", "trader_buys", "trader_buys_gold", "trader_purse", "trader_sells",
+      "trader_sells_tool", "stock_prices", "price_drop", "price_floor", "stock_keep", "gold_value"]),
+    ("🕵️ Кражи", "Насколько легко украсть и попасться.",
+     ["theft_rules", "see_stores", "steal_notice_chance", "steal_awake_target_success", "max_steal_qty",
+      "dark_factor", "owner_notice", "victim_notice"]),
+    ("⚔️ Драки", "Можно ли драться, сколько длится драка и что забирает победитель.",
+     ["combat", "combat_rounds", "combat_loot", "combat_loot_coins", "combat_min_health"]),
+    ("🗣 Слухи и разговоры", "Как искажаются пересказы и сколько стоит объявление.",
+     ["mishear_number", "mishear_name", "overhear", "origin_hops", "announce_cost"]),
+    ("⚡ Беды и случайности", "Пожары, болезни, набеги, звери и кризисы. Наверху один общий переключатель.",
+     ["chaos", "random_fire", "sickness_chance", "illness_spread", "raid_chance", "beast_chance", "threat_warn",
+      "threat_warn_days", "traveler_chance", "scout_chance", "fire_ticks", "fire_water_needed", "fire_spread_hours",
+      "allow_arson", "arson_wood", "crises", "crisis_chance", "crisis_first_day", "crisis_max_quiet", "crisis_gap", "crisis_w_crop_failure",
+      "crisis_w_drought", "crisis_w_rats", "crisis_w_shortage", "crisis_w_caravan"]),
+    ("🐗 Звери, транспорт и азарт", "Охота, лошади и телеги, кости на деньги.",
+     ["animals", "transport", "dice", "dice_max_stake", "dice_credit"]),
+    ("🗺 Карта и земля", "Размер карты, разведка, участки под дома и номер деревни.",
+     ["map_size", "explore", "settle", "settle_spread", "land_claim", "land_jump", "land", "land_price", "gold", "regrowth", "fixed_map", "seed"]),
+    ("⏱ Скорость", "Как быстро идёт время на экране и как часто жители думают.",
+     ["pace", "tick_minutes"]),
+]
+
+
+def layout(knobs: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Knobs in screen order, each with `section` ("main" or a section title) and `hint` filled in; and the
+    sections [{title, about}] in order. Keys not in MAIN/SECTIONS go last under their own `group`."""
+    by_key = {k["key"]: k for k in knobs}
+    placed: list[tuple[dict, str]] = [(by_key[key], "main") for key in MAIN if key in by_key]
+    sections = []
+    for title, about, keys in SECTIONS:
+        rows = [(by_key[key], title) for key in keys if key in by_key]
+        if rows:
+            sections.append({"title": title, "about": about})
+            placed += rows
+    seen = {k["key"] for k, _ in placed}
+    for k in knobs:
+        if k["key"] not in seen:
+            if k["group"] not in [s["title"] for s in sections]:
+                sections.append({"title": k["group"], "about": ""})
+            placed.append((k, k["group"]))
+    out = [{**k, "section": s, "hint": k.get("hint") or HINTS.get(k["key"], "")} for k, s in placed]
+    return out, sections
+
 
 # Russian names for llm.CHARACTERS presets (the start screen's "Характер" dropdown).
 CHARACTER_LABELS = {
@@ -540,7 +688,8 @@ def mode_defaults(mode: str) -> dict[str, Any]:
 
 
 def schema() -> dict:
-    return {"knobs": active(), "characters": characters(), "professions": sorted(DEFAULT_CONFIG["professions"]),
+    ordered, sections = layout(active())
+    return {"knobs": ordered, "sections": sections, "characters": characters(), "professions": sorted(DEFAULT_CONFIG["professions"]),
             "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k and "action" not in k},
             "mode_defaults": {m: mode_defaults(m) for m in modes.MODES}}
 
@@ -604,6 +753,8 @@ def to_run(opts: dict) -> dict:
         elif "action" in k:
             off = set(override.get("disabled_actions", [])) - {k["action"]}
             override["disabled_actions"] = sorted(off if val[key] else off | {k["action"]})
+    if val["food"] == "scarce" and mode != "scarcity":
+        override = _merge(override, modes.scarce_food(make_config(override)))
     override["population"] = {"size": val["villagers"]}
     override["characters"] = val["characters"]
     if rows:  # villagers set one by one; population.py fills up to `villagers` if the list is shorter

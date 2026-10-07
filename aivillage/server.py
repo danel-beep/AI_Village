@@ -29,7 +29,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import clock, engine, keys, knobs, llm, mapgen, modes, reports, saves, scenario, session, threats
+from . import clock, engine, keys, knobs, llm, mapgen, mcpserver, modes, remote, reports, saves, scenario, session, threats
+from .tunnel import TUNNEL
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
 from .registry import GOD, ActionError
@@ -129,11 +130,17 @@ class LiveSim:
         self._thread = threading.Thread(target=self._run, name="sim", daemon=True)
         self._thread.start()
 
+    def own_ai(self) -> bool:
+        """Some villagers are played by people's own AIs over MCP (aivillage/remote.py)."""
+        return any(isinstance(ag.client, remote.RemoteClient) for ag in (getattr(self.decide, "agents", None) or {}).values())
+
     def _run(self) -> None:
         try:
             run(self.world, self.decide, self.days, self.god, self.log_path,
                 on_night=self.on_night, on_record=self._on_record, checkpoint=self._checkpoint,
                 resume_header=self.resume_header, meta=self.log_meta)
+            if self.own_ai():
+                remote.HUB.close(finished=True)  # players' AIs hear the game is over
             self._save_quietly()  # the last day is done: "continue" later adds more days
         except _Stop:
             pass
@@ -285,6 +292,8 @@ class LiveSim:
         """Ask the sim to end (it saves first). `wait`: seconds to wait for that; True if it has ended."""
         self.stopping = True
         self.running.set()
+        if self.own_ai():
+            remote.HUB.close()  # villagers waiting for a player's AI give up at once
         if wait and self._thread is not None:
             self._thread.join(wait)
         return self._thread is None or not self._thread.is_alive()
@@ -441,6 +450,8 @@ class LiveSim:
         w = self.world
         return {"agents": sorted(w.agents), "locations": {l.id: l.name for l in w.locations.values()},
                 "items": sorted(w.config["items"]),
+                # polities for the god panel's tax form (they appear during play: the panel asks again)
+                "polities": {pid: p["name"] or pid for pid, p in sorted(w.polities.items())},
                 "god": {n: {"description": s.description, "schema": s.schema()} for n, s in GOD.specs.items()},
                 **self.status()}
 
@@ -486,7 +497,8 @@ class Host:
             self.runs_dir.mkdir(parents=True, exist_ok=True)
             log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.jsonl"
             sm = None if run_opts["llm"] and run_opts["summaries"] else "off"
-            self.sim = make_sim(world, models=["default"] if run_opts["llm"] else None, bots=run_opts["bots"],
+            models = remote.models_for(world.config) if run_opts["llm"] else None  # own AIs get "mcp"
+            self.sim = make_sim(world, models=models, bots=run_opts["bots"],
                                 seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
                                 summary_model=sm, reports_dir=self.reports_dir,
                                 reveal_reports=self.reveal_reports)
@@ -494,6 +506,7 @@ class Host:
             if opts.get("roster"):
                 self.last["roster"] = world.config["agents"]
             self.sim.run_info = {"days": run_opts["days"], "seed": seed, "last": self.last}
+            remote.HUB.info["days"] = run_opts["days"]
             self.sim.start()
             print(f"Village seed {seed}: {log}")
             return self.sim
@@ -543,6 +556,7 @@ class Host:
                           self.reports_dir, self.reveal_reports,
                           int(info.get("view_lag_minutes") or VIEW_LAG_MINUTES), resume_header=recs[0])
             sim.run_info = {**info, "days": info.get("days") or days}
+            remote.HUB.info["days"] = days
             sim.preload(recs)
             for tick, ev in snap.get("god_pending") or []:
                 sim.god.put(ev, tick)
@@ -595,6 +609,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     app = FastAPI(title="AI Village live")
     host = host or Host(sim)
     app.state.host = host
+    mcpserver.mount(app)  # /mcp/<seat code>: people's own AIs (aivillage/remote.py)
+    app.add_middleware(mcpserver.OutsideOnlyMcp)  # the internet tunnel reaches /mcp only
 
     def need() -> LiveSim:
         if host.sim is None:
@@ -610,6 +626,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         else:
             inject = ('<script src="/live.js"></script>\n<script src="/god.js"></script>\n'
                       '<script src="/report.js"></script>\n<script src="/session.js"></script>\n'
+                      '<script src="/remote.js"></script>\n'
                       '<script src="/settings.js"></script>\n')
             if host.setup:
                 inject += '<script src="/setup.js"></script>\n'
@@ -679,6 +696,36 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if not request.client or request.client.host not in ("127.0.0.1", "::1", "localhost", "testclient"):
             raise HTTPException(403, "settings are only available on this computer")
 
+    # --- own AIs over MCP (aivillage/remote.py, viewer/remote.js) ---
+
+    @app.get("/api/remote")
+    def remote_status(request: Request) -> dict:
+        local_only(request)
+        st = remote.HUB.status() if host.sim is not None and host.sim.own_ai() else {"open": False, "seats": []}
+        base = f"{request.url.scheme}://{request.url.netloc}"
+        return {**st, "local": base, "tunnel": TUNNEL.status()}
+
+    @app.post("/api/remote/skip")
+    def remote_skip(body: dict, request: Request) -> dict:
+        """"Играть без него": the village stops waiting for this seat until its AI joins."""
+        local_only(request)
+        seat = remote.HUB.by_name(str((body or {}).get("name")))
+        if seat is None:
+            raise HTTPException(404, "нет такого места")
+        with seat.cond:
+            seat.skipped = bool((body or {}).get("skip", True))
+            seat.cond.notify_all()
+        return {"ok": True}
+
+    @app.post("/api/remote/tunnel")
+    def remote_tunnel(body: dict, request: Request) -> dict:
+        local_only(request)
+        if (body or {}).get("on", True):
+            TUNNEL.start(request.url.port or 8000)
+        else:
+            TUNNEL.stop()
+        return TUNNEL.status()
+
     @app.get("/api/settings")
     def settings(request: Request) -> dict:
         local_only(request)
@@ -730,7 +777,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     def start(body: dict, request: Request) -> dict:
         local_only(request)
         opts = dict(body or {})
-        if opts.get("brains", "llm") == "llm" and not keys.has_any_key():
+        all_own = int(opts.get("own_ai_seats") or 0) >= int(opts.get("villagers") or 5)  # no key needed then
+        if opts.get("brains", "llm") == "llm" and not keys.has_any_key() and not all_own:
             raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
                                      "Или выберите ботов, они бесплатные.")
         try:

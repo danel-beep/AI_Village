@@ -24,6 +24,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # as short lines plus its own answers (cached by the provider, reset each night); "fresh" = every turn is a new
     # chat with the last 3 actions and own notes (the old way).
     "llm_memory": "day",
+    # Own AIs (aivillage/remote.py): the first `seats` villagers are played by people's own AIs (Claude, ChatGPT,
+    # Gemini, Codex...) connected over MCP. The village waits `wait_minutes` for each answer once an AI is
+    # connected; `style` "owner" = the AI takes the villager's character from its owner, "self" = like any villager.
+    "own_ai": {"seats": 0, "wait_minutes": 5, "style": "owner"},
     # Time: one tick = tick_minutes game minutes (clock.py). Agents act from day_start to day_end, then
     # night runs. 60 is the old hourly mode the engine tests use; the CLI, live server and launcher run 15.
     "day_start_hour": 6,
@@ -402,7 +406,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "council_size": 3,
         "max_open_proposals": 3,
         "expel_days": 7,  # an expelled villager may not join that polity again for this many days
-        "limits": {"tax": [0, 50], "grant": [1, 500], "fine": [1, 200]},
+        # tax laws: income_tax and wealth_tax in percent, tax_every in days (polity.py)
+        "limits": {"tax": [0, 50], "income_tax": [0, 50], "wealth_tax": [0, 20], "tax_every": [1, 14],
+                   "grant": [1, 500], "fine": [1, 200]},
         "max_name_len": 30,
         # The treasury holder (ruler; most voted councillor; an assembly's treasurer) can take coins unnoticed
         # (polity_embezzle) until polity_audit at the town hall or, with audit_on_handover, a change of holder.

@@ -17,6 +17,25 @@ def test_every_mode_has_a_slider_position_for_every_config_knob():
     assert knobs.mode_defaults("standard")["steal_notice_chance"] == round(DEFAULT_CONFIG["steal_notice_chance"] * 100)
 
 
+def test_start_screen_layout_main_on_top_every_knob_placed_with_a_hint():
+    s = knobs.schema()
+    keys = [k["key"] for k in s["knobs"]]
+    assert sorted(keys) == sorted(k["key"] for k in knobs.active())  # nothing lost, nothing doubled
+    main = [k["key"] for k in s["knobs"] if k["section"] == "main"]
+    assert main == [k for k in knobs.MAIN if k in keys] and keys[:len(main)] == main
+    titles = [sec["title"] for sec in s["sections"]]
+    assert {k["section"] for k in s["knobs"]} - {"main"} == set(titles)
+    assert all(k["hint"] for k in s["knobs"]), [k["key"] for k in s["knobs"] if not k["hint"]]
+    listed = set(knobs.MAIN) | {key for _, _, ks in knobs.SECTIONS for key in ks}
+    assert listed <= {k["key"] for k in knobs.KNOBS}  # no typos in the layout
+
+
+def test_a_knob_missing_from_the_layout_falls_back_to_its_group():
+    extra = {"key": "x", "group": "Новое", "type": "toggle", "label": "X"}
+    ordered, sections = knobs.layout(knobs.active() + [extra])
+    assert ordered[-1]["key"] == "x" and ordered[-1]["section"] == "Новое" and sections[-1]["title"] == "Новое"
+
+
 def test_to_run_defaults_follow_the_mode_and_answers_win():
     r = knobs.to_run({"mode": "peaceful"})
     assert r["llm"] and r["days"] == 3 and r["override"]["population"] == {"size": 5}
@@ -52,6 +71,26 @@ def test_world_from_start_screen_has_the_settings():
     w = engine.new_world({**r["override"], "seed": 4})
     assert len(w.agents) == 7 and w.config["tax_amount"] == 5 and w.config["start_coins"] == 55
 
+
+
+def test_little_food_goes_with_any_mode_and_keeps_the_camp_start():
+    """«Еды в мире: мало» on «С нуля»: still an empty camp, with the food of «Дефицит» (Danel's run 2026-10-06)."""
+    from aivillage import engine
+    base = knobs.to_run({"brains": "bots", "mode": "survival", "start_stage": "camp"})["override"]
+    r = knobs.to_run({"brains": "bots", "mode": "survival", "start_stage": "camp", "food": "scarce"})
+    o = r["override"]
+    assert o["food_supply"] == "scarce" and o["progress"]["start_stage"] == "camp"
+    assert o["plots"]["buildings"]["garden_bed"]["yield"] == base["plots"]["buildings"]["garden_bed"]["yield"] // 2
+    w = engine.new_world({**o, "seed": 3})
+    assert modes.camp_start(w.config) and all(a.coins == 0 for a in w.agents.values())
+    assert w.config["satiety_start"] == 50 and w.config["npc_sell_ratio"] == 2.5
+    full = engine.new_world({**base, "seed": 3}).config["locations"]
+    for loc in ("river", "forest"):
+        for res, v in w.config["locations"][loc]["resources"].items():
+            if res in modes.WILD_FOOD:
+                assert v["max"] == max(1, full[loc]["resources"][res]["max"] // 2)
+    # «Дефицит» is little food already: the answer changes nothing there
+    assert knobs.to_run({"mode": "scarcity", "food": "scarce"})["override"] == knobs.to_run({"mode": "scarcity"})["override"]
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")

@@ -116,7 +116,7 @@ def character_text(value: str | None, *, mode: str = "default", seed: int = 0, n
 DIARY_WORDS = 150
 ABOUT_ME_WORDS = 60
 GOAL_CHARS = 400  # "wants" and the day's plan, each
-DAY_LOG_LINES = 40
+DAY_LOG_LINES = 60  # lines of the day the diary sees; past it the oldest news of others goes first
 PERSON_NOTE_CHARS = 300
 # Memory modes (config `llm_memory`, docs/specs/memory-and-cache.md):
 #   "day":   the villager's day is one conversation: each earlier turn today stays as a short line of what it saw
@@ -854,7 +854,31 @@ class LLMAgent:
         if dec.get("thought"):
             line += f" (thinking: {dec['thought']})"
         self.day_log.extend(l[:200] for l in lines + [line])
-        del self.day_log[: max(0, len(self.day_log) - DAY_LOG_LINES)]
+        self.trim_day_log()
+
+    def to_me(self, line: str) -> bool:
+        """A day-log line with words for this villager: a letter, a whisper, or said out loud with its name."""
+        if "Letter from " in line or "whispers to you" in line:
+            return True
+        said = line.split(" says: ", 1)
+        return len(said) == 2 and re.search(rf"\b{re.escape(self.name)}\b", said[1]) is not None
+
+    def trim_day_log(self) -> None:
+        """Keep the day log within DAY_LOG_LINES. Letters, whispers and words to this villager stay (a busy day
+        used to push a morning letter out before the diary was written); the oldest news of others goes first,
+        then the oldest own turns."""
+        over = len(self.day_log) - DAY_LOG_LINES
+        if over <= 0:
+            return
+        drop: set[int] = set()
+        for worth_dropping in (lambda l: " news: " in l and not self.to_me(l), lambda l: not self.to_me(l),
+                               lambda l: True):
+            for i, l in enumerate(self.day_log):
+                if len(drop) >= over:
+                    break
+                if i not in drop and worth_dropping(l):
+                    drop.add(i)
+        self.day_log = [l for i, l in enumerate(self.day_log) if i not in drop]
 
     def decide(self, obs: dict) -> dict:
         intro = self.introduce(obs) if self.own_goals and not self.introduced else None

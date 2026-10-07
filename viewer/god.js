@@ -12,11 +12,15 @@
            'деревню за несколько дней или напасть внезапно. Если отбиться, бросят добычу.'],
     beast: ['🐺 Зверь из леса', 'Ест запасы и ранит жителей, пока его не прогонят. С предупреждением или без.'],
     traveler: ['🧳 Путник', 'Голодный путник на площади. Разведчик, если его не прогнать, наведёт бандитов без предупреждения.'],
+    set_tax: ['🏛 Налоги', 'Поменять налог одного государства (его законы) или, если государств нет, всей деревни. ' +
+              'Пустое поле не меняется. Жители увидят новый закон, но не узнают, кто его поменял.'],
   };
   const FIELD = { person: 'кто', to: 'кому', tell: 'подсказать (необязательно)', location: 'где', days: 'дней',
                   items: 'вещи (wood:2, fish:1)', coins: 'монеты', text: 'текст',
                   target: 'на чей дом (необязательно)', warn: 'предупредить деревню заранее',
-                  scout: 'на самом деле разведчик бандитов', in_days: 'через сколько дней (0: сразу)' };
+                  scout: 'на самом деле разведчик бандитов', in_days: 'через сколько дней (0: сразу)',
+                  polity: 'государство', tax: 'налог в монетах с каждого', income_pct: '% с дохода от торговца и заказов',
+                  wealth_pct: '% с монет', every_days: 'налог раз в сколько дней (только государство)' };
   const PEOPLE = new Set(['person', 'to', 'tell', 'target']);
   const OPTIONAL = new Set(['tell', 'target']);
 
@@ -42,7 +46,18 @@
   const toggle = Object.assign(document.createElement('button'), { id: 'god-toggle', textContent: '⚡ Режим бога' });
   const panel = Object.assign(document.createElement('div'), { id: 'god', hidden: true });
   document.body.append(toggle, panel);
-  toggle.onclick = () => { panel.hidden = !panel.hidden; };
+  // polities are founded during play: refresh their list each time the panel opens
+  const polityOptions = ps => Object.keys(ps || {}).length
+    ? Object.entries(ps).map(([v, n]) => `<option value="${esc(v)}">${esc(n)} (${esc(v)})</option>`).join('')
+    : '<option value="">— вся деревня —</option>';
+  toggle.onclick = () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) fetch('/api/meta').then(r => r.json()).then(m => {
+      for (const el of panel.querySelectorAll('[data-polity]')) {
+        const v = el.value; el.innerHTML = polityOptions(m.polities); if (v in (m.polities || {})) el.value = v;
+      }
+    }).catch(() => {});
+  };
 
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -54,13 +69,16 @@
     if (PEOPLE.has(key)) {
       ctl = `<select data-k="${key}">${OPTIONAL.has(key) ? '<option value="">—</option>' : ''}` +
         meta.agents.map(n => `<option>${esc(n)}</option>`).join('') + '</select>';
+    } else if (key === 'polity') {
+      ctl = `<select data-k="${key}" data-polity="1">${polityOptions(meta.polities)}</select>`;
     } else if (key === 'location') {
       ctl = `<select data-k="${key}">` + Object.entries(meta.locations)
         .map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join('') + '</select>';
     } else if (prop.type === 'boolean') {
       ctl = `<input type="checkbox" data-k="${key}" data-bool="1"${prop.default ? ' checked' : ''}>`;
     } else if (prop.type === 'integer' || (prop.anyOf || []).some(t => t.type === 'integer')) {
-      ctl = `<input type="number" data-k="${key}" data-int="1" value="${prop.default ?? 0}">`;
+      // an optional number (default null) starts empty: left empty, it is not sent
+      ctl = `<input type="number" data-k="${key}" data-int="1" value="${prop.default === null ? '' : (prop.default ?? 0)}">`;
     } else if (key === 'items') {
       ctl = `<input data-k="${key}" data-items="1" placeholder="wood:2, fish:1" list="god-items">`;
     } else {
