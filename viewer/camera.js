@@ -5,6 +5,11 @@ const Camera = (() => {
   const MAXZ = 6;
   let cv = null, box = null, W = 1, H = 1, S = 2, z = 1, zt = 1, cx = 0, cy = 0, follow = null, down = null, dragged = false;
   let anchor = null;   // [wx, wy, px, py]: the map point that stays under the cursor while a zoom animates
+  // goal: where the auto camera wants to be {x, y, z, w}; update() glides there on a critically damped spring (no
+  // sudden starts or stops, w = stiffness). vx, vy, vz: the glide's speed (vz in log zoom). placed: the first frame
+  // was framed (the loading screen waits for it, viewer/setup.js).
+  // aim: the goal itself eased first, so even the glide's acceleration starts softly.
+  let goal = null, aim = null, vx = 0, vy = 0, vz = 0, placed = false;
 
   const clampZ = v => Math.max(1, Math.min(MAXZ, v));
   function clampC() {
@@ -20,11 +25,14 @@ const Camera = (() => {
   function toWorld(px, py) { const v = view(); return [v.x0 + px / (S * z), v.y0 + py / (S * z)]; }
   function toScreen(wx, wy) { const v = view(); return [(wx - v.x0) * S * z, (wy - v.y0) * S * z]; }
   // Zoom keeping the map point under (px, py) canvas pixels in place; the zoom itself glides there in update().
+  // The viewer zoomed by hand: the auto camera lets them look for a while, like after a drag.
   function zoomAt(f, px = cv.width / 2, py = cv.height / 2) {
     const [wx, wy] = toWorld(px, py);
+    if (goal) zt = z;
+    goal = null; director.hold = 8; director.pin = null;
     zt = clampZ(zt * f); anchor = [wx, wy, px, py];
   }
-  function reset() { follow = null; zt = 1; anchor = null; director.on && setDirector(false, false); }
+  function reset() { follow = null; zt = 1; anchor = null; goal = null; director.on && setDirector(false, false); }
   function attach(canvas, w, h, s) {
     W = w; H = h; S = s;
     if (cv === canvas) return;
@@ -40,7 +48,7 @@ const Camera = (() => {
       if (!down || !(e.buttons & 1)) return;
       const [px, py] = toCanvas(e), dx = px - down.p[0], dy = py - down.p[1];
       if (!dragged && Math.hypot(dx, dy) < 6) return;
-      dragged = true; follow = null; anchor = null; director.hold = 8; director.pin = null; canvas.style.cursor = 'grabbing';
+      dragged = true; follow = null; anchor = null; goal = null; director.hold = 8; director.pin = null; canvas.style.cursor = 'grabbing';
       cx = down.cx - dx / (S * z); cy = down.cy - dy / (S * z); clampC();
     });
     window.addEventListener('pointerup', () => { down = null; canvas.style.cursor = ''; });
@@ -135,9 +143,9 @@ const Camera = (() => {
     if (director.pin && (director.pin.left -= dt) <= 0) director.pin = null;
     const pinned = director.pin;
     if (!pinned) {   // a pinned shot (⏮ ⏭) wins over everything below
-      if (!director.on) { if (caption) { flashT -= dt; caption.style.opacity = flashT > 0 ? 1 : 0; } return; }
-      director.age += dt; if (director.hold > 0) { director.hold -= dt; return; }   // the viewer just dragged: let them look
-      if (lastSel) return;                                                           // a picked villager is followed instead
+      if (!director.on) { goal = null; placed = true; if (caption) { flashT -= dt; caption.style.opacity = flashT > 0 ? 1 : 0; } return; }
+      director.age += dt; if (director.hold > 0) { director.hold -= dt; goal = null; placed = true; return; }   // the viewer just dragged: let them look
+      if (lastSel) { goal = null; placed = true; return; }                                                      // a picked villager is followed instead
     }
     const ah = !pinned && director.ahead;
     if (ah) {   // the «Эфир» replay knows what comes next: go there now
@@ -146,6 +154,7 @@ const Camera = (() => {
       director.seen = null;
     } else if (!pinned && director.seen !== t.tick) {
       director.seen = t.tick;
+      for (const e of t.events || []) if (e.actor && pos(e.actor)) idle.next = e.actor;   // who did something last
       const was = director.shot;   // a look-ahead shot: it is happening now, so label it (one with no kind just ends)
       if (was && was.ahead) { if (was.kind) was.ahead = false; else director.shot = null; }
       let best = null;
@@ -177,10 +186,37 @@ const Camera = (() => {
       caption.style.top = (cv.offsetTop + 8) + 'px';
     }
     const p = s && (s.who ? pos(s.who) : at(s.loc));
-    if (p) { follow = null; zt = s.sc >= 6 ? 2.6 : 2; anchor = null;
-      const f = 1 - Math.exp(-dt * (pinned ? 3 : 1.6)); cx += (p[0] - cx) * f; cy += (p[1] - cy) * f; }
-    else { zt = 1; anchor = null; }
+    if (p) { goal = { x: p[0], y: p[1], z: s.sc >= 6 ? 2.6 : 2, w: pinned ? 3 : 1.8 }; idle.quiet = 0; idle.wide = 0; }
+    else quiet(dt, t, pos);
+    follow = null; anchor = null;
+    if (!placed) { cx = goal.x; cy = goal.y; z = zt = goal.z; vx = vy = vz = 0; placed = true; }   // the first frame is framed already
   }
+
+  // Nothing worth a shot: stay with one villager (the one who did something last, held a while so the picture is
+  // calm), and only now and then pull back for a few seconds to show everyone, just far enough to fit them all.
+  const IDLE_HOLD = 20, WIDE_EVERY = 75, WIDE_HOLD = 7;
+  const idle = { who: null, age: 0, quiet: 0, wide: 5, next: null };   // wide: the first seconds show the whole group
+  function quiet(dt, t, pos) {
+    idle.quiet += dt; idle.age += dt;
+    if (idle.wide <= 0 && idle.quiet > WIDE_EVERY) { idle.wide = WIDE_HOLD; idle.quiet = 0; }
+    const names = Object.keys(t.view.agents || {}).filter(n => pos(n));
+    if (idle.wide > 0 || !names.length) { idle.wide -= dt; goal = group(names, pos); return; }
+    if (!pos(idle.who) || (idle.age > IDLE_HOLD && idle.next && idle.next !== idle.who && pos(idle.next))) {
+      idle.who = pos(idle.next) ? idle.next : names[Math.floor(Math.random() * names.length)]; idle.age = 0;
+    }
+    const p = pos(idle.who);
+    goal = { x: p[0], y: p[1], z: 2, w: 1.4 };
+  }
+  // The smallest view (at most as close as a shot) that holds all these villagers, with room for their bubbles.
+  function group(names, pos) {
+    if (!names.length) return { x: W / 2, y: H / 2, z: 1, w: 1.2 };
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of names) { const [x, y] = pos(n); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    x0 -= 70; x1 += 70; y0 -= 90; y1 += 40;
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: clampZ(Math.min(2, W / (x1 - x0), H / (y1 - y0))), w: 1.2 };
+  }
+  // The loading screen (viewer/setup.js) stays up until the camera has framed the first picture.
+  const ready = () => placed;
 
   // Manual replay control (viewer/replay.js): show this event now and hold it `sec` seconds, whatever the
   // director would pick (works with the auto camera off too). ev: a log event; t: the tick that holds it.
@@ -205,8 +241,25 @@ const Camera = (() => {
   // Called every frame. sel: selected villager name; pos(name) -> [x, y] map pixels or undefined.
   let lastSel = null;
   function update(dt, sel, pos) {
-    if (sel !== lastSel) { lastSel = sel; follow = sel; anchor = null; if (sel && zt < 2.5) zt = 2.5; director.shot = null; if (sel) director.pin = null; }
-    if (Math.abs(zt - z) > .001) z += (zt - z) * (1 - Math.exp(-dt * 14)); else z = zt;
+    if (sel !== lastSel) { lastSel = sel; follow = sel; anchor = null; if (sel && zt < 2.5) zt = Math.max(2.5, z); director.shot = null; if (sel) director.pin = null; }
+    if (goal && !follow && !anchor) {   // the auto camera: a soft spring, so it eases in and out instead of jerking
+      const w = goal.w, wz = w * .7, lz = Math.log(z), f = 1 - Math.exp(-dt * w * 1.5);
+      if (!aim) aim = { x: cx, y: cy, z: lz, gx: goal.x, gy: goal.y, vx: 0, vy: 0 };
+      // how fast the goal itself walks (a cut to another spot is not walking), so a walking villager stays in the
+      // middle of the picture instead of being trailed
+      const gdx = goal.x - aim.gx, gdy = goal.y - aim.gy, walk = dt && Math.hypot(gdx, gdy) < 10, g = 1 - Math.exp(-dt * 4);
+      aim.vx += ((walk ? gdx / dt : 0) - aim.vx) * g; aim.vy += ((walk ? gdy / dt : 0) - aim.vy) * g; aim.gx = goal.x; aim.gy = goal.y;
+      aim.x += (goal.x - aim.x) * f; aim.y += (goal.y - aim.y) * f; aim.z += (Math.log(goal.z) - aim.z) * f;
+      const hw = W / (2 * z), hh = H / (2 * z);   // aim inside the map, so the glide never runs into the edge and stops dead
+      aim.x = Math.max(hw, Math.min(W - hw, aim.x)); aim.y = Math.max(hh, Math.min(H - hh, aim.y));
+      vx += (w * w * (aim.x - cx) + 2 * w * (aim.vx - vx)) * dt; vy += (w * w * (aim.y - cy) + 2 * w * (aim.vy - vy)) * dt;
+      vz += (wz * wz * (aim.z - lz) - 2 * wz * vz) * dt;
+      cx += vx * dt; cy += vy * dt; z = zt = clampZ(Math.exp(lz + vz * dt));
+      const ox = cx, oy = cy; clampC(); if (cx !== ox) vx = 0; if (cy !== oy) vy = 0;   // at the map edge: no wind-up
+    } else {
+      vx = vy = vz = 0; aim = null;
+      if (Math.abs(zt - z) > .001) z += (zt - z) * (1 - Math.exp(-dt * 14)); else z = zt;
+    }
     if (anchor) { const [wx, wy, px, py] = anchor; cx = wx - px / (S * z) + W / (2 * z); cy = wy - py / (S * z) + H / (2 * z);
       if (z === zt) anchor = null; }
     const p = follow && pos(follow);
@@ -215,5 +268,5 @@ const Camera = (() => {
     if (box) box.style.top = (cv.offsetTop + cv.offsetHeight - 38) + 'px';
   }
 
-  return { attach, update, direct, view, toWorld, toScreen, setDirector, directorOn, score, label, pin, flash, toolbar, ahead, focus, captionEl: () => caption };
+  return { attach, update, direct, view, toWorld, toScreen, setDirector, directorOn, score, label, pin, flash, toolbar, ahead, focus, captionEl: () => caption, ready };
 })();
