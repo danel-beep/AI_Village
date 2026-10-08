@@ -19,17 +19,17 @@ def test_camp_start_is_empty():
     w = world(map={"procedural": True, "unfairness": 1.0})
     assert progress.stage(w) == "camp"
     for a in w.agents.values():
-        assert a.profession == "laborer" and a.coins == 0 and not any(a.inventory.values())
+        assert a.profession == "villager" and a.coins == 0 and not any(a.inventory.values())
     homes = [p for p in w.plots.values() if p.kind == "home"]
     assert homes and all(p.house == 0 and not p.buildings for p in homes)
     assert not w.config["labor"]["own_trade_only"]
-    assert w.config["places"]["enabled"] and not places.is_open(w) and places.observe(w, "Anna") == {}
+    assert not w.config["places"]["enabled"] and not places.is_open(w) and places.observe(w, "Anna") == {}
 
 
 def test_hamlet_start_is_the_ready_village():
     w = world("hamlet")
     assert progress.stage(w) == "hamlet"
-    assert any(a.profession != "laborer" for a in w.agents.values())
+    assert all(a.profession == "villager" for a in w.agents.values())  # no professions at any stage
     assert all(a.inventory.get("tool") == 1 for a in w.agents.values())
     assert all(p.house >= 1 for p in w.plots.values() if p.kind == "home" and p.owner)
     assert all(a.coins == 0 for a in w.agents.values())  # no market square yet, so no coins
@@ -121,8 +121,11 @@ def test_map_smithy_is_no_free_forge_in_an_empty_start():
     assert crafting.workshops_at(world("village"), "smithy")[0]["kind"] == "smithy"  # a ready village keeps it
 
 
+PROFESSIONS = {"labor": {"mastery": {"enabled": False}}}  # «С нуля» with the old trades (labor.mastery off)
+
+
 def test_trade_places_open_with_the_market_square():
-    w = world()
+    w = world(**PROFESSIONS)
     w.agents["Anna"].location = "square"
     step(w, {"Anna": ("change_trade", {"profession": "miner"})})
     assert w.agents["Anna"].profession == "laborer"  # no market square yet
@@ -138,7 +141,7 @@ def test_trade_places_open_with_the_market_square():
 
 def test_a_workshop_owner_keeps_its_trade_with_places_open():
     """The owner takes the workshop's trade back within the hour: losing it would only zero the skill."""
-    w = world()
+    w = world(**PROFESSIONS)
     construction.place(w, "market_square", "square")
     while w.day < 6:  # days pass, then Boris's smithy stands
         step(w, {})

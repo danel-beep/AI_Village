@@ -37,6 +37,7 @@ def new_world(config: dict | None = None) -> World:
         for lid in [k for k, s in cfg["locations"].items() if "lot" in s and k not in cfg["map"]["layout"]["places"]]:
             del cfg["locations"][lid]
     modes.bare_start(cfg)
+    labor.setup_config(cfg)
     w = World(config=cfg, hour=cfg["day_start_hour"])
     for lid, spec in cfg["locations"].items():
         res = {r: v["start"] for r, v in spec.get("resources", {}).items()}
@@ -143,7 +144,8 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
             "projects": works.board(world),
             "trader_prices": pricing.prices(world) if labor.trader_here(world) else {},
             "recipes": cfg["recipes"],
-            "villagers": [{"name": o.name, "profession": o.profession, "status": o.status}
+            "villagers": [{"name": o.name, "profession": o.profession, "status": o.status,
+                           **({"best_at": labor.best_at(cfg, o)} if labor.no_professions(cfg) else {})}
                           for o in world.agents.values()],
         },
         "relations": family.observe(world, name),

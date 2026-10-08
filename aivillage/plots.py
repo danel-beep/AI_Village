@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from . import crafting, ops, seasons, theft, works
+from . import crafting, labor, ops, seasons, theft, works
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Plot, World
@@ -274,7 +274,9 @@ def sow(ctx: Ctx, a: Agent, crop: str | None) -> None:
         crafting.wear(ctx, a, tool)
     else:
         tool = "tool" if ops.count(a.inventory, "tool") > 0 else None
-    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=tool is not None)
+    b["amount"] = _bed_yield(ctx.cfg, spec, a.profession, tool=tool is not None) + labor.bed_bonus(ctx.cfg, a)
+    b["amount"] += labor.extra(a, f"house:{crop}", b["amount"], labor.house_pct(ctx.cfg, plot.house))
+    labor.practice(ctx, a, "farming")
     where = "at home" if plot.kind == "home" else f"at {ctx.world.locations[plot.home].name}"
     ctx.emit("plant", f"{a.name} planted {crop} in a garden bed {where} (ripe on day {b['ripe_day']}).",
              actor=a.name, location=plot.home, visibility="location", resource=crop, building=b["id"],
@@ -415,7 +417,10 @@ def after_night(ctx: Ctx) -> None:
                 ops.burn(w, chest.items, spec["feed_item"], feed)
             room = spec["cap"] - ops.count(b["items"], spec["makes"])
             if room > 0:
-                ops.mint(w, b["items"], spec["makes"], min(room, spec["per_day"]))
+                n = spec["per_day"]
+                if owner := w.agents.get(plot.owner):  # a bigger house, a better household (labor.py)
+                    n += labor.extra(owner, f"house:{spec['makes']}", n, labor.house_pct(cfg, plot.house))
+                ops.mint(w, b["items"], spec["makes"], min(room, n))
         if hungry:
             feed_item = specs[next(b["kind"] for b in plot.buildings if b["kind"] in hungry)]["feed_item"]
             ctx.emit("hungry_animals", f"Your {', '.join(sorted(set(hungry)))} had no {feed_item} in your chest last "
