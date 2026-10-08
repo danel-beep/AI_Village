@@ -152,7 +152,13 @@ def run_lab(name: str, *, out: str | Path, model: str | None = None, ai: list[st
                          **({"model_override": model} if model else {}),
                          "save": (snap or {}).get("source"), "save_sha": (snap or {}).get("sha"),
                          "save_day": (snap or {}).get("day")}}
-        run(world, decide, days or scn.play.days, god, log, on_night=on_night, max_cost=cap, meta=meta)
+        try:
+            run(world, decide, days or scn.play.days, god, log, on_night=on_night, max_cost=cap, meta=meta)
+        except BaseException:  # what a crashed run already cost still counts (run() logs usage on the way out)
+            if on_progress and log.is_file():
+                cost = _cost(log)
+                on_progress({**info, "state": "failed", "log": str(log), "cost": cost, "spent": total + cost})
+            raise
         cost = _cost(log)
         total += cost
         done.append(str(log))

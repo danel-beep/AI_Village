@@ -9,6 +9,7 @@ running village pauses before its next tick and goes on by itself on the next re
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import date
 from pathlib import Path
@@ -48,7 +49,9 @@ def add(usd: float) -> float:
         data = dict(sorted(data.items())[-30:])
         try:
             path().parent.mkdir(parents=True, exist_ok=True)
-            path().write_text(json.dumps(data), encoding="utf-8")
+            tmp = path().with_name(path().name + ".tmp")  # atomic: a crash mid-write keeps the old count
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp, path())
         except OSError as e:  # a read-only disk must not stop the village; the cap then counts this run only
             print(f"spend log not written: {e}")
         return data[day]

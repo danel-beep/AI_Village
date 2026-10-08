@@ -36,10 +36,13 @@ class JsonlLog:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             self.f = open(path, "a" if append else "w", encoding="utf-8")
 
-    def write(self, rec: dict) -> None:
+    def write(self, rec: dict) -> str:
+        """Write one record; returns its JSON line (without the newline)."""
+        line = json.dumps(rec, ensure_ascii=False)
         if self.f:
-            self.f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            self.f.write(line + "\n")
             self.f.flush()  # a problem report can zip the log mid-run
+        return line
 
     def close(self) -> None:
         if self.f:
@@ -69,9 +72,9 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
     llm = getattr(decide, "agents", None) or {}
 
     def emit(rec: dict) -> None:
-        log.write(rec)
-        if on_record:
-            on_record(rec)
+        line = log.write(rec)
+        if on_record:  # a copy read back from the line: `view` holds live world containers that change later
+            on_record(json.loads(line))
 
     if resume_header is not None:
         if on_record:

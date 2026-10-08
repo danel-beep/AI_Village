@@ -157,17 +157,48 @@ def world_of(snap: dict) -> World:
     return world
 
 
-def rewind_log(log_path: str | Path, snap: dict) -> list[dict]:
-    """Cut the log back to the moment of the save and return its records (header first)."""
-    p = Path(log_path)
-    if not p.is_file() or p.stat().st_size < snap["log_bytes"]:
+def check_log(log_path: str | Path, snap: dict) -> list[dict]:
+    """The log's records up to the save (header first), read without changing the file; raises if it does not fit."""
+    p, n = Path(log_path), snap["log_bytes"]
+    if not p.is_file() or p.stat().st_size < n:
         raise ValueError(f"the log {p.name} is missing or shorter than when the village was saved")
-    with open(p, "r+b") as f:
-        f.truncate(snap["log_bytes"])
-    from .run import read_log
-    recs = list(read_log(p))
+    with open(p, "rb") as f:
+        head = f.read(n)
+    if not head.endswith(b"\n"):
+        raise ValueError(f"the save does not end on a record of the log {p.name}")
+    try:
+        recs = [json.loads(line) for line in head.decode("utf-8").splitlines() if line.strip()]
+    except ValueError as e:
+        raise ValueError(f"the log {p.name} is damaged before the save: {e}") from None
     if not recs or recs[0].get("type") != "header":
         raise ValueError(f"the log {p.name} has no header")
+    return recs
+
+
+def cut_log(log_path: str | Path, snap: dict) -> Path | None:
+    """Cut the log back to the save. What was written after it is kept in `<log>.after-save-<time>` (returned),
+    written in full before the log is touched: continuing an older save never loses those hours."""
+    p, n = Path(log_path), snap["log_bytes"]
+    if p.stat().st_size <= n:
+        return None
+    keep = p.with_name(f"{p.name}.after-save-{time.strftime('%Y%m%d-%H%M%S')}")
+    tmp = keep.with_name(keep.name + ".tmp")
+    with open(p, "rb") as src, open(tmp, "wb") as dst:
+        src.seek(n)
+        while chunk := src.read(1 << 20):
+            dst.write(chunk)
+        dst.flush()
+        os.fsync(dst.fileno())
+    os.replace(tmp, keep)
+    with open(p, "r+b") as f:
+        f.truncate(n)
+    return keep
+
+
+def rewind_log(log_path: str | Path, snap: dict) -> list[dict]:
+    """Check the log, then cut it back to the moment of the save; returns its records (header first)."""
+    recs = check_log(log_path, snap)
+    cut_log(log_path, snap)
     return recs
 
 
