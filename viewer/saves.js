@@ -83,7 +83,7 @@
       const who = s.llm ? 'ИИ-жители' : 'боты';
       const alive = s.alive < s.villagers ? ` (живы ${s.alive})` : '';
       row.innerHTML = `<div class="info"><b>Деревня от ${started(s.name)}</b>
-        <div class="meta">${s.finished ? 'прогон закончился' : 'остановлена'}: ${when(s)} · ${s.villagers} жителей${alive} · ${who}
+        <div class="meta">${s.finished && s.days ? `сыграны все ${s.days} дн.` : 'остановлена: ' + when(s)} · жителей: ${s.villagers}${alive} · ${who}
         · сохранено ${(s.saved_at || '').slice(5, 16).replace(/^(\d\d)-(\d\d)/, '$2.$1')}</div></div>`;
       const go = document.createElement('button');
       let days = null;

@@ -338,8 +338,10 @@
 
     // --- pages: the title menu and what it opens (browser "back" works: #new, #cont, ...) ---
     $('m-cont').hidden = !latest;
-    if (latest) $('m-cont-txt').textContent = `Деревня от ${savedAt(latest)}: ${latest.finished ? 'закончилась' : 'остановлена'} ` +
-      `на дне ${latest.day}, ${pad(latest.hour)}:${pad(latest.minute || 0)}` + (saves.length > 1 ? ` · всего сохранений: ${saves.length}` : '');
+    // a finished village is saved on the morning after its last day: "ended on day 3" read wrong for a 2-day village
+    if (latest) $('m-cont-txt').textContent = `Деревня от ${savedAt(latest)}: ` + (latest.finished && latest.days
+      ? `сыграны все ${latest.days} дн., можно добавить ещё` : `остановлена на дне ${latest.day}, ${pad(latest.hour)}:${pad(latest.minute || 0)}`) +
+      (saves.length > 1 ? ` · всего сохранений: ${saves.length}` : '');
     $('m-lab').hidden = !scens.length;
     function page(p, push) {
       if (!PAGES[p] || (p === 'cont' && !latest) || (p === 'lab' && !scens.length)) p = 'home';
