@@ -254,8 +254,10 @@
       #su .vr { display:grid; grid-template-columns:1fr 1fr 1.3fr; gap:6px; padding:6px 0; border-top:1px solid #2f3935; }
       #su .vr input, #su .vr select { width:100%; box-sizing:border-box; background:#1d2321; color:#e8efe9;
         border:1px solid #4a5650; border-radius:6px; padding:6px 8px; font:13px system-ui; }
-      #su .vr .own { grid-column:1 / -1; }
+      #su .vr .own { grid-column:1 / -1; min-height:54px; resize:vertical; font:inherit; font-size:12px; background:#1d2321;
+        color:#e8efe9; border:1px solid #3a4540; border-radius:6px; padding:5px 7px; box-sizing:border-box; width:100%; }
       #su .vr select.look { grid-column:1 / 3; }
+      #su .vr select.ch { grid-column:1 / -1; }
       #su .vr .face { width:30px; height:39px; image-rendering:pixelated; align-self:center; }
       #su .vr .hint { grid-column:1 / -1; margin:0; }
       @media (max-width:560px) { #su .vr { grid-template-columns:1fr 1fr; } #su .vr select.ch { grid-column:1 / -1; } }
@@ -301,14 +303,15 @@
           <p class="hint more-hint">Режим уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
             зелёной точкой ●, «Сбросить к режиму» внизу вернёт всё как было.</p>
           <div id="su-groups"></div>
-          <details id="su-people"><summary>👥 Жители по одному: имена, характеры, внешность</summary>
+          <details id="su-people"><summary>👥 Настроить каждого жителя: имя, модель, характер</summary>
             <div class="vbar"><label class="tog"><input type="checkbox" id="su-own"><span></span></label>
               <span>Настроить каждого жителя вручную</span></div>
-            <div class="hint">Выключено: имена подберутся сами, характер по выбору «Характер жителей» выше.
-              Характер: мягкий намёк на темперамент в подсказке жителя, а не приказ что-то делать.</div>
+            <div class="hint">Выключено: имена и модели подберутся сами, характер по выбору «Характер жителей».
+              Включено: у каждого жителя свой характер, текст которого он получает в подсказке. Выберите готовый
+              (злые, добрые, мягкие черты) и при желании поправьте текст или впишите свой.</div>
             <div id="su-vbox" hidden>
               <div class="vbar"><button class="small" id="su-rand">🎲 Случайные жители</button>
-                <button class="small" id="su-neutral">😐 Всем нейтральный</button></div>
+                <button class="small" id="su-neutral">😐 Всем обычный</button></div>
               <div id="su-vlist"></div>
             </div>
           </details>
@@ -455,7 +458,7 @@
         for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = base(values.preset)[c.key];
       }
       repaint();
-      if (k.key === 'villagers') syncRoster();
+      if (k.key === 'villagers' || k.key === 'brains') syncRoster();
       remember();
     }
 
@@ -501,7 +504,7 @@
       : values[k.key] === info.defaults[k.key];
     function hiddenChanges() {  // how many knobs «Простой» does not show are set away from the preset
       const off = knobs.filter(k => !k.simple && !(k.only && k.only !== values.brains) && !isDefault(k));
-      return off.length + (roster ? 1 : 0);
+      return off.length;  // the per-villager editor is on screen in both views
     }
     function note() {
       const n = view === 'simple' ? hiddenChanges() : 0, el = $('su-note-adv');
@@ -516,7 +519,6 @@
     function resetAll() {
       touched = new Set();
       for (const k of knobs) if (!follows(k) && !k.simple && k.key in info.defaults) values[k.key] = info.defaults[k.key];
-      roster = null; drawRoster();
       set(byKey.preset, values.preset);
     }
 
@@ -588,28 +590,45 @@
         const prof = document.createElement('select');
         for (const p of info.professions) prof.add(new Option(PROF[p] || p, p, false, p === v.profession));
         prof.onchange = () => { v.profession = prof.value; remember(); };
+        // Model: "" = as «Модели жителей» says; otherwise this villager's own (remote.models_for).
+        const mdl = document.createElement('select');
+        mdl.className = 'mdl'; mdl.title = 'Модель ИИ этого жителя';
+        for (const [m, label] of info.villager_models || []) mdl.add(new Option('🧠 ' + label, m));
+        mdl.value = v.model || '';
+        mdl.style.display = values.brains === 'llm' ? '' : 'none';
+        mdl.onchange = () => { if (mdl.value) v.model = mdl.value; else delete v.model; remember(); };
+        // Character: a preset (its exact text goes into the box) or own text; the box is what the villager gets.
         const ch = document.createElement('select');
         ch.className = 'ch';
-        ch.add(new Option('😐 Нейтральный', 'default'));
-        for (const [key, c] of Object.entries(info.characters)) ch.add(new Option(c.label, key));
-        ch.add(new Option('✍️ Свой текст…', '__own'));
-        const custom = !(v.character in info.characters) && v.character !== 'default';
-        ch.value = custom ? '__own' : v.character;
-        const own = document.createElement('input');
-        own.className = 'own'; own.maxLength = 300; own.hidden = !custom;
-        own.placeholder = 'Например: You love music and hate being alone.';
-        own.value = custom ? v.character : '';
-        own.oninput = () => { v.character = own.value.trim() || 'default'; remember(); };
-        const about = document.createElement('div');
-        about.className = 'hint';
-        const showAbout = () => { about.textContent = info.characters[v.character] ? '«' + info.characters[v.character].text + '»' : ''; };
-        ch.onchange = () => {
-          own.hidden = ch.value !== '__own';
-          v.character = ch.value === '__own' ? (own.value.trim() || 'default') : ch.value;
-          if (!own.hidden) own.focus();
-          showAbout(); remember();
+        ch.add(new Option('😐 Обычный (без характера)', 'default'));
+        for (const [g, title] of [['evil', 'Злые'], ['good', 'Добрые'], ['mild', 'Мягкие черты']]) {
+          const og = document.createElement('optgroup');
+          og.label = title;
+          for (const [key, c] of Object.entries(info.characters)) if (c.group === g) og.appendChild(new Option(c.label, key));
+          ch.appendChild(og);
+        }
+        ch.add(new Option('✍️ Свой текст', '__own'));
+        const own = document.createElement('textarea');
+        own.className = 'own'; own.maxLength = 600; own.rows = 2;
+        own.placeholder = 'Пусто: обычный житель, без характера. Можно вписать свой, например: You love music and hate being alone.';
+        const preset = () => info.characters[v.character];
+        const show = () => {
+          ch.value = v.character === 'default' || preset() ? v.character : '__own';
+          own.value = preset() ? preset().text : (v.character === 'default' ? '' : v.character);
         };
-        showAbout();
+        own.oninput = () => {  // the text is the truth: a preset's exact text stays that preset, anything else is own
+          const t = own.value.trim();
+          const hit = Object.entries(info.characters).find(([, c]) => c.text === t);
+          v.character = !t ? 'default' : hit ? hit[0] : t;
+          ch.value = v.character === 'default' || preset() ? v.character : '__own';
+          remember();
+        };
+        ch.onchange = () => {
+          if (ch.value === '__own') { if (preset()) v.character = own.value.trim() || 'default'; own.focus(); }
+          else v.character = ch.value;
+          show(); remember();
+        };
+        show();
         // Look (viewer/sprites.js): automatic = by the name's sex and the profession; or any of the drawn villagers.
         const look = document.createElement('select');
         look.className = 'look'; look.title = 'Внешность';
@@ -627,7 +646,7 @@
         };
         look.onchange = () => { if (look.value === '') delete v.look; else v.look = +look.value; showFace(); remember(); };
         if (S && !S.ok) S.onReady(showFace); else showFace();
-        r.append(name, prof, ch, look, face, own, about);
+        r.append(name, prof, mdl, ch, look, face, own);
         list.appendChild(r);
       });
     }
@@ -643,12 +662,14 @@
       fetchRoster().then(d => { roster = d.roster; drawRoster(); remember(); });
     };
     $('su-rand').onclick = () => fetchRoster([]).then(d => {
-      const keys = Object.keys(info.characters);
+      const keys = Object.keys(info.characters).filter(k => info.characters[k].group === 'mild');
       roster = d.roster.map(v => Object.assign(v, { character: keys[Math.floor(Math.random() * keys.length)] }));
       drawRoster(); remember();
     });
     $('su-neutral').onclick = () => { roster.forEach(v => { v.character = 'default'; }); drawRoster(); remember(); };
     syncRoster();
+    // The per-villager editor sits right under «Сколько жителей», in both views (Danel 2026-10-08).
+    rows.villagers.el.after($('su-people'));
 
 
     setView(view);
