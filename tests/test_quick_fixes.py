@@ -141,6 +141,7 @@ def test_openrouter_cost_from_tokens_when_missing(monkeypatch):
 
 
 def test_daily_budget_pauses_until_the_next_day(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")  # the live server is an optional extra (pip install -e .[live])
     from aivillage.server import LiveSim
     monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
     day = {"d": "2026-10-08"}
