@@ -642,11 +642,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # only the kinds' own per_day dice, as before); `min_gap_days` calm after each; their own `max_active`
         # slot, apart from travelers (threats.py).
         "hostile": {"max_gap_days": 0, "min_gap_days": 2, "max_active": 1},
-        # Raids and beasts grow with the village (off here, on in «С нуля»): +`hp_per_stage` of their hp for each
-        # stage above the hamlet, +`hp_per_armed` hp for each villager carrying a weapon (not a work tool), and
-        # bandits come with `gear_share` of the best weapon and armor in the village (their armor takes off
-        # each blow, at least 1 lands; their weapons hit more often and harder).
-        "arms": {"enabled": False, "hp_per_stage": 0.25, "hp_per_armed": 10, "gear_share": 0.5},
+        # Raids and beasts grow with the village's arms (off here, on in «С нуля»): their hp x (1 + `hp_per_tier` x
+        # the highest tier of any weapon or armor a villager has, `tiers`). On, `defend` fights one dice round per
+        # `round_minutes` of a villager's turn, so the odds do not depend on the turn length.
+        "arms": {"enabled": False, "hp_per_tier": 0.3, "round_minutes": 15,
+                 "tiers": {"spear": 1, "bow": 1, "leather_armor": 1, "sword": 3, "iron_armor": 3}},
         "kinds": {
             # Bandits: start at the target's house; every hour nobody fights them they carry off `loot_share`
             # of each chest there, and after `stay_hours` such hours move to the next of `houses` (nearest
