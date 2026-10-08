@@ -5,7 +5,7 @@
 set -e
 HOME_DIR="$HOME/AIVillage"
 mkdir -p "$HOME_DIR"
-curl -fsSL https://raw.githubusercontent.com/danel-beep/ai_village/main/scripts/start.sh -o "$HOME_DIR/start.sh"
+curl -fsSL https://raw.githubusercontent.com/danel-beep/ai_village/stable/scripts/start.sh -o "$HOME_DIR/start.sh"
 chmod +x "$HOME_DIR/start.sh"
 DESK="$HOME/Desktop"
 [ -d "$DESK" ] || DESK="$HOME_DIR"
