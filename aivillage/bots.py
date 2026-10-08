@@ -732,6 +732,8 @@ class BuilderBot(WorkerBot):
         self.foraging = False             # on a food trip until the stock is well above the need
         self.home_fire = 0                # wood in my hearth when I last saw it (warmth.py)
         self.clay_given: tuple = ((), 0)  # (brick sites, clay handed to the kiln's owner for them)
+        self.asked: set[tuple] = set()    # (day, person, food) asked for on credit (debts.in_kind)
+        self.credit = True                # «С нуля» has debts in kind; off for good once an offer says no
         self.last: dict | None = None
 
     # ---------- helpers ----------
@@ -762,6 +764,8 @@ class BuilderBot(WorkerBot):
             return super().decide(obs)
         if obs.get("last_error") and self.last:  # what just failed is not tried again today
             self.failed.add((obs["time"]["day"], repr(self.last)))
+            if "i_owe" in self.last["args"] and "cannot carry i_owe" in obs["last_error"]:
+                self.credit = False
         d = self._decide(obs)
         if (obs["time"]["day"], repr(d["action"])) in self.failed:
             d = decision("wait", None, "that did not work")
@@ -793,10 +797,16 @@ class BuilderBot(WorkerBot):
 
         if obs["fires"] or "defend" in acts or (muster(obs) and me["health"] >= 50):
             return super().decide(obs)
+        spare = me["satiety"] + self._food_left(inv) - 2 * (end - hour) - 110  # food points beyond my need
         for o in obs["offers_to_you"]:
-            return decision("decline", {"offer_id": o["id"]}, "no thanks")
+            want = sum(self.FOOD.get(k, 0) * n for k, n in o["want"].items())
+            lend = o.get("i_owe") and set(o["want"]) <= set(self.FOOD) and want <= spare \
+                and all(inv.get(k, 0) >= n for k, n in o["want"].items())
+            return decision("accept" if lend else "decline", {"offer_id": o["id"]}, "food on credit" if lend else "no thanks")
         if me["satiety"] < 55 and (food := self._best_food(inv, me["satiety"])):
             return decision("eat", {"item": food}, "hungry")
+        if d := self._credit(obs, spare):
+            return d
         if loc == me["home"] and inv.get("fish", 0) >= 2 and inv.get("wood", 0) >= 1:
             return decision("craft", {"recipe": "fish_soup", "times": min(5, inv["fish"] // 2, inv["wood"])}, "cook")
         if any(x.get("what") in ("bandits", "a beast") for x in obs.get("threats", [])):
@@ -866,6 +876,41 @@ class BuilderBot(WorkerBot):
         self.foraging = False
         return self._build(obs, go, left) or (stock < reserve + 100 and self._get_food(obs, go, left)) \
             or (decision("wait", None, "rest") if loc == me["home"] else go(me["home"], "nothing to do: home"))
+
+    CREDIT_FOOD = ("fish", "berries", "meat", "fish_soup")
+
+    def _credit(self, obs: dict, spare: int) -> dict | None:
+        """Debts in kind (debts.in_kind): give back what I owe to a lender here once I can spare it; hungry with
+        nothing to eat, ask someone here for food against a bit more of it in two days."""
+        me, t = obs["you"], obs["time"]
+        inv = me["inventory"]
+        awake = [p["name"] for p in obs["here"]["people"] if not p["asleep"]]
+        for row in obs["board"]["debts"]:
+            if row["borrower"] != me["name"] or row["lender"] not in awake or not row.get("items_owed"):
+                continue
+            give = {}
+            for k, n in row["items_owed"].items():
+                q = min(n, inv.get(k, 0))
+                if k in self.FOOD:
+                    q = min(q, max(0, spare) // self.FOOD[k])
+                if q > 0:
+                    give[k] = q
+            if give:
+                return decision("give", {"to": row["lender"], "items": give}, "pay back what I owe")
+        if not self.credit or me["satiety"] >= 40 or self._food_left(inv) or "offer" not in obs["available_actions"]:
+            return None
+        if obs["your_offers"]:
+            asked = any(o.get("i_owe") and o["to"] in awake for o in obs["your_offers"])
+            return decision("wait", None, "waiting for an answer") if asked else None
+        for name in awake:
+            for food in self.CREDIT_FOOD:
+                if (t["day"], name, food) not in self.asked:
+                    self.asked.add((t["day"], name, food))
+                    return decision("offer", {"to": name, "want": {food: 1}, "i_owe": {food: 2},
+                                              "due_day": t["day"] + 2}, "food on credit",
+                                    say=f"{name}, could you spare 1 {food}? I will give you 2 back by day "
+                                        f"{t['day'] + 2}.")
+        return None
 
     def _food_score(self, place: str, day: int, left: int | None) -> int:
         """How good a place looks for food: small game (no work hours needed), fish, berries. What was seen

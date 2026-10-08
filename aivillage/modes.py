@@ -231,6 +231,9 @@ MODES["survival"] = {
                                               # land goes to whoever comes first, no court (land.py),
                                               # winter nights cost more food (seasons.py)
                                               "theft": {"enabled": True},
+                                              # "I owe you later" in kind: the hungry can borrow food
+                                              # against a promise (debts.py, plan item 5)
+                                              "debts": {"in_kind": True},
                                               "land": {"claim": "first"},
                                               "seasons": {"night_hunger": {"winter": 10}},
                                               "hire": {"enabled": True},

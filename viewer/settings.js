@@ -46,6 +46,11 @@
     <div class="saved" id="st-openrouter-saved"></div>
     <label>Модель</label>
     <input id="st-model" type="text" autocomplete="off">
+    <label>Тариф OpenAI</label>
+    <select id="st-tier">
+      <option value="flex">Экономный: в 2 раза дешевле, ход думает дольше (~10 с вместо ~3 с)</option>
+      <option value="default">Обычный: быстрее, в 2 раза дороже</option>
+    </select>
     <label>Сколько жителей думают одновременно (для OpenAI)</label>
     <input id="st-parallel" type="number" min="1" max="64" placeholder="16">
     <div class="row">
@@ -54,7 +59,7 @@
     </div>
     <div class="msg" id="st-msg"></div>
     <div class="hint">Ключи хранятся только на этом компьютере и не попадают в логи.
-      Новый ключ начинает работать сразу, перезапуск не нужен. Модель и одновременность
+      Новый ключ и тариф начинают работать сразу, перезапуск не нужен. Модель и одновременность
       применятся со следующего запуска деревни.</div>`;
   // Joins the top-left button row of report.js when it is there (same look), else stands alone.
   const bar = document.getElementById('rp-bar');
@@ -83,6 +88,7 @@
     $('st-model').value = s.model || '';
     $('st-model').placeholder = s.default_model || '';
     $('st-parallel').value = s.parallel || '';
+    $('st-tier').value = s.openai_tier || 'flex';
     $('st-openai').value = $('st-openrouter').value = '';
     clear.length = 0;
     savedLine('st-openai-saved', 'openai_key', s.openai_key);
@@ -109,7 +115,7 @@
     if (oa && (!oa.startsWith('sk-') || oa.startsWith('sk-or-'))) return msg('Ключ OpenAI начинается с sk- (но не с sk-or-).', 'bad');
     if (or && !or.startsWith('sk-or-')) return msg('Ключ OpenRouter начинается с sk-or-.', 'bad');
     const body = { provider: $('st-provider').value, model: $('st-model').value.trim(),
-      parallel: $('st-parallel').value.trim(), openai_key: oa, openrouter_key: or, clear: clear.slice() };
+      parallel: $('st-parallel').value.trim(), openai_tier: $('st-tier').value, openai_key: oa, openrouter_key: or, clear: clear.slice() };
     try { fill(await call('/api/settings', body)); msg('Сохранено.', 'ok'); return true; }
     catch (e) { msg('Не сохранилось: ' + e.message, 'bad'); return false; }
   }
