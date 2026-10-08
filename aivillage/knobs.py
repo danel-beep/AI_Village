@@ -62,7 +62,8 @@ KNOBS: list[dict[str, Any]] = [
      "default": "one", "options": [["one", "Одна на всех"], ["luna_haiku", "Luna и Haiku поровну"]],
      "about": {"one": "Все ИИ-жители думают через модель из «⚙️ Настройки».",
                "luna_haiku": "Половина жителей на Luna (через OpenAI), половина на Haiku 5.5 (через OpenRouter, "
-                             "нужен его ключ). Кто на какой модели, решает жребий, как в опытах."},
+                             "нужен его ключ). Кто на какой модели, решает жребий; в «Настроить каждого жителя» можно поменять у "
+                             "каждого."},
      "hint": "Смесь моделей нужна, чтобы сравнить их в одной деревне; модель каждого жителя записана в журнале."},
     {"key": "villains", "path": "villains", "group": "Деревня", "type": "range", "label": "Злых жителей на каждую модель",
      "min": 0, "max": 5, "step": 1, "default": 0, "only": "llm",
@@ -707,7 +708,7 @@ CHARACTER_LABELS = {
 CHARACTER_GROUPS = {"villain": "evil", "tyrant": "evil", "schemer": "evil", "thief": "evil",
                     "kind": "good", "peacemaker": "good", "selfless": "good"}  # the rest: "mild"
 # The per-villager model choice ("" = as «Модели жителей» says).
-VILLAGER_MODELS = [["", "Как в «Модели жителей»"], ["openai/gpt-6-luna", "Luna"],
+VILLAGER_MODELS = [["", "Модель из «⚙️ Настройки»"], ["openai/gpt-6-luna", "Luna"],
                    ["anthropic/claude-haiku-5.5", "Haiku 5.5"]]
 NAME_MAX = 20
 ALWAYS = ("Boris",)  # Danel's test subject: in every app village, otherwise an ordinary random villager
@@ -871,7 +872,7 @@ def changed(header: dict) -> dict[str, Any]:
 
 def schema() -> dict:
     ordered, sections = layout(active())
-    return {"knobs": ordered, "sections": sections, "characters": characters(), "villager_models": VILLAGER_MODELS, "professions": sorted(DEFAULT_CONFIG["professions"]),
+    return {"knobs": ordered, "sections": sections, "characters": characters(), "villager_models": VILLAGER_MODELS, "model_mixes": MODEL_MIXES, "professions": sorted(DEFAULT_CONFIG["professions"]),
             "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k and "action" not in k},
             "preset_defaults": {p: preset_defaults(p) for p in modes.PRESETS}, "follow": follow_keys()}
 
