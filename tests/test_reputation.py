@@ -40,7 +40,7 @@ def test_witnessed_theft_lowers_thief_for_witness_and_victim(w):
     assert obs["reputation"]["Anna"]["score"] == w.config["reputation"]["deltas"]["witness"]
 
 
-def test_trade_and_repay_raise_score_default_lowers_for_everyone(w):
+def test_trade_and_repay_raise_score_default_lowers_only_for_the_lender(w):
     put(w, "square", "Anna", "Boris")
     ops.mint(w, w.agents["Anna"].inventory, "fish", 1)
     act(w, "Anna", "offer", to="Boris", give={"fish": 1}, want={"coins": 1})
@@ -49,14 +49,18 @@ def test_trade_and_repay_raise_score_default_lowers_for_everyone(w):
     assert w.agents["Boris"].reputation["Anna"]["score"] == 1
     act(w, "Anna", "lend", to="Boris", coins=5, repay_coins=5, due_day=2)
     debt = next(iter(w.debts))
+    before = w.agents["Anna"].reputation["Boris"]["score"]
     act(w, "Boris", "repay", debt_id=debt, coins=5)
-    assert w.agents["Clara"].reputation["Boris"]["score"] == 2  # public, on time
+    assert w.agents["Anna"].reputation["Boris"]["score"] == before + 2  # on time, seen by the lender
+    assert "Boris" not in w.agents["Clara"].reputation  # debts are private
     act(w, "Boris", "lend", to="Anna", coins=3, repay_coins=4, due_day=w.day + 1)
+    lender_view = w.agents["Boris"].reputation["Anna"]["score"]
     for _ in range(60):
         if any(d.status == "defaulted" for d in w.debts.values()):
             break
         engine.step(w, {})
-    assert w.agents["Clara"].reputation["Anna"]["score"] == w.config["reputation"]["deltas"]["default"]
+    assert "Anna" not in w.agents["Clara"].reputation  # a default is not news to the village
+    assert w.agents["Boris"].reputation["Anna"]["score"] == lender_view + w.config["reputation"]["deltas"]["default"]
 
 
 def test_fire_helper_gains_public_reputation(w):

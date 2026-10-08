@@ -15,7 +15,7 @@ from . import god as _god  # noqa: F401  (registers god events)
 from . import (addressed, animals, merchant, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, settle, spoilage,
                taxes, theft, threats, tiles, transport, works)
-from .actions import step_move, work_hour
+from .actions import offer_view, step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, GOD, ActionError
@@ -136,10 +136,10 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "fires": [{"house": f.location, "water_needed": f.water_needed, "hours_left": f.ticks_left}
                   for f in world.fires.values()],
         "news": list(a.inbox),
-        "offers_to_you": [vars(o) for o in world.offers.values() if o.to == name],
-        "your_offers": [vars(o) for o in world.offers.values() if o.sender == name],
+        "offers_to_you": [offer_view(o) for o in world.offers.values() if o.to == name],
+        "your_offers": [offer_view(o) for o in world.offers.values() if o.sender == name],
         "board": {
-            "debts": debts.board(world),
+            "debts": debts.board(world, name),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": works.board(world),
             "trader_prices": pricing.prices(world) if labor.trader_here(world) else {},
