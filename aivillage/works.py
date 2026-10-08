@@ -18,6 +18,9 @@ and engine.py can call its effect helpers without import cycles.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any, Callable
+
 from pydantic import BaseModel, Field
 
 from . import ops, population, progress
@@ -107,6 +110,29 @@ def next_options(world: World) -> dict[str, int]:
 
 def _mayor(world: World) -> str | None:
     return world.governance.mayor if (world.config.get("governance") or {}).get("enabled") else None
+
+
+@dataclass
+class Holder:
+    """Who pays from a treasury: the coin holder (`.coins`), how texts name it, and a callback that remembers a
+    spend (what, coins) for those who keep its books (None: nothing to remember)."""
+    purse: Any
+    label: str
+    note: Callable[[str, int], None] | None = None
+
+
+# fn(world, name) -> Holder | None. polity.py: the holder of a polity's treasury.
+HOLDERS: list = []
+
+
+def holder(world: World, name: str) -> Holder | None:
+    """The treasury `name` can pay from: the mayor's village treasury, or a polity's for its holder."""
+    for fn in HOLDERS:
+        if (h := fn(world, name)) is not None:
+            return h
+    if _mayor(world) == name and not (world.config.get("polity") or {}).get("enabled"):
+        return Holder(world.governance, "the treasury")
+    return None
 
 
 def can_propose(world: World, name: str) -> bool:
@@ -211,20 +237,24 @@ class FundArgs(BaseModel):
     coins: int = Field(gt=0, le=10000)
 
 
-@ACTIONS.action("fund_project", "Mayor only: pay coins from the village treasury into a village project.", FundArgs,
-                available=lambda c, a: enabled(c.cfg) and _mayor(c.world) == a.name and c.world.governance.coins > 0
-                and any(remaining(p).get("coins") for p in open_projects(c.world)))
+@ACTIONS.action("fund_project", "Treasury holder only (the mayor, or whoever holds a polity's treasury): pay coins "
+                "from the treasury into a village project.", FundArgs,
+                available=lambda c, a: enabled(c.cfg) and (h := holder(c.world, a.name)) is not None
+                and h.purse.coins > 0 and any(remaining(p).get("coins") for p in open_projects(c.world)))
 def fund_project(ctx: Ctx, a: Agent, args: FundArgs) -> None:
-    g = ctx.world.governance
-    if _mayor(ctx.world) != a.name:
-        raise ActionError("only the mayor can pay from the treasury")
+    h = holder(ctx.world, a.name)
+    if h is None:
+        raise ActionError("only the mayor or a polity's treasury holder can pay from a treasury")
     p = _project(ctx, args.project_id)
-    n = min(args.coins, remaining(p).get("coins", 0), g.coins)
+    n = min(args.coins, remaining(p).get("coins", 0), h.purse.coins)
     if n <= 0:
         raise ActionError(f"{p.name} needs no coins" if not remaining(p).get("coins") else "the treasury is empty")
-    ops.burn_coins(ctx.world, g, n)  # paid to the hired craftsmen
+    ops.burn_coins(ctx.world, h.purse, n)  # paid to the hired craftsmen
     p.contributed["coins"] = p.contributed.get("coins", 0) + n
-    ctx.emit("fund_project", f"Mayor {a.name} paid {n} coins from the treasury into {p.name}.", actor=a.name,
+    if h.note:
+        h.note(f"{p.name} (fund_project by {a.name})", n)
+    who = f"Mayor {a.name}" if h.purse is ctx.world.governance else a.name
+    ctx.emit("fund_project", f"{who} paid {n} coins from {h.label} into {p.name}.", actor=a.name,
              visibility="public", project=p.id, coins=n)
     maybe_finish(ctx, p)
 
@@ -374,7 +404,8 @@ def observe(world: World, name: str) -> dict:
 
 def facts(cfg: dict) -> str:
     from .governance import opens_note, polity_on  # governance -> actions -> works: import here
-    fund = "" if polity_on(cfg) else "; the mayor can fund_project from the treasury"
+    fund = ("; a polity's treasury holder can fund_project from its treasury" if polity_on(cfg)
+            else "; the mayor can fund_project from the treasury")
     return (f"- Village structures{opens_note(cfg, WORKS)}: the mayor (anyone while there is no mayor) can propose_build a well, bridge, "
             "watchtower or wall, or upgrade one (levels 1-3). Each needs items, coins and labor: contribute items "
             f"and coins and build_work (one hour) at the square{fund}. "

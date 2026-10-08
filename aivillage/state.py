@@ -315,6 +315,7 @@ class World:
     # "trails": {"a|b": times walked}}
     settle: dict[str, Any] = field(default_factory=dict)
     addressed: dict[str, list] = field(default_factory=dict)  # addressed.py: name -> messages said to them
+    merchant: dict[str, Any] = field(default_factory=dict)  # merchant.py: the passing merchant's visits
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -345,6 +346,8 @@ class World:
             del d["settle"]
         if not d["addressed"]:  # nothing said to anyone yet: same dict and hash as before the field existed
             del d["addressed"]
+        if not d["merchant"]:  # merchant off or not come yet: same dict and hash as before the field existed
+            del d["merchant"]
         return d
 
     @classmethod
@@ -386,6 +389,7 @@ class World:
             settle=d.get("settle", {}),
             honors=d.get("honors", {}),
             addressed=d.get("addressed", {}),
+            merchant=d.get("merchant", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

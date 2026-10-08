@@ -487,14 +487,16 @@ def construct(ctx: Ctx, a: Agent, args: ConstructArgs) -> None:
         return
     c = _c(cfg)
     per = 1 + c.get("team_bonus", 0) * (min(len(team), c.get("team_max", 3)) - 1)
+    hours: dict[str, int] = {}  # hours that count now, by worker (polity wage law)
     for _, n in s["pending"]:
+        hours[n] = hours.get(n, 0) + 1
         s["work"] = round(s["work"] + per, 2)
         s["workers"][n] = round(s["workers"].get(n, 0) + per, 2)
     s["pending"] = []
     with_ = f" with {', '.join(n for n in team if n != a.name)}" if len(team) > 1 else ""
     ctx.emit("construct", f"{a.name} worked an hour on the {what} ({s['id']}){with_}; {_num(work_left(s))} hours of "
              f"work left.", actor=a.name, location=s["location"], visibility="location", site=s["id"],
-             owner=s["owner"], counted=True, team=team, per_hour=per)
+             owner=s["owner"], counted=True, team=team, per_hour=per, hours=hours)
     _maybe_finish(ctx, s)
 
 

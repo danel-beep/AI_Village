@@ -13,7 +13,9 @@ const ItemIcons = (() => {
     helmet: 'iron_helmet', iron_helmet: 'iron_helmet', shield: 'wooden_shield', wooden_shield: 'wooden_shield',
     iron_shield: 'iron_shield', berries: 'berries', fish: 'fish', meat: 'meat', cooked_meat: 'cooked_meat',
     smoked_meat: 'cooked_meat', smoked_fish: 'smoked_fish', bread: 'bread', fish_soup: 'fish_soup', milk: 'milk',
-    egg: 'egg', honey: 'honey', apple: 'apple', stew: 'stew', ring: 'gold' };
+    egg: 'egg', honey: 'honey', apple: 'apple', stew: 'stew', ring: 'gold',
+    // the passing merchant's goods (merchant.py)
+    fur_cloak: 'hide', steel_axe: 'iron_axe', steel_pick: 'iron_pickaxe', medicine: 'herbs' };
   const cache = {};
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function url(item) {

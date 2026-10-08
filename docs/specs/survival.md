@@ -245,17 +245,26 @@ place (`construction.catalog.town_hall.at = []`), one per place.
   (`polity.bill`): `laws.enforcement` auto takes the tax (shortfall public, no
   eviction), voluntary writes a debt-book bill to `treasury` whose id is in the polity's `bills`; `pay_bill` pays it
   into that polity (`debts.BILL_PAYEES`). Non-members pay nothing.
+- What the treasury pays for (treasury thread, Danel 2026-10-08: first the uses of money, minted coins only a seed):
+  number law `wage` (limits `polity.limits.wage`, 0-10): a member's counted hours on a common building (`construct`
+  event with `owner: None`, `counted`, `hours: {worker: n}`) or a village project (`build_work`) are paid from the
+  treasury while it has coins (private `polity_wage`); the holder pays with `fund_project` (works.holder, coins burned
+  into the project) and `buy_from_merchant(from_treasury=true)` (merchant.py, public `merchant_sale`, goods to the
+  holder). Each dawn a polity with a form and 2+ living members mints `income_per_member_per_day` per member into its
+  treasury (survival 1, default 0). Members see the last `spent_shown` spends (`treasury_spent_lately`; state
+  `p["spent"]` = [{day, what, coins}], wages of one member merged per day); rows show `wage_per_hour` and
+  `treasury_income_per_member_per_day`. Scenario edit `world.polity` {form, keeper, members, council, coins, laws}.
 - With polities on there is no village-wide government: `governance.REPLACED` (mayor, elections, law votes,
-  embezzle, audit, treasury_order) are refused and hidden, `taxes.collect` / `time_info` / `observe` step aside (no world `tax_bill`), report_theft
+  embezzle, audit, treasury_order) are refused and hidden (fund_project stays for the polity's holder), `taxes.collect` / `time_info` / `observe` step aside (no world `tax_bill`), report_theft
   carries no fine (`governance.polity_on`).
 - State: `world.polities[id]` = `{id, hall, location, founded_day, name, coin, members, form, rulers, keeper, coins, hidden, embezzled, laws,
   options, ballot: {topic: {voter: choice}}, closes, proposals, petition: {member: form}, expelled: {name: day},
-  bills}`; `coins` is counted by invariants. Observation `polities` (each row: `tax_per_member`,
+  bills, spent?}`; `coins` is counted by invariants. Observation `polities` (each row: `tax_per_member`,
   `income_tax_pct` / `wealth_tax_pct` when set, `tax_every_days`, `next_tax_day`; a member's `your_tax_so_far`).
 - Log (all with `polity`): public `polity_founded` (members, options), `polity_named` (topic, choice, votes),
   `polity_form` (form, votes or old_form/signed), `polity_leaders` (rulers, votes), `polity_joined`, `polity_left`,
   `polity_law_proposed`, `polity_law_passed` (law_kind, value, person, form), `polity_law_failed`, `polity_petition`
   (form, signed, needed), `polity_gift`, `polity_tax_bills` (bills: {member: total}), `polity_tax_short`, `polity_tax_set` (laws; god mode `set_tax`), `polity_audit_clean`, `polity_embezzlement_found` (keeper,
-  coins); private `polity_vote`, `polity_tax`, `polity_embezzle`.
+  coins); private `polity_vote`, `polity_tax`, `polity_embezzle`, `polity_wage` (coins).
 - Transport (task 17): tick `view.transport` = `{"animals": [{"id", "kind", "owner", "holder", "location", "strength"}], "wild": {loc: {kind: n}}}`;
   a led animal's `location` is its holder's.
