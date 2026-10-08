@@ -46,8 +46,8 @@ def test_stream_god_event_and_replay(tmp_path):
     with client.websocket_connect("/ws") as ws:
         first = json.loads(ws.receive_text())
         assert first["type"] == "header"
-        n = sum(1 for _ in range(len(sim.ticks)) if json.loads(ws.receive_text())["type"] == "tick")
-        assert n == len(sim.ticks)
+        kinds = [json.loads(ws.receive_text())["type"] for _ in range(len(sim.ticks) + 1)]
+        assert kinds.count("tick") == len(sim.ticks) and kinds[-1] == "end"  # else the page says «LIVE» forever
 
 
 def test_live_push_and_pages(tmp_path):

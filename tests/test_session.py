@@ -44,6 +44,14 @@ def test_build_from_a_log_alone(tmp_path):
     replay(log)  # the summary only reads the log
 
 
+def test_who_played_names_the_villains_and_counts_in_russian():
+    h = {"brains": {"Aaron": "anthropic/claude-haiku-5.5", "Boris": "openai/gpt-6-luna"},
+         "villains": {"Boris": "openai/gpt-6-luna"}}
+    assert session._brains(h).endswith("; злые: Boris (openai/gpt-6-luna)")
+    assert [session._villagers(n) for n in (1, 4, 5, 11, 22)] == \
+        ["1 житель", "4 жителя", "5 жителей", "11 жителей", "22 жителя"]
+
+
 def test_note_survives_rebuilds_and_ensure_rebuilds_a_grown_log(tmp_path):
     log = bot_log(tmp_path, days=1)
     session.save(log, ended_by="button", days_planned=3)

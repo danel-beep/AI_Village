@@ -12,6 +12,8 @@
            'деревню за несколько дней или напасть внезапно. Если отбиться, бросят добычу.'],
     beast: ['🐺 Зверь из леса', 'Ест запасы и ранит жителей, пока его не прогонят. С предупреждением или без.'],
     traveler: ['🧳 Путник', 'Голодный путник на площади. Разведчик, если его не прогнать, наведёт бандитов без предупреждения.'],
+    crisis: ['⚠️ Беда', 'Неурожай, засуха, крысы, нехватка товара у торговца или караван, на несколько дней.'],
+    lightning: ['⚡ Молния', 'Молния бьёт в жителя: здоровье падает до нуля (больница, а если включена смерть, смерть).'],
     set_tax: ['🏛 Налоги', 'Поменять налог одного государства (его законы) или, если государств нет, всей деревни. ' +
               'Пустое поле не меняется. Жители увидят новый закон, но не узнают, кто его поменял.'],
   };
@@ -20,7 +22,11 @@
                   target: 'на чей дом (необязательно)', warn: 'предупредить деревню заранее',
                   scout: 'на самом деле разведчик бандитов', in_days: 'через сколько дней (0: сразу)',
                   polity: 'государство', tax: 'налог в монетах с каждого', income_pct: '% с дохода от торговца и заказов',
-                  wealth_pct: '% с монет', every_days: 'налог раз в сколько дней (только государство)' };
+                  wealth_pct: '% с монет', every_days: 'налог раз в сколько дней (только государство)',
+                  kind: 'что случится' };
+  // choices of a field (a Literal in the god event's args): plain words instead of the code names
+  const CHOICE = { crop_failure: 'неурожай', drought: 'засуха', rats: 'крысы в сундуках',
+                   shortage: 'у торговца кончается товар', caravan: 'караван скупает товар дорого' };
   const PEOPLE = new Set(['person', 'to', 'tell', 'target']);
   const OPTIONAL = new Set(['tell', 'target']);
 
@@ -74,6 +80,9 @@
     } else if (key === 'location') {
       ctl = `<select data-k="${key}">` + Object.entries(meta.locations)
         .map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join('') + '</select>';
+    } else if (prop.enum) {
+      ctl = `<select data-k="${key}">` + prop.enum
+        .map(v => `<option value="${esc(v)}">${esc(CHOICE[v] || v)}</option>`).join('') + '</select>';
     } else if (prop.type === 'boolean') {
       ctl = `<input type="checkbox" data-k="${key}" data-bool="1"${prop.default ? ' checked' : ''}>`;
     } else if (prop.type === 'integer' || (prop.anyOf || []).some(t => t.type === 'integer')) {

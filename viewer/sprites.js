@@ -105,9 +105,30 @@ const Sprites = (() => {
     g.putImageData(im, 0, 0);
   }
 
+  // A look of each villager's sex (guessed from the name) that fits the profession (straw hat for the farmer, apron
+  // for the smith...), each look once while there are enough of them, then recoloured repeats: {name: [look,
+  // variant]}. A look set in the start screen (config agents[].look) wins. The map (viewer/pixelmap.js) and the
+  // start screen's skin preview (viewer/setup.js) both use this, so the preview is the villager in the game.
+  const PROF_LOOK = { farmer: [0, 5, 23, 1], smith: [4, 10, 13], fisher: [9, 6, 11], woodcutter: [16, 6, 2, 13],
+                      miner: [12, 10, 3], trader: [18, 19], merchant: [18, 19] };
+  function pickLooks(agents) {
+    const n = LOOKS, count = {}, out = {};
+    const take = (name, look) => { out[name] = [look, count[look] || 0]; count[look] = (count[look] || 0) + 1; };
+    agents.forEach(a => { if (Number.isInteger(a.look) && a.look >= 0 && a.look < n) take(a.name, a.look); });
+    agents.forEach((a, k) => {
+      if (out[a.name]) return;
+      const fits = i => lookIsFemale(i) === femaleName(a.name);
+      const all = Array.from({ length: n }, (_, i) => (k + i) % n).filter(fits);
+      const pref = [...(PROF_LOOK[a.profession] || []).filter(fits), ...all];
+      const look = pref.find(i => !count[i]) ?? pref.reduce((m, i) => (count[i] < count[m] ? i : m), pref[0] ?? k % n);
+      take(a.name, look);
+    });
+    return out;
+  }
+
   const meta = n => (A.meta || {})[n];
 
   return { get ok() { return ok; }, has, size, meta, draw, onReady, villager, canvas, pixels, pattern, brawl, LOOKS,
-           lookIsFemale, femaleName };
+           lookIsFemale, femaleName, pickLooks };
 })();
 window.Sprites = Sprites;

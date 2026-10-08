@@ -44,6 +44,8 @@ CLIP_MAX_BYTES = 300 * 1024 * 1024  # highlight clips; a week's reel is a few MB
 VIEW_LAG_MINUTES = 30  # two quarter-hour ticks of buffer: smooth, and a god click lands half an hour later
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
 BACKLOG_DIARIES = 200  # and at most this many nightly diaries (one per night)
+BUDGET_WARMUP_TICKS = 8  # the first ticks after a start or a load are never budget-paced: the village visibly wakes up
+BUDGET_COST_WINDOW = 8  # pace from the average cost of the last ticks, so one expensive tick is not a long stall
 CLIENT_QUEUE = 4000  # records waiting for one slow viewer; past this it is dropped and reconnects for a fresh backlog
 
 
@@ -107,10 +109,12 @@ class LiveSim:
         self._spent_seen: float | None = None  # model cost already counted toward the daily cap
         self._own_today: tuple[str, float] = ("", 0.0)  # this village's share today (if spend.json is unwritable)
         self._count_lock = threading.Lock()  # recaps and highlights finish on their own threads
-        # Budget pacing: the least real seconds the next tick takes so today's money lasts the whole day
-        # (budget.pace_seconds); the watch pace (`pace`) still applies when it is slower.
+        # Budget pacing: the least real seconds the next tick takes so today's money lasts at least
+        # budget.PACE_HOURS more (budget.pace_horizon); the watch pace (`pace`) still applies when it is slower.
         self.budget_pace = 0.0
         self._last_checkpoint: float | None = None
+        self._tick_costs: deque[float] = deque(maxlen=BUDGET_COST_WINDOW)
+        self._budget_warmup = BUDGET_WARMUP_TICKS
         self.log_meta = meta  # extra log header fields (a scenario run: its starting world, aivillage/scenario.py)
         # Saves (aivillage/saves.py): `<log>.save.json`, taken between ticks on request, every game hour,
         # when the village is stopped and when it ends. `resume_header`: this sim continues a loaded save.
@@ -283,11 +287,17 @@ class LiveSim:
             self.budget_pace = 0.0
             return
         if self._spent_today() < self.daily_budget:
-            pace = budget.pace_seconds(cost, self.daily_budget, self._spent_today(), budget.seconds_left_today())
+            self._tick_costs.append(cost)
+            if self._budget_warmup > 0:
+                self._budget_warmup -= 1
+                pace = 0.0
+            else:
+                avg = sum(self._tick_costs) / len(self._tick_costs)
+                pace = budget.pace_seconds(avg, self.daily_budget, self._spent_today(), budget.pace_horizon())
             slow = pace > self.pace / clock.per_hour(self.world.config)
             if slow != (self.budget_pace > self.pace / clock.per_hour(self.world.config)):
                 self._publish({"type": "budget_pace", "tick": self.world.tick, "slow": slow,
-                               "seconds": round(pace, 1), "text": "Темп по бюджету: деньги растянуты до конца суток."
+                               "seconds": round(pace, 1), "text": "Темп по бюджету: деньги тратятся быстро, игра идёт медленнее."
                                if slow else "Темп обычный."})
             self.budget_pace = pace
             return
@@ -513,6 +523,10 @@ class LiveSim:
             for t in ticks:
                 backlog.append(t)
                 backlog += after_tick.get(t["tick"], [])
+            if self.error:  # a page opened after the end gets the ending too, not «● LIVE» forever
+                backlog.append({"type": "error", "text": self.error})
+            elif self.finished:
+                backlog.append({"type": "end", "tick": self.world.tick})
             self._subs.add((asyncio.get_running_loop(), q))
         deltas = ViewDeltas()
         return q, [json.dumps(deltas.compact(r), ensure_ascii=False) for r in backlog]
@@ -998,10 +1012,12 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if opts.get("brains", "llm") == "llm" and not keys.has_any_key() and not all_own:
             raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху справа. "
                                      "Или выберите ботов, они бесплатные.")
-        mix = knobs.MODEL_MIXES.get(opts.get("models") or "one") if opts.get("brains", "llm") == "llm" else None
-        if mix and any(not m.startswith("openai/") for m in mix) and not keys.get("openrouter_key"):
+        llm_on = opts.get("brains", "llm") == "llm"
+        mix = (knobs.MODEL_MIXES.get(opts.get("models") or "one") or []) if llm_on else []
+        mix += [r.get("model") for r in (opts.get("roster") or []) if llm_on and isinstance(r, dict) and r.get("model")]
+        if any(not m.startswith("openai/") for m in mix) and not keys.get("openrouter_key"):
             raise HTTPException(400, "Для Haiku нужен ключ OpenRouter: «⚙️ Настройки» вверху справа. "
-                                     "Или выберите «Одна на всех».")
+                                     "Или выберите «Одна на всех» и уберите Haiku у жителей.")
         if opts.get("brains") == "mcp":  # the tournament: players gather in the lobby first, the village comes later
             try:
                 lobby = host.open_lobby(opts)

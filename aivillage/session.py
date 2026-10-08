@@ -91,8 +91,18 @@ def _brains(header: dict) -> str:
     kinds = Counter(header.get("brains", {}).values())
     if not kinds:
         return "?"
-    return ", ".join(f"{b.removeprefix('bot:')} ×{n}" if b.startswith("bot:") else f"ИИ {b} ×{n}"
-                     for b, n in kinds.most_common())
+    out = ", ".join(f"{b.removeprefix('bot:')} ×{n}" if b.startswith("bot:") else f"ИИ {b} ×{n}"
+                    for b, n in kinds.most_common())
+    villains = header.get("villains") or {}  # run.villains_of: the start screen's «Злых жителей на каждую модель»
+    if villains:
+        out += "; злые: " + ", ".join(f"{n} ({m})" for n, m in sorted(villains.items()))
+    return out
+
+
+def _villagers(n: int) -> str:
+    word = "житель" if n % 10 == 1 and n % 100 != 11 else \
+        "жителя" if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14) else "жителей"
+    return f"{n} {word}"
 
 
 def build(log: str | Path, *, ended_by: str = "closed", days_planned: int | None = None,
@@ -246,7 +256,7 @@ def facts(s: dict) -> list[tuple[str, str]]:
     when_ = f"{_when(s['started'])} → {_when(s['ended'])}" if s.get("started") else f"закончилась {_when(s['ended'])}"
     out = [("Когда", when_ + (f" ({s['minutes']} мин)" if s.get("minutes") is not None else "")),
            ("Как закончилась", s["ended_by_text"]),
-           ("Деревня", f"{s['villagers_n']} жителей, пресет «{s['mode_title']}», seed {s['seed']}"),
+           ("Деревня", f"{_villagers(s['villagers_n'])}, пресет «{s['mode_title']}», seed {s['seed']}"),
            ("Кто играл", s["brains"]),
            ("Сыграно дней", _days(s)),
            ("Мэр в конце", s.get("mayor") or "нет"),

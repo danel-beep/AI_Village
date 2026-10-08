@@ -20,6 +20,7 @@ from pathlib import Path
 from . import keys
 
 DEFAULT_USD = 5.0
+PACE_HOURS = 6  # pacing keeps today's money lasting at least this long, not until midnight (see pace_horizon)
 _lock = threading.Lock()
 
 
@@ -32,6 +33,13 @@ def seconds_left_today() -> float:
     now = datetime.now()
     midnight = datetime.combine(now.date() + timedelta(days=1), datetime.min.time())
     return max(1.0, (midnight - now).total_seconds())
+
+
+def pace_horizon() -> float:
+    """Seconds the money left today must last at the current rate: until midnight, but at most PACE_HOURS.
+    Spreading it to midnight made a game started at night crawl for no reason; with this, a village runs at
+    full speed while money is ample and slows down only as it runs low."""
+    return min(seconds_left_today(), PACE_HOURS * 3600.0)
 
 
 def pace_seconds(tick_cost: float, cap: float, spent: float, seconds_left: float) -> float:
