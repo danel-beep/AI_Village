@@ -59,6 +59,8 @@ def _subject(world, ev: Event, recipient: str) -> str | None:
         return ev.actor
     if k == "embezzlement_found":
         return ev.data.get("mayor")
+    if k == "theft_report":
+        return ev.data.get("thief")
     return None
 
 
