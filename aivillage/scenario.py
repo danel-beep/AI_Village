@@ -41,7 +41,7 @@ import hashlib
 import zipfile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import construction, engine, family, mapgen, runconfig, saves
+from . import construction, engine, family, mapgen, polity, runconfig, saves
 from .bots import BOT_TYPES
 from .invariants import check, holdings
 from .engine import rng_for
@@ -97,8 +97,22 @@ class Bill(Strict):
     days_late: int = Field(default=1, ge=0)  # 0 = due today
 
 
+class PolityEdit(Strict):
+    """The polity of the first town hall, already governed («С нуля» with polities on): who is in it, its form,
+    who holds its treasury (the ruler, the first councillor or the assembly's treasurer), coins and number laws."""
+    form: Literal["assembly", "council", "ruler"]
+    keeper: str
+    members: list[str] | Literal["all"] = "all"
+    council: list[str] = Field(default_factory=list)  # council form: the other councillors
+    coins: int = Field(default=0, ge=0)
+    laws: dict[str, int] = Field(default_factory=dict)  # tax, income_tax, wealth_tax, tax_every, wage
+    name: str | None = None
+    coin: str | None = None
+
+
 class WorldEdits(Strict):
     mayor: str | None = None
+    polity: PolityEdit | None = None
     treasury: int | None = Field(default=None, ge=0)
     laws: dict[str, int] = Field(default_factory=dict)
     sites: list[Site] = Field(default_factory=list)
@@ -269,6 +283,34 @@ def _name(world: World, name: str, where: str) -> str:
     return name
 
 
+def _polity(world: World, e: PolityEdit) -> None:
+    if not polity.enabled(world.config):
+        raise ScenarioError("world.polity: polities are off in this mode")
+    if not world.polities:
+        halls = polity.halls(world)
+        if not halls:
+            raise ScenarioError("world.polity: no town hall stands (start at the town stage or build one)")
+        polity._found(Ctx(world, rng_for(world, "scenario")), halls[0])
+    p = next(iter(world.polities.values()))
+    members = sorted(world.agents) if e.members == "all" else [_name(world, n, "world.polity.members") for n in e.members]
+    keeper = _name(world, e.keeper, "world.polity.keeper")
+    if keeper not in members:
+        raise ScenarioError("world.polity.keeper: must be one of the members")
+    for other in world.polities.values():
+        other["members"] = [n for n in other["members"] if n not in members]
+    bad = sorted(set(e.laws) - set(polity.NUMBER_LAWS))
+    if bad:
+        raise ScenarioError(f"world.polity.laws: unknown {', '.join(bad)} (have: {', '.join(polity.NUMBER_LAWS)})")
+    p.update(members=members, form=e.form, keeper=keeper, ballot={}, coins=e.coins,
+             rulers=[] if e.form == "assembly" else [keeper] + [_name(world, n, "world.polity.council")
+                                                                for n in e.council if n != keeper])
+    p["laws"].update(e.laws)
+    if e.name is not None:
+        p["name"] = e.name
+    if e.coin is not None:
+        p["coin"] = e.coin
+
+
 def _items(world: World, items: dict[str, int], where: str) -> dict[str, int]:
     bad = [k for k in items if k != "coins" and k not in world.config["items"]]
     if bad:
@@ -325,6 +367,8 @@ def edit(world: World, scn: Scenario | Arm) -> None:
     if e.treasury is not None:
         g.coins = e.treasury
     g.laws.update(e.laws)
+    if e.polity is not None:
+        _polity(world, e.polity)
     for s in e.sites:
         a = world.agents[_name(world, s.by, "world.sites")]
         if not construction.enabled(cfg):

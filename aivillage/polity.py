@@ -48,7 +48,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import clock, construction, debts, governance, honors, ops, progress, theft
+from . import clock, construction, debts, governance, honors, ops, progress, theft, works
 from .actions import _agent, _text
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
@@ -57,8 +57,9 @@ from .state import Agent, Debt, World
 HALL = "town_hall"
 FORMS = ("assembly", "council", "ruler")
 TOPICS = ("name", "coin", "form", "leader")
-TAX_LAWS = ("tax", "income_tax", "wealth_tax", "tax_every")  # numbers kept in p["laws"]
-LAWS = TAX_LAWS + ("fine", "grant", "payout", "expel", "title")
+TAX_LAWS = ("tax", "income_tax", "wealth_tax", "tax_every")
+NUMBER_LAWS = TAX_LAWS + ("wage",)  # numbers kept in p["laws"]
+LAWS = NUMBER_LAWS + ("fine", "grant", "payout", "expel", "title")
 ACTION_NAMES = ("join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
                 "give_to_polity", "polity_embezzle", "polity_audit")
 for _n in ACTION_NAMES:
@@ -471,9 +472,9 @@ def handover(ctx: Ctx, p: dict, old: str) -> None:
 # ---------- laws ----------
 
 class ProposeArgs(BaseModel):
-    law: Literal["tax", "income_tax", "wealth_tax", "tax_every", "fine", "grant", "payout", "expel", "title"]
+    law: Literal["tax", "income_tax", "wealth_tax", "tax_every", "wage", "fine", "grant", "payout", "expel", "title"]
     value: int | None = Field(None, description="tax: coins per member each tax day; income_tax, wealth_tax: "
-                                                "percent; tax_every: days; fine, grant: coins")
+                                                "percent; tax_every: days; wage: coins per hour; fine, grant: coins")
     person: str | None = Field(None, description="a member, for fine/grant/expel/title")
     text: str | None = Field(None, description="for title: the title's words")
 
@@ -485,6 +486,8 @@ def _describe(p: dict, pr: dict) -> str:
                           "since the last tax day",
             "wealth_tax": f"wealth tax = {pr['value']}% of a member's coins on tax day",
             "tax_every": f"tax day every {pr['value']} days",
+            "wage": f"wage = {pr['value']} {coin} from the treasury per hour a member works on a common building "
+                    "or a village project",
             "fine": f"fine {pr['person']} {pr['value']} {coin}",
             "grant": f"grant {pr['value']} {coin} from the treasury to {pr['person']}",
             "payout": "split the treasury equally among the members",
@@ -495,7 +498,8 @@ def _describe(p: dict, pr: dict) -> str:
 @ACTIONS.action("polity_propose", "Put a law to your polity, the way its form of government says (assembly: any "
                 "member proposes, all members vote; council: a council member proposes, the council votes; ruler: "
                 "the ruler's law passes at once). tax/fine/grant need value (coins), income_tax/wealth_tax value "
-                "(percent), tax_every value (days); 0 for a tax law means no such tax; fine/grant/expel need person "
+                "(percent), tax_every value (days), wage value (coins per hour); 0 for a tax law or wage means none; "
+                "fine/grant/expel need person "
                 "(a member); payout splits the treasury among the members; title needs person (a member) and text (a "
                 "title on the honor board, where World facts list it).", ProposeArgs,
                 available=lambda c, a: enabled(c.cfg) and a.name in deciders(of(c.world, a.name) or
@@ -513,7 +517,7 @@ def polity_propose(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
         raise ActionError(f"at most {c['max_open_proposals']} proposals can be open at once")
     value = person = None
     text = honors.check_title(ctx, args.text) if args.law == "title" else None
-    if args.law in ("tax", "income_tax", "wealth_tax", "tax_every", "fine", "grant"):
+    if args.law in ("tax", "income_tax", "wealth_tax", "tax_every", "wage", "fine", "grant"):
         lo, hi = c["limits"][args.law]
         if args.value is None or not lo <= args.value <= hi:
             raise ActionError(f"{args.law} needs value between {lo} and {hi}")
@@ -583,7 +587,7 @@ def _maybe_resolve(ctx: Ctx, p: dict, pr: dict, closing: bool = False) -> None:
 def _apply(ctx: Ctx, p: dict, pr: dict) -> str:
     w, purse = ctx.world, _Purse(p)
     target = w.agents.get(pr["person"]) if pr["person"] else None
-    if pr["law"] in TAX_LAWS:
+    if pr["law"] in NUMBER_LAWS:
         p["laws"][pr["law"]] = pr["value"]
         return ""
     if pr["law"] != "payout" and (target is None or target.status == "dead" or target.name not in p["members"]):
@@ -635,6 +639,72 @@ def give_to_polity(ctx: Ctx, a: Agent, args: GiveArgs) -> None:
     ops.move_coins(a, _Purse(p), args.coins)
     ctx.emit("polity_gift", f"{a.name} gives {args.coins} {coin_name(p)} to the treasury of {title(p)} "
              f"(it holds {p['coins']}).", actor=a.name, visibility="public", polity=p["id"], coins=args.coins)
+
+
+# ---------- what the treasury pays for ----------
+
+def note_spend(world: World, p: dict, what: str, coins: int) -> None:
+    """Remember a treasury spend for the members to see (the last `spent_shown`); wages of one member on one day
+    are one line."""
+    spent = p.setdefault("spent", [])
+    last = next((x for x in spent if x["day"] == world.day and x["what"] == what), None)
+    if last is not None:
+        last["coins"] += coins
+    else:
+        spent.append({"day": world.day, "what": what, "coins": coins})
+    del spent[:-int(_c(world.config).get("spent_shown", 6))]
+
+
+def _holder(world: World, name: str) -> works.Holder | None:
+    """works.HOLDERS: the holder of a polity's treasury pays from it (fund_project, the merchant)."""
+    p = of(world, name)
+    if p is None or p.get("keeper") != name or not enabled(world.config):
+        return None
+    return works.Holder(_Purse(p), f"the treasury of {title(p)}", lambda what, n: note_spend(world, p, what, n))
+
+
+works.HOLDERS.append(_holder)
+
+
+def wage(p: dict) -> int:
+    return int(p["laws"].get("wage", 0))
+
+
+def _pay_wage(ctx: Ctx, name: str, hours: float, where: str) -> None:
+    p = of(ctx.world, name)
+    if p is None or not wage(p) or p["coins"] <= 0:
+        return
+    n = min(int(wage(p) * hours), p["coins"])
+    if n <= 0:
+        return
+    ops.move_coins(_Purse(p), ctx.world.agents[name], n)
+    note_spend(ctx.world, p, f"wage to {name}", n)
+    ctx.emit("polity_wage", f"{title(p)} paid you {n} {coin_name(p)} of wage from its treasury for your work on "
+             f"{where} (it holds {books(p) if p.get('keeper') != name else p['coins']}).", to=[name], polity=p["id"],
+             coins=n)
+
+
+def _on_event(ctx: Ctx, ev, names: list[str]) -> None:
+    """Law wage: a member's counted hours on a common building (construction.py) or a village project (works.py)."""
+    if not enabled(ctx.cfg) or ev.kind not in ("construct", "build_work"):
+        return
+    if ev.kind == "build_work" and ev.actor:
+        _pay_wage(ctx, ev.actor, 1, "a village project")
+    elif ev.kind == "construct" and ev.data.get("owner") is None and ev.data.get("counted"):
+        for n, h in sorted((ev.data.get("hours") or {}).items()):
+            if n in ctx.world.agents:
+                _pay_wage(ctx, n, h, "a common building")
+
+
+ops.EVENT_HOOKS.append(_on_event)
+
+
+def _seed_income(ctx: Ctx, p: dict) -> None:
+    """A small minted income each dawn once the polity has a form and 2+ living members (0 = off)."""
+    per = int(_c(ctx.cfg).get("income_per_member_per_day", 0))
+    alive = [n for n in p["members"] if ctx.world.agents[n].status != "dead"]
+    if per > 0 and p["form"] and len(alive) >= 2:
+        ops.mint_coins(ctx.world, _Purse(p), per * len(alive))
 
 
 # ---------- engine hooks ----------
@@ -699,6 +769,7 @@ def after_night(ctx: Ctx) -> None:
         return
     for pid in sorted(w.polities):
         p = w.polities[pid]
+        _seed_income(ctx, p)
         if (w.day - 1) % every(cfg, p) != 0:
             continue
         names = sorted(n for n in p["members"] if w.agents[n].status != "dead")
@@ -756,8 +827,14 @@ def observe(world: World, name: str) -> dict:
             row["ruler"] = p["rulers"][0] if p["rulers"] else None
         if p.get("keeper") == name and embezzle_on(cfg):
             row["treasury_books"], row["you_took_unnoticed"] = books(p), p["embezzled"].get(name, 0)
+        if wage(p):
+            row["wage_per_hour"] = wage(p)
+        if p["form"] and _c(cfg).get("income_per_member_per_day"):
+            row["treasury_income_per_member_per_day"] = _c(cfg)["income_per_member_per_day"]
         if name in p["members"]:
             row["you_are_member"] = True
+            if p.get("spent"):
+                row["treasury_spent_lately"] = [f"day {x['day']}: {x['what']}, {x['coins']}" for x in p["spent"]]
             if any(p["laws"].get(k) for k in ("tax", "income_tax", "wealth_tax")):
                 row["your_tax_so_far"] = bill(world, p, world.agents[name])
             if p["ballot"]:
@@ -797,9 +874,16 @@ def facts(cfg: dict) -> str:
             "all leaders and the treasury holder and elects new ones (a recall). Laws: tax (coins per member every tax day), income_tax "
             "(percent of the coins a member got from the trader and orders since the last tax day), wealth_tax "
             "(percent of a member's coins on tax day), tax_every (days between tax days, "
-            f"{cfg['tax_every_days']} until a law sets it), fine, grant, payout, expel (no rejoining for {c['expel_days']} days)" + (", title" if honors.enabled(cfg) else "")
-            + ". A new polity has no tax until a law sets one. On tax day members pay their own polity "
+            f"{cfg['tax_every_days']} until a law sets it), wage (coins from the treasury to a member for each hour "
+            "of their work on a common building or a village project, while it has coins), fine, grant, payout, "
+            f"expel (no rejoining for {c['expel_days']} days)" + (", title" if honors.enabled(cfg) else "")
+            + ". A new polity has no tax until a law sets one, and no wage either. On tax day members pay their own polity "
             f"only; {how}. Non-members pay no polity tax, and income from before joining is not taxed."
+            + (f" Each dawn a polity with a form of government and 2 or more members gets {c['income_per_member_per_day']} "
+               "new coin(s) per member into its treasury." if c.get("income_per_member_per_day") else "")
+            + " The treasury holder can pay from it into a village project (fund_project)"
+            + (" and buy from the passing merchant for it" if (cfg.get("merchant") or {}).get("enabled") else "")
+            + "; members see the latest spends."
             + (" The treasury holder can polity_embezzle (take coins unnoticed: the books still show them); anyone at "
                "a polity's town hall can polity_audit it, and it is counted whenever the holder changes; then the "
                "missing coins and who took them become public." if embezzle_on(cfg) else ""))

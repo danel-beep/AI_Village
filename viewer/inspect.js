@@ -31,7 +31,8 @@ const Inspect = (() => {
     gold: 'золото', club: 'дубина', spear: 'копьё', stew: 'рагу', pancakes: 'блины', honey_cake: 'медовик', ring: 'кольцо',
     plank: 'доски', clay: 'глина', brick: 'кирпич', iron: 'железо', hide: 'шкура', leather: 'кожа', meat: 'мясо', hay: 'сено',
     flour: 'мука', smoked_meat: 'копчёное мясо', stone_axe: 'каменный топор', stone_pick: 'каменная кирка', iron_axe: 'железный топор',
-    iron_pick: 'железная кирка', hoe: 'мотыга', fishing_rod: 'удочка' };
+    iron_pick: 'железная кирка', hoe: 'мотыга', fishing_rod: 'удочка', clothes: 'одежда', fur_cloak: 'шуба',
+    steel_axe: 'стальной топор', steel_pick: 'стальная кирка', medicine: 'лекарство' };
   const OBJ = { wood: 'Дерево', berries: 'Ягодный куст', fish: 'Косяк рыбы', grain: 'Грядка', stone: 'Камень', ore: 'Рудная жила',
     gold: 'Золотая жила' };
   const PROJECT = { bridge: 'мост через реку', well: 'колодец', watchtower: 'сторожевая башня', wall: 'стена вокруг деревни' };

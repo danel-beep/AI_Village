@@ -16,6 +16,8 @@ QUIET = {"lives": 0, "crises": {"enabled": False}, "illness": {"per_day": 0.0}, 
 
 
 def world(mode="survival", **extra):
+    # no minted treasury income here: these tests count the treasury coin by coin (test_treasury.py has it)
+    extra["polity"] = {"income_per_member_per_day": 0, **extra.get("polity", {})}
     w = engine.new_world(modes.world_override(mode, {"seed": 5, **QUIET, "progress": {"start_stage": "village"},
                                                      **extra}))
     for a in w.agents.values():

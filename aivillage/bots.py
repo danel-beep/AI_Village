@@ -209,7 +209,7 @@ class RandomBot(Bot):
             args = {"topic": r.choice(["name", "coin", "form", "leader", "bogus"]),
                     "choice": r.choice(people + ["assembly", "council", "ruler", "Dale", ""])}
         elif name == "polity_propose":
-            args = {"law": r.choice(["tax", "fine", "grant", "payout", "expel", "bogus"]),
+            args = {"law": r.choice(["tax", "fine", "grant", "payout", "expel", "wage", "bogus"]),
                     "value": r.randint(-5, 60), "person": r.choice(people)}
         elif name == "polity_vote_law":
             props = [pr["id"] for x in obs.get("polities", []) for pr in x.get("proposals", [])] or ["plaw0"]
@@ -218,6 +218,9 @@ class RandomBot(Bot):
             args = {"coins": r.randint(-2, 20)}
         elif name == "sign_petition":
             args = {"form": r.choice(["assembly", "council", "ruler", "anarchy"])}
+        elif name == "buy_from_merchant":  # merchant.py
+            sells = list((obs.get("merchant") or {}).get("sells") or {}) + ["unicorn"]
+            args = {"item": r.choice(sells), "qty": r.randint(-1, 3), "from_treasury": r.random() < 0.3}
         if r.random() < 0.05:
             args = {"garbage": [1, 2, 3]}
         return decision(name, args, say="hi" if r.random() < 0.05 else None)
