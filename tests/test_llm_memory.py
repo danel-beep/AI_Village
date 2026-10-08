@@ -77,6 +77,10 @@ def test_cache_point_on_the_wire():
     assert openai[1]["content"] == [{"type": "text", "text": "line", "prompt_cache_breakpoint": {"mode": "explicit"}}]
     assert wire(msgs, False)[1] == {"role": "user", "content": "line"}
     assert CACHE_POINT in msgs[1]  # the agent's own copy is untouched
+    claude = wire(msgs, "anthropic")  # Claude caches only where asked: the system prompt and the cache point
+    for m in claude:
+        assert m["content"] == [{"type": "text", "text": m["content"][0]["text"], "cache_control": {"type": "ephemeral"}}]
+    assert wire([{"role": "user", "content": "obs"}], "anthropic") == [{"role": "user", "content": "obs"}]
 
 
 def test_usage_counts_cached_tokens():
