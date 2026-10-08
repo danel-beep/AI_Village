@@ -214,3 +214,25 @@ def test_arms_off_keeps_the_old_strength():
     engine.step(w, {}, [{"name": "raid", "args": {"target": "Anna", "warn": False}}])
     engine.step(w, {})
     assert w.threats[0]["max_hp"] == 60 and "arms" not in w.threats[0]
+
+
+def test_bandits_go_for_the_town_hall_treasury():
+    from aivillage import polity
+    w = survival("town")
+    loc = "square"
+    ctx = engine.Ctx(w, engine.rng_for(w, "test"))
+    p = polity._found(ctx, {"id": "hall_t", "location": loc, "builders": []})
+    ops.mint_coins(w, polity._Purse(p), 50)
+    name = sorted(w.agents)[0]
+    engine.step(w, {}, [{"name": "raid", "args": {"target": name, "warn": False}}])
+    engine.step(w, {})
+    t = next(t for t in w.threats if t["kind"] == "raid")
+    assert t["route"][1] == loc
+    ev = []
+    for _ in range(60):
+        ev += engine.step(w, {})
+        check(w)
+        if t["state"] != "here":
+            break
+    hit = [e for e in ev if e.kind == "plundered" and e.data["home"] == loc]
+    assert hit and hit[0].data["coins"] == 20 and p["coins"] < 50  # 40% of the treasury

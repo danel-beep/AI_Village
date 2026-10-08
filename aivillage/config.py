@@ -637,7 +637,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # hour. Driven off, they drop the loot.
             "raid": {"per_day": 0.0, "name": "bandits", "hp": 60, "attack": 2, "damage_die": 6,
                      "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20,
-                     "yard_share": 0.0},  # also this share of what lies ready in the yard (eggs, crops...)
+                     "yard_share": 0.0,  # also this share of what lies ready in the yard (eggs, crops...)
+                     "hall_share": 0.0},  # >0: after the first house they go for the fullest town hall treasury
             # A beast: every hour unopposed it eats `eat_share` of the food in the chests of the house it is at
             # and mauls someone there (d`damage_die` + `maul`); after `stay_hours` it prowls to another house;
             # leaves after `hours`.

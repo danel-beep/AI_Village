@@ -193,7 +193,8 @@ MODES["survival"] = {
                                                           # every raid hard, harder as the village
                                                           # grows and arms itself (Danel 2026-10-08)
                                                           "arms": {"enabled": True},
-                                                          "kinds": {"raid": {"yard_share": 0.5, "hp": 80}}},
+                                                          "kinds": {"raid": {"yard_share": 0.5, "hall_share": 0.4,
+                                                                             "hp": 80}}},
                                               # the hospital is no free meal; others see who is wounded
                                               "hospital_discharge": {"satiety": 30},
                                               "wounded_seen_below": 40,

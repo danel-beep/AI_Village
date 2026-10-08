@@ -39,7 +39,7 @@ import random
 
 from pydantic import BaseModel, Field
 
-from . import clock, conflict, governance, ops, progress, works
+from . import clock, conflict, governance, ops, polity, progress, works
 from .actions import _agent
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, GOD, ActionError
@@ -118,6 +118,12 @@ def _arms(world: World) -> dict:
         best[x] = int(best[x] * share + 0.5)
     best.pop("_w", None), best.pop("_b", None)
     return best
+
+
+def _rich_hall(world: World) -> str | None:
+    """Where the fullest polity treasury is (its town hall's place), if any holds coins."""
+    p = max(sorted(world.polities.values(), key=lambda p: p["id"]), key=lambda p: p["coins"], default=None)
+    return p["location"] if p and p["coins"] > 0 and p["location"] in world.locations else None
 
 
 def _homes(world: World) -> dict[str, str]:
@@ -290,6 +296,9 @@ def _arrive(ctx: Ctx, t: dict) -> None:
     t["location"] = home
     if t["kind"] == "raid":
         t["route"] = [home] + _near(w, home, sorted(homes))[: max(0, int(k["houses"]) - 1)]
+        hall = _rich_hall(w) if float(k.get("hall_share") or 0) > 0 else None
+        if hall and hall not in t["route"]:  # after the first house they go for the treasury
+            t["route"].insert(1, hall)
     defense = _defense(w)
     arms = _arms(w) if _arms_on(cfg) else {}
     grow = 1 + float(_t(cfg)["arms"].get("hp_per_stage", 0)) * max(0, progress.stage_index(w) - 1) if arms else 1
@@ -376,6 +385,13 @@ def _plunder(ctx: Ctx, t: dict) -> None:
         k = int(c.coins * share + 0.5)
         if k:
             ops.burn_coins(w, c, k)
+            coins += k
+    hall_share = float(_kind(ctx.cfg, "raid").get("hall_share") or 0) * _defense(w)
+    for pid in sorted(w.polities) if hall_share > 0 else []:  # a town hall's treasury here
+        p = w.polities[pid]
+        k = int(p["coins"] * hall_share + 0.5) if p["location"] == home else 0
+        if k:
+            ops.burn_coins(w, polity._Purse(p), k)
             coins += k
     plot = w.plots.get(home)
     yard = float(_kind(ctx.cfg, "raid").get("yard_share") or 0) * _defense(w)
