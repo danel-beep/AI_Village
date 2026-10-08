@@ -12,7 +12,7 @@ Both are computed facts from rules the model already has; switching the hint off
 
 from __future__ import annotations
 
-from . import crafting, progress
+from . import crafting, labor, progress
 from .registry import ACTIONS
 
 INTRO = ("Handbook of this world: everything a villager can do. Every villager has the same list, and so do you; "
@@ -86,7 +86,7 @@ def observe(world, name: str) -> dict:
     both = {k: inv.get(k, 0) + stored.get(k, 0) for k in set(inv) | set(stored)}
     can = {}
     for rid, r in cfg["recipes"].items():
-        if not crafting.profession_ok(world, a, r):
+        if not crafting.profession_ok(world, a, r) or labor.mastery_gate(cfg, a, rid, r):
             continue
         if not progress.unlocked(world, f"recipe:{rid}"):
             continue

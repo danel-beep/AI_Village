@@ -237,7 +237,7 @@ def craft(ctx: Ctx, a: Agent, args: CraftArgs) -> None:
         raise ActionError(f"{args.recipe} can only be made at your home")
     if r["where"] != "home" and a.location != r["where"]:
         raise ActionError(f"{args.recipe} can only be made at the {r['where']}")
-    if r["profession"] and a.profession != r["profession"]:
+    if r["profession"] and a.profession != r["profession"] and not labor.no_professions(ctx.cfg):
         raise ActionError(f"only a {r['profession']} can make {args.recipe}")
     need = {k: v * args.times for k, v in r["inputs"].items()}
     _need(a.inventory, need)

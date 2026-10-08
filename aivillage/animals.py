@@ -32,7 +32,7 @@ from collections import deque
 
 from pydantic import BaseModel, Field
 
-from . import conflict, ops, progress
+from . import conflict, labor, ops, progress
 from .ops import Ctx
 from .registry import ACTIONS, ActionError
 from .state import Agent, World
@@ -198,8 +198,10 @@ def hunt(ctx: Ctx, a: Agent, args: HuntArgs) -> None:
         raise ActionError(f"there is no {sp} here (animals here: {seen})")
     s, c = _species(cfg)[sp], cfg["combat"]
     item, atk, dmg = conflict.hunt_weapon(cfg, a)
+    atk += labor.hunt_bonus(cfg, a)  # no professions: hunting mastery
     arms = f" with a {item}" if item else " bare-handed"
     if int(s["min_hunters"]) <= 1:
+        labor.practice(ctx, a, "hunting")
         _press(w, a.location)
         roll, hit, _ = _strike(ctx.rng, c, s, atk, dmg)
         conflict.wear(ctx, a, item)
@@ -243,6 +245,9 @@ def _run_party(ctx: Ctx, rng: random.Random, p: dict, hunters: list[str]) -> Non
     dealt: dict[str, int] = {n: 0 for n in hunters}
     hurt: dict[str, int] = {}
     gear = {n: conflict.hunt_weapon(cfg, w.agents[n]) for n in hunters}
+    gear = {n: (g[0], g[1] + labor.hunt_bonus(cfg, w.agents[n]), g[2]) for n, g in gear.items()}
+    for n in hunters:
+        labor.practice(ctx, w.agents[n], "hunting")
     for _ in range(int(_c(cfg).get("rounds", 4))):
         order = list(hunters)
         rng.shuffle(order)

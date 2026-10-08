@@ -142,6 +142,16 @@
   }
 
   const TABS = [['now', 'Сейчас'], ['people', 'Отношения'], ['hist', 'История'], ['diary', 'Дневник'], ['stats', 'Статистика']];
+  // no professions (labor.mastery): what each villager is best at, instead of a trade
+  const CRAFT = { farming: 'поле', fishing: 'рыбалка', woodcutting: 'лес', mining: 'шахта', hunting: 'охота',
+    cooking: 'кухня', smithing: 'кузня', carpentry: 'столярка', pottery: 'гончарня', milling: 'мельница',
+    tanning: 'дубильня', weaving: 'ткачество', handwork: 'поделки' };
+  function trade(t, n, v) {
+    const s = ((t.view.labor || {}).skills || {})[n];
+    if (!s || !('mastery' in s)) return esc(v.profession);
+    return s.best_at ? `лучше всего: ${esc(CRAFT[s.best_at] || s.best_at)}` : 'без своего дела';
+  }
+
   function render(n) {
     if (!n || !ticks.length || !ticks[i].view.agents[n]) { box.hidden = true; return; }
     const t = ticks[i], v = t.view.agents[n], c = collect(n);
@@ -152,7 +162,7 @@
     box.innerHTML = `<div class="top"><span class="name" style="color:${color[n]}">${esc(n)}</span>
         <button class="hero" title="Вся жизнь жителя на одной странице">📖 Страница героя</button>
         <button class="x" title="закрыть">✕</button></div>
-      <div class="muted">${esc(v.profession)} · ${esc(t.view.locations[v.location] || v.location)} · ${STATUS[v.status] || esc(v.status)}</div>
+      <div class="muted">${trade(t, n, v)} · ${esc(t.view.locations[v.location] || v.location)} · ${STATUS[v.status] || esc(v.status)}</div>
       <div class="tabs">${TABS.map(([k, l]) => `<button data-t="${k}" aria-selected="${k === tab}">${l}</button>`).join('')}</div>
       <div>${body}</div>`;
     box.scrollTop = keep;

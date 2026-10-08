@@ -179,7 +179,8 @@ def _owned_buildings(world: World, owner: str, kind: str) -> list[dict]:
 
 def profession_ok(world: World, a: Agent, r: dict) -> bool:
     """Workshop recipes are made by whoever may use the workshop (where_error checks that), whatever their trade."""
-    return not r.get("profession") or a.profession == r["profession"] or bool(r.get("building"))
+    return (not r.get("profession") or a.profession == r["profession"] or bool(r.get("building"))
+            or labor.no_professions(world.config))
 
 
 def rent(world: World, a: Agent, r: dict) -> tuple[int, dict | None]:
@@ -201,6 +202,15 @@ def rent(world: World, a: Agent, r: dict) -> tuple[int, dict | None]:
         return 0, None
     shop = min((w for w in here if w["kind"] == need), key=lambda w: (w["fee"], w["owner"]))
     return int(shop["fee"]), shop
+
+
+def _household_house(world: World, a: Agent, shop: dict | None) -> int:
+    """The house level when `a` makes something in their own household (home, own yard workshop), else 0."""
+    from . import plots  # plots imports crafting
+    plot = plots.plot_here(world, a)
+    if shop is not None or plot is None or not plot.owner or a.name not in plots.household(world, plot):
+        return 0
+    return plot.house
 
 
 def usable_kinds(world: World, a: Agent) -> set[str]:
@@ -259,6 +269,8 @@ def craft(ctx: Ctx, a: Agent, rid: str, times: int) -> None:
         raise ActionError(why)
     if not profession_ok(w, a, r):
         raise ActionError(f"only a {r['profession']} can make {rid}")
+    if why := labor.mastery_gate(cfg, a, rid, r):
+        raise ActionError(why)
     need = {k: v * times for k, v in r["inputs"].items()}
     missing = {k: v - ops.count(a.inventory, k) for k, v in need.items() if ops.count(a.inventory, k) < v}
     if missing:
@@ -277,8 +289,11 @@ def craft(ctx: Ctx, a: Agent, rid: str, times: int) -> None:
     for k, v in need.items():
         ops.burn(w, a.inventory, k, v)
     out = _output(r, usable_kinds(w, a)) * times
+    act = labor.craft_activity(cfg, r)
+    out += labor.extra(a, f"craft:{rid}", out, labor.craft_pct(cfg, a, act, _household_house(w, a, shop)))
     ops.mint(w, a.inventory, rid, out)
     hours = int(r.get("hours") or 0) * times  # 0: any batch fits in the action's hour
+    labor.practice(ctx, a, act, max(1, hours))
     if discovering:
         hours = max(hours, 1) + int(_s(cfg).get("discover_hours", 0))
         _learn(a, rid)
