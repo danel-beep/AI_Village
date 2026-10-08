@@ -166,46 +166,72 @@ def test_gap_run_replays_exactly(tmp_path):
     assert hostile_days(w)
 
 
-def test_raiders_grow_with_the_village_and_copy_its_best_gear():
-    w = survival("town")
+def test_raiders_grow_with_the_villages_best_arms():
+    w = survival("hamlet")
     names = sorted(w.agents)
-    target = names[0]
-    plain = threats._arms(w)
-    ops.mint(w, w.agents[names[1]].inventory, "sword", 1)
-    ops.mint(w, w.chests[f"chest_{names[2]}"].items, "iron_armor", 1)
-    ops.mint(w, w.agents[names[3]].inventory, "club", 1)
-    arms = threats._arms(w)
-    assert arms["armed"] == plain["armed"] + 2
-    assert (arms["weapon"], arms["armor"]) == ("sword", "iron_armor")
-    assert (arms["attack"], arms["damage"], arms["block"]) == (2, 4, 2)  # half of sword 3/7, iron armor 4
-    ev = engine.step(w, {}, [{"name": "raid", "args": {"target": target, "warn": False}}])
+    assert threats._arms(w) == {"tier": 0, "gear": []}
+    ops.mint(w, w.agents[names[1]].inventory, "spear", 1)
+    assert threats._arms(w) == {"tier": 1, "gear": ["spear"]}
+    ops.mint(w, w.chests[f"chest_{names[2]}"].items, "iron_armor", 1)  # kept at home counts too
+    assert threats._arms(w) == {"tier": 3, "gear": ["iron_armor"]}
+    ev = engine.step(w, {}, [{"name": "raid", "args": {"target": names[0], "warn": False}}])
     ev += engine.step(w, {})
     t = next(t for t in w.threats if t["kind"] == "raid")
-    k = w.config["threats"]["kinds"]["raid"]
     scale = max(1.0, sum(a.status != "dead" for a in w.agents.values()) / 5)
-    grow = 1 + 0.25 * 2  # town: two stages above the hamlet
-    assert t["max_hp"] == round((k["hp"] * grow + 10 * arms["armed"]) * scale * threats._defense(w))
-    arrived = next(e for e in ev if e.kind == "threat_arrived")
-    assert "They carry sword and iron_armor" in arrived.text
-    assert "best-armed villager" in world_facts(w.config)
+    assert t["max_hp"] == round(200 * (1 + 0.3 * 3) * scale * threats._defense(w))
+    assert "armed for a village that has iron_armor" in next(e for e in ev if e.kind == "threat_arrived").text
+    assert "one defender alone rarely drives them off" in world_facts(w.config)
 
 
-def test_bandit_armor_takes_off_each_blow():
-    w = survival("hamlet")
-    name = sorted(w.agents)[0]
-    a = w.agents[name]
-    engine.step(w, {}, [{"name": "raid", "args": {"target": name, "warn": False}}])
-    engine.step(w, {})
-    t = next(t for t in w.threats if t["kind"] == "raid")
-    t["arms"] = {"weapon": "sword", "attack": 2, "damage": 4, "armor": "iron_armor", "block": 20}
-    a.location, a.health = t["location"], 100
-    hits = []
-    for _ in range(12):
-        ev = engine.step(w, {name: {"action": {"name": "defend", "args": {}}}})
-        hits += [e.data["damage"] for e in ev if e.kind == "defend" and e.data["hit"]]
-        if t["state"] != "here" or a.health < 40:
-            break
-    assert hits and all(d == 1 for d in hits)  # armor stronger than any blow: 1 still lands
+def _fight(seed, k, weapon=None, armor=None, tick=15, kind="raid"):
+    """k villagers with this gear wait at the target house for a warned raid and defend while health >= 30."""
+    w = engine.new_world(modes.world_override("survival", {"seed": seed, **QUIET, "lives": 2, "tick_minutes": tick,
+                                                           "progress": {"start_stage": "hamlet"},
+                                                           "population": {"size": 6}}))
+    names = sorted(w.agents)
+    home = w.agents[names[0]].home
+    for n in names[:k]:
+        a = w.agents[n]
+        a.location, a.satiety, a.health = home, 90, 100
+        for item in (weapon, armor):
+            if item:
+                ops.mint(w, a.inventory, item, 1)
+    engine.step(w, {}, [{"name": kind, "args": {"target": names[0], "warn": True}}])
+    t = next(t for t in w.threats if t["kind"] == kind)
+    while t["state"] not in ("gone", "defeated"):
+        go = {n: {"action": {"name": "defend", "args": {}}} for n in names[:k] if t["state"] == "here"
+              and w.agents[n].health >= 30 and w.tick >= w.agents[n].busy_until and w.agents[n].location == t["location"]}
+        engine.step(w, go)
+        check(w)
+    return t["state"] == "defeated"
+
+
+def test_one_defender_loses_three_armed_together_win():
+    seeds = range(6)
+    assert not any(_fight(s, 1, "sword", "iron_armor") for s in seeds)
+    assert sum(_fight(s, 3, "spear", "leather_armor") for s in seeds) >= 4
+    assert sum(_fight(s, 3) for s in seeds) <= 2  # three bare-handed mostly lose
+    assert sum(_fight(s, 3, "spear", "leather_armor", kind="beast") for s in seeds) >= 4
+
+
+def test_longer_turns_fight_more_rounds():
+    assert threats._rounds(survival(tick_minutes=15).config) == 1  # real runs think in quarter hours
+    assert threats._rounds({**survival().config, "tick_minutes": 60}) == 4
+    assert threats._rounds(world().config) == 1  # arms off: one round as before
+    seeds = range(6)
+    assert sum(_fight(s, 3, "spear", "leather_armor", tick=60) for s in seeds) >= 4
+    assert not any(_fight(s, 1, "spear", "leather_armor", tick=60) for s in seeds)
+
+
+def test_bots_gather_for_a_warned_raid():
+    from aivillage.bots import muster
+    obs = {"time": {"day": 3, "hour": 9}, "threats": [{"what": "bandits", "expected": "day 3 around 11:00",
+                                                         "where": "home_X"}]}
+    assert muster(obs)["where"] == "home_X"
+    assert muster({**obs, "time": {"day": 3, "hour": 7}}) is None  # too early (3 hours ahead at most)
+    assert muster({**obs, "time": {"day": 2, "hour": 10}}) is None
+    here = {"time": {"day": 3, "hour": 14}, "threats": [{"what": "a beast", "where": "home_Y", "strength": "9/10"}]}
+    assert muster(here)["where"] == "home_Y"
 
 
 def test_arms_off_keeps_the_old_strength():
