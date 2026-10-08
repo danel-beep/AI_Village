@@ -275,6 +275,9 @@ const Actors = (() => {
         else if (act.name === 'whisper' && args.text) b = { kind: 'whisper', text: args.text, to: args.to };
         else if (d.thought) b = { kind: 'think', text: d.thought };
         if (!b) continue;
+        if (b.kind !== 'think' && d.thought) {   // what they think while saying it (shown for the hero of the shot only)
+          b.think = d.thought; b.thinkLife = Math.min(5, String(d.thought).length * .04);
+        }
         const m = d.minute != null ? d.minute : d.at != null ? d.at : null;
         b.at = jumped ? 0 : m != null ? Math.min(.9, m / 60) : .05 + hash(n + t.tick) * .65;
         b.life = Math.min(10, (b.kind === 'think' ? 4 : 5) + String(b.text).length * .04);
@@ -301,16 +304,18 @@ const Actors = (() => {
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
   // shown: [{n, sx, sy}] head positions in canvas pixels. Speech first (never hidden), then thoughts where they fit.
-  function bubbles(ctx, shown, selected, tr, canvasW) {
+  // focus: the villager the picture is about (Camera.focus()): under their words, a pale line with what they think.
+  function bubbles(ctx, shown, selected, tr, canvasW, focus = null) {
     const placed = [], items = [];
     for (const a of shown) {
-      const s = said[a.n]; if (s && clock - s.born < s.life) items.push({ a, s });
-      const al = said[a.n + '!']; if (al && clock - al.born < al.life) items.push({ a, s: al });
+      const s = said[a.n], life = s && s.life + (s.think && (a.n === selected || a.n === focus) ? s.thinkLife : 0);
+      if (s && clock - s.born < life) items.push({ a, s, life });
+      const al = said[a.n + '!']; if (al && clock - al.born < al.life) items.push({ a, s: al, life: al.life });
     }
     const rank = it => (it.a.n === selected ? 0 : 3) + (it.s.kind === 'think' ? 1 : 0) + (it.s.kind === 'alarm' ? -1 : 0);
     items.sort((p, q) => rank(p) - rank(q) || q.a.sy - p.a.sy);
-    for (const { a, s } of items) {
-      const alpha = Math.min(1, (s.life - (clock - s.born)) / .6);
+    for (const { a, s, life } of items) {
+      const alpha = Math.min(1, (life - (clock - s.born)) / .6);
       ctx.globalAlpha = Math.max(0, alpha);
       if (s.kind === 'alarm') {
         ctx.font = '900 18px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -322,7 +327,13 @@ const Actors = (() => {
       ctx.font = think ? 'italic 12px system-ui, sans-serif' : '12px system-ui, sans-serif';
       const prefix = s.kind === 'whisper' ? `🤫 ${s.to || ''}: ` : '';
       const lines = wrap(ctx, prefix + tr(String(s.text)), sel ? 260 : 200, sel ? 5 : think ? 2 : 3);
-      const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 14, h = lines.length * 15 + 8;
+      let w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 14, h = lines.length * 15 + 8, tl = [];
+      if (s.think && (sel || a.n === focus)) {
+        ctx.font = 'italic 11px system-ui, sans-serif';
+        tl = wrap(ctx, '💭 ' + tr(String(s.think)), 260, 3);
+        w = Math.max(w, ...tl.map(l => ctx.measureText(l).width + 14)); h += tl.length * 14 + 6;
+        ctx.font = '12px system-ui, sans-serif';
+      }
       let bx = Math.max(4, Math.min(canvasW - w - 4, a.sx - w / 2)), by = a.sy - h - (think ? 22 : 16);
       const hit = r => placed.find(p => r.x < p.x + p.w && p.x < r.x + r.w && r.y < p.y + p.h && p.y < r.y + r.h);
       let r = { x: bx, y: by, w, h }, tries = 0, o;
@@ -344,6 +355,12 @@ const Actors = (() => {
       }
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       lines.forEach((l, j) => ctx.fillText(l, bx + 7, by + 5 + j * 15));
+      if (tl.length) {
+        const ty = by + 5 + lines.length * 15 + 3;
+        ctx.fillStyle = 'rgba(60,70,64,.25)'; ctx.fillRect(bx + 7, ty - 3, w - 14, 1);
+        ctx.font = 'italic 11px system-ui, sans-serif'; ctx.fillStyle = '#5b6d62';
+        tl.forEach((l, j) => ctx.fillText(l, bx + 7, ty + 1 + j * 14));
+      }
       ctx.globalAlpha = 1;
     }
   }

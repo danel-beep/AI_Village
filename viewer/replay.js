@@ -15,7 +15,7 @@
     { ic: '😠', name: 'ссоры, кражи, драки', re: /^(steal|steal_attempt|set_fire|default|debt_seized|evicted|divorce|proposal_refused|embezzle|dice_challenge)$|fight|attack|duel|brawl/ },
     { ic: '✝', name: 'смерти', re: /^death$/ },
   ];
-  const any = e => Camera.score(e.kind) >= MIN;
+  const any = e => Camera.score(e.kind, e.data) >= MIN;
 
   // Where the viewer is: the tick shown and, after a jump, the tick we jumped to (so ⏭ ⏭ walks event by event).
   // The same villager doing the same thing again within an hour or so is not a new event (a thief on a spree).
@@ -27,7 +27,7 @@
     const from = last != null && Math.abs(last - i) <= 3 ? last : i;
     for (let k = from + dir; k >= 0 && k < ticks.length; k += dir) {
       const best = (ticks[k].events || []).filter(e => test(e) && !same(e, k))
-        .sort((a, b) => Camera.score(b.kind) - Camera.score(a.kind))[0];
+        .sort((a, b) => Camera.score(b.kind, b.data) - Camera.score(a.kind, a.data))[0];
       if (best) return [k, best];
     }
     return null;
