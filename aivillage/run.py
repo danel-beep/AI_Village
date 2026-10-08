@@ -392,7 +392,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
                              character=character,
                              own_goals=bool(world.config.get("own_goals", True)),
                              memory=world.config.get("llm_memory", "day"),
-                             obs_mode=world.config.get("llm_obs", "full"))
+                             obs_mode=world.config.get("llm_obs", "changes"))
     return out
 
 

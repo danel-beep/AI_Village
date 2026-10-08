@@ -143,7 +143,7 @@ DAY_DIARIES = 3  # "day" mode: diary entries of the last days shown (in the cach
 #              differ from what today's conversation last showed, inside that turn's line, which stays in the cached
 #              part; the current observation keeps only LIVE_FIELDS and names the rest.
 OBS_MODES = ("full", "changes")
-DEFAULT_OBS = "full"
+DEFAULT_OBS = "changes"  # A/B 2026-10-08: −14–20% a turn, fewer failed actions
 LIVE_FIELDS = frozenset({"time", "you", "here", "news", "said_to_you", "last_error", "available_actions",
                          "offers_to_you", "your_offers", "fires", "animals_here", "last_seen", "work_today",
                          "dice_challenges_to_you", "can_start_building_here"})

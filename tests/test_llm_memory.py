@@ -156,5 +156,5 @@ def test_changes_mode_sends_the_world_only_when_it_changes():
     assert shown == {"notice_board": ["Lost: a grey cat"]}
     agent.reflect(1)
     assert agent.shown == {}  # a new day shows everything again
-    full = LLMAgent("Anna", "farmer", Echo(), memory="day")
+    full = LLMAgent("Anna", "farmer", Echo(), memory="day", obs_mode="full")
     assert "board" in json.loads(full.messages(engine.observe(w, "Anna", consume_inbox=False))[-1]["content"].split("\n", 1)[1])
