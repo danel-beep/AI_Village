@@ -104,7 +104,7 @@ def test_granary_says_it_does_nothing_without_spoilage():
     cfg = make_config({"seed": 1})
     rows = [k for k in ("granary", "smokehouse") if construction._row(cfg, k, 1).get("food_keeps_x")]
     for kind in rows:
-        assert "changes nothing" in construction.effect_text(cfg, kind, 1)
+        assert "no effect here" in construction.effect_text(cfg, kind, 1)
 
 
 def test_zero_regrowth_stays_zero():

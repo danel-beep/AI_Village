@@ -44,7 +44,8 @@ Start from this map; per-module details are in `docs/modules.md` (read only the 
 
 A mechanic module is wired by hand in several places (a registry may replace this later):
 `engine` world setup calls its `setup`; `engine.observe` / `end_of_hour` / `night` call the module's `observe` / `end_of_hour` / `night`;
-`llm.world_facts` adds its rules text (`facts(cfg)`); `run.view` adds its `view()` for the viewer;
+`llm.world_facts` adds its rules text (`facts(cfg)`), behind `shown(<unlock key>)` when village stages keep the
+mechanic closed at first (the prompt only describes what is open; `tests/test_prompt_size.py` caps its size); `run.view` adds its `view()` for the viewer;
 `run.llm_agents` hides its actions when it is off (`hidden_actions`). `grep` an existing module
 (e.g. `transport`) in those files to copy the pattern.
 

@@ -597,19 +597,22 @@ def observe(world: World, name: str) -> dict:
     return out
 
 
-def facts(cfg: dict) -> str:
+def facts(cfg: dict, outsiders: bool = True) -> str:
+    """Rules lines on jobs; `outsiders` False (no town hall yet, llm.world_facts) leaves out hire_npc."""
     h = _h(cfg)
     n = h["npc"]
-    return (f"- Jobs: offer_job hires a villager for hours of work for a wage (items and/or coins) paid before (when "
-            f"they accept) or after (owed when it ends). A job ends when its hours are done, by end_job, or when "
-            f"{h['deadline_days']} day(s) counting the day it was accepted are over; then the wage is settled by the hours done: "
-            f"the employer owes the share earned, or the worker owes back the share not earned. Nobody is forced: "
-            f"pay_job pays it, an unpaid share is announced to the village after {h['pay_days']} day(s). Gathered "
-            f"goods of a job go to the employer at once. A guard (task 'guard') counts hours awake at the employer's "
-            f"house and fights whoever steals there, sets it on fire or attacks the family.\n"
-            f"- Outsiders (hire_npc at the town hall, coins paid now leave the village): a worker gathers "
-            f"{n['worker']['per_hour']} of one resource an hour for {n['worker']['wage_per_hour']} coins an hour; a "
-            f"guard stands at your house for {n['guard']['wage_per_day']} coins a day and fights intruders the same way.")
+    out = (f"- Jobs: offer_job hires a villager for hours of work for a wage (items and/or coins) paid before (when "
+           f"they accept) or after (owed when it ends). A job ends when its hours are done, by end_job, or when "
+           f"{h['deadline_days']} day(s) counting the day it was accepted are over; then the wage is settled by the hours done: "
+           f"the employer owes the share earned, or the worker owes back the share not earned. Nobody is forced: "
+           f"pay_job pays it, an unpaid share is announced to the village after {h['pay_days']} day(s). Gathered "
+           f"goods of a job go to the employer at once. A guard (task 'guard') counts hours awake at the employer's "
+           f"house and fights whoever steals there, sets it on fire or attacks the family.")
+    if not outsiders:
+        return out
+    return out + (f"\n- Outsiders (hire_npc at the town hall, coins paid now leave the village): a worker gathers "
+                  f"{n['worker']['per_hour']} of one resource an hour for {n['worker']['wage_per_hour']} coins an hour; a "
+                  f"guard stands at your house for {n['guard']['wage_per_day']} coins a day and fights intruders the same way.")
 
 
 def view(world: World) -> dict:

@@ -417,7 +417,9 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
                 character = remote.OWNER_CHARACTER
         else:
             client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
-        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
+        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts,
+                             facts_cfg=world.config if world.config.get("llm_facts", "open") == "open" else None,
+                             disabled_actions=off,
                              character=character,
                              own_goals=bool(world.config.get("own_goals", True)),
                              memory=world.config.get("llm_memory", "day"),
