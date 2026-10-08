@@ -1,0 +1,83 @@
+name: desktop
+
+# Builds the macOS app "AI Village.app" (desktop/), checks that the built app downloads the game,
+# starts it and gets an answer, and on main publishes it as the release `desktop-latest`
+# (scripts/install.sh installs from there; the app updates itself from there too).
+on:
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, arch: arm64 }        # Apple M1 and newer
+          - { runner: macos-15-intel, arch: x86_64 } # older Intel Macs
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r desktop/requirements.txt
+      - name: Build
+        run: |
+          echo '{"version": ${{ github.run_number }}, "commit": "${{ github.sha }}"}' > desktop/build_info.json
+          pyinstaller --noconfirm desktop/aivillage.spec
+      - name: The built app starts the game (no window)
+        run: '"dist/AI Village.app/Contents/MacOS/AI Village" --check --home "$RUNNER_TEMP/aivillage"'
+      - name: The real window opens the game (log + screenshot artifact; never blocks)
+        if: matrix.arch == 'arm64'
+        continue-on-error: true
+        run: |
+          "dist/AI Village.app/Contents/MacOS/AI Village" --home "$RUNNER_TEMP/aivillage" &
+          sleep 45
+          screencapture -x window.png
+          kill %1 || true
+          sleep 5
+          grep -E "window|ready" "$RUNNER_TEMP/aivillage/logs/app.log"
+      - if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: window-screenshot
+          path: window.png
+          if-no-files-found: ignore
+      - run: ditto -c -k --keepParent "dist/AI Village.app" "AI-Village-mac-${{ matrix.arch }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.arch }}
+          path: AI-Village-mac-${{ matrix.arch }}.zip
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: mac
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest \
+            --target "$GITHUB_SHA" --title "AI Village для Mac" \
+            --notes "Приложение AI Village для Mac. Установка: README, раздел «Как запустить у себя»."
+          gh release upload desktop-latest AI-Village-mac-*.zip --clobber
+          # last: installed apps see the new number only once both archives are up
+          echo "${{ github.run_number }}" > version.txt
+          gh release upload desktop-latest version.txt --clobber
