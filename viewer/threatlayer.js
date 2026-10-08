@@ -61,15 +61,15 @@ const ThreatLayer = (() => {
   const FLAG = ['k....', 'krrr.', 'krwr.', 'krrr.', 'kr.r.', 'k....', 'k....', 'k....'];
 
   const cache = {};
-  function sprite(rows, flip) {
-    const key = rows.join('') + (flip ? 'f' : '');
+  function sprite(rows, flip, white) {   // white: the whole silhouette in white (the flash of a landed blow)
+    const key = rows.join('') + (flip ? 'f' : '') + (white ? 'w' : '');
     if (cache[key]) return cache[key];
     const c = document.createElement('canvas');
     c.width = Math.max(...rows.map(r => r.length)); c.height = rows.length;
     const g = c.getContext('2d');
     rows.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === '.') return;
-      g.fillStyle = PAL[ch] || ch; g.fillRect(flip ? c.width - 1 - x : x, y, 1, 1);
+      g.fillStyle = white ? '#ffffff' : PAL[ch] || ch; g.fillRect(flip ? c.width - 1 - x : x, y, 1, 1);
     }));
     return (cache[key] = c);
   }
@@ -84,12 +84,24 @@ const ThreatLayer = (() => {
     b.fillStyle = '#e4572e'; b.fillRect(Math.round(x - w / 2), y, Math.round(w * f), 2);
   }
 
+  // Where a threat that is here stands: {x, y: feet, half: half width, h: height} in map pixels (viewer/combat.js
+  // lines the defenders up beside it), or null.
+  function spot(th, layout) {
+    const bx = th && th.state === 'here' && layout.box[th.location];
+    if (!bx) return null;
+    const [x0, y0, w, h] = bx;
+    if (th.kind === 'raid') { const n = Math.max(1, Math.ceil(4 * th.hp / (th.max_hp || 1))); return { x: x0 + w / 2, y: y0 + h + 6, half: (n - 1) * 5.5 + 6, h: 16 }; }
+    if (th.kind === 'beast') return { x: x0 + w + 6, y: y0 + h + 2, half: 26, h: 30 };
+    return null;
+  }
+
   function draw(b, t, layout, sec) {
     const list = (t.view && t.view.threats) || [];
     for (const th of list) {
       const id = th.state === 'here' ? th.location : th.target, bx = id && layout.box[id];
       if (!bx) continue;
-      const [x0, y0, w, h] = bx, cx = x0 + w / 2, foot = y0 + h + 6;
+      const jolt = (window.Combat && th.state === 'here' && Combat.threat(th.id)) || { dx: 0, flash: false }, jx = Math.round(jolt.dx);
+      const [x0, y0, w, h] = bx, cx = x0 + w / 2 + jx, foot = y0 + h + 6;
       if (th.state === 'coming') {               // warned: a red pennant flutters over the target house
         const img = sprite(FLAG, Math.sin(sec * 5) > 0);
         put(b, img, cx + 10, y0 + 4 + Math.round(Math.sin(sec * 2) * 1), 2);
@@ -99,7 +111,7 @@ const ThreatLayer = (() => {
         const n = Math.max(1, Math.ceil(4 * th.hp / (th.max_hp || 1)));
         for (let i = 0; i < n; i++) {
           const x = cx + (i - (n - 1) / 2) * 11, bob = Math.round(Math.abs(Math.sin(sec * 5 + i * 1.7)) * 2);
-          put(b, sprite(BANDIT, i % 2 === 1), x, foot + (i % 2) * 3 - bob);
+          put(b, sprite(BANDIT, i % 2 === 1, jolt.flash), x, foot + (i % 2) * 3 - bob);
         }
         bar(b, cx, foot - 20, th.hp, th.max_hp);
         // a torch in the first raider's hand
@@ -109,8 +121,8 @@ const ThreatLayer = (() => {
         b.fillStyle = '#e4572e'; b.fillRect(Math.round(fx), fy - 4, 1, 1);
       } else if (th.kind === 'beast') {
         const step = Math.round(Math.sin(sec * 1.3) * 4), bob = Math.round(Math.abs(Math.sin(sec * 4)) * 1);
-        const bxs = x0 + w + 6 + step / 2;   // beside the house, so the defenders at the door face it
-        put(b, sprite(BEAST), bxs, y0 + h + 2 - bob, 2);
+        const bxs = x0 + w + 6 + (jolt.dx || jolt.flash ? jx : step / 2);   // beside the house, so the defenders at the door face it
+        put(b, sprite(BEAST, false, jolt.flash), bxs, y0 + h + 2 - bob, 2);
         bar(b, bxs, y0 + h - 36, th.hp, th.max_hp);
       } else if (th.kind === 'traveler') {
         const bob = Math.round(Math.abs(Math.sin(sec * 2)) * 1);
@@ -118,6 +130,6 @@ const ThreatLayer = (() => {
       }
     }
   }
-  return { draw };
+  return { draw, spot };
 })();
 window.ThreatLayer = ThreatLayer;
