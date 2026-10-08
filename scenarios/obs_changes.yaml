@@ -1,0 +1,30 @@
+# Опыт: житель видит всё описание каждый ход (A) или только то, что изменилось (B, дешевле).
+# Ветка AA (копия A) добавляется сама: по ней видно, насколько ветки расходятся случайно.
+title: "Опыт: только изменения в описании"
+about: >-
+  Шесть обычных жителей «С нуля», три на Luna и три на Haiku 5.5, места моделей меняются между повторами.
+  В ветке B доска, карта, земля, богатство и власть приходят жителю, только когда меняются. Смотрим, не стали ли
+  жители ошибаться чаще или жить хуже, и сколько стоит ход.
+config:
+  mode: survival
+  seed: 11
+  villagers: 6
+  characters: "off"
+  world:
+    map: {procedural: true, unfairness: 0}
+play:
+  days: 2
+  ai: all
+  bots: builder
+  max_cost: 0.4
+  replicates: 2
+  reseed: true
+  seating:
+    models: [openai/gpt-6-luna, anthropic/claude-haiku-5.5]
+arms:
+  - name: B
+    about: только то, что изменилось
+    config: {llm_obs: changes}
+watch:
+  - {title: сделки, kind: trade}
+  - {title: подарки, kind: give, ai: true}

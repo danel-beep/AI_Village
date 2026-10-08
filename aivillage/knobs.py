@@ -81,6 +81,11 @@ KNOBS: list[dict[str, Any]] = [
              "поэтому помнит просьбы и свои планы до вечера. Ночью беседа заканчивается, день переходит в дневник. "
              "Стоит столько же: повторяющееся начало беседы провайдер берёт в 10 раз дешевле. «Каждый ход заново»: "
              "житель видит только последние 3 действия и свои заметки."},
+    {"key": "llm_obs", "path": "llm_obs", "group": "Деревня", "type": "choice", "label": "Что житель видит каждый ход",
+     "only": "llm", "options": [["full", "📋 Всё описание каждый ход"], ["changes", "✂️ Только то, что изменилось (дешевле)"]],
+     "hint": "«Только то, что изменилось»: доска, карта, земля, богатство и власть приходят жителю, только когда "
+             "меняются, и остаются в его беседе за день. Где он, что вокруг, что ему сказали и новости он видит "
+             "каждый ход. Ход дешевле. Работает при памяти «Весь день одной беседой»."},
     {"key": "own_ai_seats", "path": "own_ai.seats", "group": "Свои ИИ", "type": "range",
      "label": "Жителей играют свои ИИ (MCP)", "min": 0, "max": 10, "step": 1, "only": "llm",
      "hint": "Первыми жителями играют ИИ людей: свой Claude, ChatGPT, Gemini или Codex по подписке, подключённый к "
@@ -588,7 +593,7 @@ HINTS = {
 MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, память, свои цели и что жители видят друг о друге.",
-     ["characters", "own_goals", "llm_memory", "craft_hint", "summaries", "luxury", "hungry_seen_below",
+     ["characters", "own_goals", "llm_memory", "llm_obs", "craft_hint", "summaries", "luxury", "hungry_seen_below",
       "said_to_you_days"]),
     ("💰 Деньги и налоги", "Монеты на старте, налоги, казна, государства и неравенство.",
      ["unfairness", "start_coins", "law_enforcement", "tax_amount", "tax_every_days", "sales_pct", "wealth_pct",
