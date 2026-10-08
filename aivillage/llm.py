@@ -776,31 +776,17 @@ def parse_decision(text: str) -> dict:
 
 
 def parse_json_object(text: str, key: str) -> dict | None:
-    """The first JSON object in `text` that has `key`, or None."""
+    """The first JSON object in `text` that has `key`, or None. Text around the object (prose, code fences) is
+    skipped; the standard decoder reads each candidate, so braces and escaped quotes inside strings are fine."""
+    decoder = json.JSONDecoder()
     start = text.find("{")
     while start != -1:
-        depth, in_str, esc = 0, False, False
-        for i in range(start, len(text)):
-            ch = text[i]
-            if in_str:
-                esc = (ch == "\\") and not esc
-                if ch == '"' and not esc:
-                    in_str = False
-                continue
-            if ch == '"':
-                in_str = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        d = json.loads(text[start:i + 1])
-                        if isinstance(d, dict) and key in d:
-                            return d
-                    except json.JSONDecodeError:
-                        pass
-                    break
+        try:
+            d, _ = decoder.raw_decode(text, start)
+            if isinstance(d, dict) and key in d:
+                return d
+        except json.JSONDecodeError:
+            pass
         start = text.find("{", start + 1)
     return None
 
@@ -943,8 +929,8 @@ class LLMAgent:
         line = (f"{t.get('hour', '?')}:{t.get('minute', 0):02d} at {you.get('location', '?')}, "
                 f"satiety {you.get('satiety', '?')}, health {you.get('health', '?')}, coins {you.get('coins', '?')}")
         news = [str(n)[:300] for n in obs.get("news", [])]
-        if news:
-            line += "\nNews: " + " | ".join(news)
+        if news:  # a JSON list, as in the full observation: quoted speech cannot pass for another news line
+            line += "\nNews: " + json.dumps(news, ensure_ascii=False)
         if obs.get("last_error"):
             line += f"\nYour last action failed: {obs['last_error']}"
         return line
@@ -988,7 +974,7 @@ class LLMAgent:
         self.villagers |= {v["name"] for v in obs.get("board", {}).get("villagers", [])} - {self.name}
         t = obs.get("time", {})
         hm = f"{t.get('hour', '?')}:{t.get('minute', 0):02d}"
-        lines = [f"{hm} news: {n}" for n in obs.get("news", [])]
+        lines = [f"{hm} news: {json.dumps(str(n), ensure_ascii=False)}" for n in obs.get("news", [])]
         if obs.get("last_error"):
             lines.append(f"{hm} failed: {obs['last_error']}")
         act = dec.get("action") if isinstance(dec.get("action"), dict) else {}  # a model may send a bare string
@@ -996,7 +982,7 @@ class LLMAgent:
         if act.get("args"):
             line += " " + json.dumps(act["args"])
         if dec.get("say"):
-            line += f', said "{dec["say"]}"'
+            line += ", said " + json.dumps(str(dec["say"]), ensure_ascii=False)
         if dec.get("thought"):
             line += f" (thinking: {dec['thought']})"
         self.day_log.extend(l[:300] for l in lines + [line])  # as long as the news lines it carries
