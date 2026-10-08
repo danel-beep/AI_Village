@@ -346,7 +346,7 @@ def effect_text(cfg: dict, kind: str, lvl: int) -> str:
     if row.get("food_keeps_x"):
         what = "/".join(row["food_items"]) if row.get("food_items") else "food"
         parts.append(f"{what} in the owner's store keeps {row['food_keeps_x']}x as long" if spoilage.enabled(cfg)
-                     else f"keeps {what} longer, but food does not spoil in this village, so it changes nothing")
+                     else f"keeps {what} longer (no effect here: food does not spoil)")
     if row.get("sell_bonus"):
         parts.append(f"the trader pays {row['sell_bonus']:.0%} more")
     if row.get("defense"):
@@ -385,8 +385,11 @@ def start_building(ctx: Ctx, a: Agent, args: StartArgs) -> None:
             raise ActionError(f"a {_name(cfg, kind)} is already being built here ({_site_at(w, kind, a.location)['id']})")
         spec = catalog(cfg)[kind]
         if spec.get("place") == "home":
-            raise ActionError(f"a {_name(cfg, kind)} is built in your own yard (your home) and only up to level "
-                              f"{len(spec['levels'])}; can start here: {', '.join(sorted(opts)) or 'nothing'}")
+            plot = plots.own_plot_here(w, a) if plots.enabled(cfg) else None
+            where = (f"you are not in it: go to {a.home} first" if plot is None
+                     else f"only up to level {len(spec['levels'])}")
+            raise ActionError(f"a {_name(cfg, kind)} is built in your own yard, {where}; can start here: "
+                              f"{', '.join(sorted(opts)) or 'nothing'}")
         if spec.get("at") and a.location not in spec["at"]:
             raise ActionError(f"a {_name(cfg, kind)} is built at {', '.join(spec['at'])}")
         if progress.enabled(cfg):
@@ -500,6 +503,37 @@ def construct(ctx: Ctx, a: Agent, args: ConstructArgs) -> None:
     _maybe_finish(ctx, s)
 
 
+def can_build_here(world: World, a: Agent) -> bool:
+    """build (plots.py) has a building to work on here: one can be started, or a site here takes work or materials."""
+    return enabled(world.config) and (bool(startable(world, a)) or any(
+        s["location"] == a.location and (work_left(s) > 0 or remaining(s)) for s in sites(world).values()))
+
+
+def build_step(ctx: Ctx, a: Agent, kind: str) -> None:
+    """build(kind) for a catalog building, one verb for the three steps models mixed up: open its site here if
+    there is none, put in the materials the villager carries that it still needs, work an hour on it."""
+    w = ctx.world
+    kind = kind.strip().lower()
+    s = _site_at(w, kind, a.location)
+    started = s is None
+    if started:
+        start_building(ctx, a, StartArgs(kind=kind))
+        s = _site_at(w, kind, a.location)
+    bring = {k: min(v, ops.count(a.inventory, k)) for k, v in remaining(s).items()}
+    bring = {k: v for k, v in bring.items() if v > 0}
+    if bring:
+        bring_materials(ctx, a, BringArgs(site_id=s["id"], items=bring))
+        if s["id"] not in sites(w):  # the last materials finished it
+            return
+    if work_left(s) > 0 and w.day >= a.sick_until_day:
+        construct(ctx, a, ConstructArgs(site_id=s["id"]))
+    elif not bring and not started:
+        if work_left(s) > 0:
+            raise ActionError("you are sick and cannot work")
+        raise ActionError(f"the {_level_text(ctx.cfg, s['kind'], s['level'])} site ({s['id']}) needs no more work, "
+                          f"only {fmt_items(remaining(s))}, and you carry none of it")
+
+
 def _maybe_finish(ctx: Ctx, s: dict) -> None:
     if remaining(s) or work_left(s) > 0:
         return
@@ -566,7 +600,7 @@ def place(world: World, kind: str, location: str, level: int = 1, builders: list
 
 def _guard(ctx: Ctx, actor: Agent, name: str) -> str | None:
     if name == "upgrade_house" and enabled(ctx.cfg) and "house" in catalog(ctx.cfg):
-        return "houses here are built on a building site: start_building house at your home"
+        return "houses here are built on a building site: build house at your home"
     return None
 
 
@@ -574,8 +608,12 @@ ACTIONS.guards.append(_guard)
 
 
 def hidden_actions(cfg: dict) -> frozenset[str]:
-    """Actions to leave out of the handbook: with houses built on a site, upgrade_house is always refused."""
-    return frozenset({"upgrade_house"}) if enabled(cfg) and "house" in catalog(cfg) else frozenset()
+    """Actions to leave out of the handbook: with houses built on a site, upgrade_house is always refused; build
+    (plots.build_step) does what start_building, bring_materials and construct do (bots and old logs still use them)."""
+    if not enabled(cfg):
+        return frozenset()
+    steps = {"start_building", "bring_materials", "construct"} if cfg.get("llm_facts", "open") == "open" else set()
+    return frozenset(steps | ({"upgrade_house"} if "house" in catalog(cfg) else set()))
 
 
 # ---------- observation, prompt, log ----------
@@ -611,28 +649,37 @@ def observe(world: World, name: str) -> dict:
     return out
 
 
-def facts(cfg: dict) -> str:
+def facts(cfg: dict, shown=None) -> str:
+    """The Building rules line. `shown(key)` (llm.world_facts, by the village stage): levels whose unlock key is
+    not open yet are left out; None lists every level with the stage it opens at."""
     if not enabled(cfg):
         return ""
     rows = []
     rules = progress.rules(cfg) if progress.enabled(cfg) else {}
+    hidden = False
     for kind, spec in catalog(cfg).items():
-        where = "your yard" if spec.get("place") == "home" else ("/".join(spec["at"]) if spec.get("at") else "a common place")
+        where = "yard" if spec.get("place") == "home" else ("/".join(spec["at"]) if spec.get("at") else "common place")
         lv = []
         for i, row in enumerate(spec["levels"], 1):
-            opens = rules.get(f"building:{kind}@{i}" if i > 1 else f"building:{kind}") or {}
-            when = f", from stage {opens['stage']}" if opens.get("stage") else ""
+            key = f"building:{kind}@{i}" if i > 1 else f"building:{kind}"
+            if shown is not None and not shown(key):
+                hidden = True
+                continue
+            opens = rules.get(key) or {}
+            when = f", from stage {opens['stage']}" if opens.get("stage") and shown is None else ""
             ppl = f", {row['min_workers']} people" if row.get("min_workers", 1) > 1 else ""
             eff = effect_text(cfg, kind, i)
             lv.append(f"L{i}: {fmt_items(level_items(cfg, row))}, {row['hours']}h{ppl}{when}" + (f" -> {eff}" if eff else ""))
-        rows.append(f"{kind} ({where}; " + "; ".join(lv) + ")")
+        if lv:
+            rows.append(f"{kind} ({where}; " + "; ".join(lv) + ")")
     c = _c(cfg)
-    return ("- Building: start_building opens a site where you stand, anyone can bring_materials and construct "
-            "(1 hour of work) there. With 'N people', an hour counts once N different villagers work on the site on "
-            f"the same day; hours nobody joined that day are lost. Each extra person working there that day adds "
-            f"{c.get('team_bonus', 0):.0%} "
-            f"to every hour (up to {c.get('team_max', 3)} people). The finished building belongs to the yard's "
-            "owner (home buildings) or to the village. Catalog: " + "; ".join(rows) + ".")
+    later = " More buildings and levels open at later village stages." if hidden else ""
+    return ("- Building: build(kind) opens a site for it where you stand if there is none, puts in the materials you "
+            "carry that it still needs and works an hour on it; anyone can build on an open site. With 'N people', an "
+            "hour counts once N different villagers work on the site on the same day; hours nobody joined that day "
+            f"are lost. Each extra person working there that day adds {c.get('team_bonus', 0):.0%} to every hour (up "
+            f"to {c.get('team_max', 3)} people). Yard buildings go in your own yard and are yours; the others belong "
+            "to the village. Catalog: " + "; ".join(rows) + "." + later)
 
 
 def view(world: World) -> dict:

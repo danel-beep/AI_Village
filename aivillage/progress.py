@@ -185,16 +185,18 @@ def unlocked(world: World, key: str) -> bool:
     return _holds(world, rules(world.config).get(key))
 
 
-def locked_actions(world: World) -> list[str]:
+def locked_keys(world: World) -> list[str]:
+    """Every unlock key not open yet (actions, buildings, features, ...)."""
     if not enabled(world.config):
         return []
     have = built(world)
     st = _state(world)
-    out = []
-    for key, rule in rules(world.config).items():
-        if key.startswith("action:") and key not in st["unlocked"] and not _holds(world, rule, have):
-            out.append(key.split(":", 1)[1])
-    return sorted(out)
+    return sorted(key for key, rule in rules(world.config).items()
+                  if key not in st["unlocked"] and not _holds(world, rule, have))
+
+
+def locked_actions(world: World) -> list[str]:
+    return [key.split(":", 1)[1] for key in locked_keys(world) if key.startswith("action:")]
 
 
 def _why(world: World, key: str) -> str:
@@ -291,5 +293,7 @@ def observe(world: World, name: str) -> dict:
     if nxt is not None:
         out["village_stage"]["next_stage"] = stage_ids(world.config)[stage_index(world) + 1]
         out["village_stage"]["next_stage_needs_standing"] = nxt
-    out["locked_actions"] = locked_actions(world)
+    locked = locked_keys(world)
+    out["locked_actions"] = [k.split(":", 1)[1] for k in locked if k.startswith("action:")]
+    out["locked_keys"] = locked  # llm.world_facts leaves out the rules of what is not open yet
     return out

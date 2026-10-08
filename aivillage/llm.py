@@ -47,15 +47,14 @@ Whenever you are free to act you get a JSON observation and answer with ONE JSON
 World facts:
 {facts}
 
-Rules of thumb:
-- Only use items you actually have: check "you.inventory" before eat, sell, give, craft or offer.
+How things work:
+- Actions use what is in "you.inventory"; what lies in a chest must be taken out first.
 - buy/sell work only at the market. Talking to someone needs them in the same place ("here.people"); so do giving and trading, unless World facts say trades and gifts are carried.
-- If "last_error" is set, your previous action failed: read why and do something different.
-- Below 30 satiety you stop healing; at 0 you starve and lose health. Keep food on you and eat before that.
-- Food comes from gathering (see who may gather what in World facts), crafting, the market or other people.
+- "last_error" is set when your previous action failed, with the reason.
+- Food comes from gathering, hunting, crafting, the market or other people.
 - Travel takes hours; work and craft give their result only when they are finished.
 
-Item maps look like {{"bread": 2, "coins": 5}}. A thought is optional.
+Item maps look like {{"bread": 2, "coins": 5}}.
 
 You are {name}, a {profession}.{goals}{character}"""
 
@@ -185,12 +184,20 @@ def _mark(breakpoints: bool | str) -> dict:
     return {"prompt_cache_breakpoint": {"mode": "explicit"}}
 
 
-def world_facts(cfg: dict) -> str:
-    """A short cheat sheet built from the run config, so the model does not have to guess the rules."""
+def world_facts(cfg: dict, locked: frozenset[str] | set[str] = frozenset()) -> str:
+    """A short cheat sheet built from the run config, so the model does not have to guess the rules.
+
+    `locked`: unlock keys not open yet (progress.locked_keys, plus "action:<name>" for actions kept out of the
+    handbook): the rules of what the village does not have yet are left out, so the prompt grows with the village
+    instead of describing a town from the first hour. Empty = every rule (progress off, tests)."""
+    def shown(key: str) -> bool:
+        return key not in locked
+
     items = cfg["items"]
     food = ", ".join(f"{k} +{v['food']}" for k, v in items.items() if v.get("food"))
     lines = [f"- Food (satiety gained per item): {food}. Nothing else is edible.",
-             f"- You lose {cfg['satiety_loss_per_hour']} satiety per hour awake and {cfg['satiety_loss_night']} at night."]
+             f"- You lose {cfg['satiety_loss_per_hour']} satiety per hour awake and {cfg['satiety_loss_night']} at night. "
+             f"Below {cfg['health_regen_min_satiety']} satiety health does not come back; at 0 you starve and lose health."]
     if cfg.get("hungry_seen_below"):
         lines.append(f"- \"here.people\" shows a person as \"hungry\" below {cfg['hungry_seen_below']} satiety and "
                      "\"starving\" at 0.")
@@ -203,9 +210,11 @@ def world_facts(cfg: dict) -> str:
         who = f", only a {r['profession']}" if r["profession"] else ""
         lines.append(f"- Craft {rid}: {ins} -> {r['output']} (at {r['where']}{who}).")
     if crafting.enabled(cfg):
-        lines += crafting.facts(cfg)
+        lines += crafting.facts(cfg, shown if locked else None)
     res = "; ".join(f"{lid}: {', '.join(l['resources'])}" for lid, l in cfg["locations"].items() if l.get("resources"))
-    lines.append(f"- Gather with work at: {res}. Your profession gathers its goods {cfg['work_profession_multiplier']}x faster.")
+    prof = "" if labor.no_professions(cfg) else (f" Your profession gathers its goods "
+                                                 f"{cfg['work_profession_multiplier']}x faster.")
+    lines.append(f"- Gather with work at: {res}.{prof}")
     roads = "; ".join(f"{lid} -> {', '.join(l['neighbors'])}" for lid, l in cfg["locations"].items())
     links = cfg.get("map", {}).get("homes")
     homes = ("; ".join(f"home_{n} -> {', '.join(to)}" for n, to in links.items()) if links
@@ -215,22 +224,25 @@ def world_facts(cfg: dict) -> str:
     else:
         lines.append(f"- Map: {roads}; {homes}. move finds the path itself, one step per hour.")
     if clock.tick_minutes(cfg) < 60:
-        quick = ", ".join(n for n in clock.quick_actions(cfg) if n != "error")
+        quick = ", ".join(n for n in clock.quick_actions(cfg) if n != "error" and shown(f"action:{n}"))
         lines.append(f"- Time runs in {clock.tick_minutes(cfg)}-minute steps. Quick actions take a quarter of an "
                      f"hour: {quick}. Everything else (work, craft, each step of a walk, plant, build, hang_out, "
                      "wait) takes an hour. You are asked again as soon as your action is done.")
     if cfg.get("craft_hint", True):
         lines.append("- \"you.can_craft_now\": recipes your own goods cover right now, how many times and where. "
                      "\"you.not_edible\": raw goods you carry that are not food, and what they go into.")
-    lines.append(labor.trader_fact(cfg))
-    lines.append(taxes.facts(cfg))
+    if shown(labor.TRADER):
+        lines.append(labor.trader_fact(cfg))
+    if shown(taxes.TAXES):
+        lines.append(taxes.facts(cfg))
     lines.append(f"- steal succeeds {cfg['steal_awake_target_success']:.0%} of the time against an awake person and always "
                  f"against a sleeping one; awake people nearby notice it with {cfg['steal_notice_chance']:.0%} chance; "
                  f"at most {cfg['max_steal_qty']} per attempt.")
-    if steal := theft.fact(cfg):
+    if steal := theft.fact(cfg, treasury=shown(taxes.TAXES)):
         lines.append(steal)
     lines.append(debts.fact(cfg))
-    lines.append(taxes.orders_fact(cfg))
+    if shown(taxes.COUNCIL_ORDERS):
+        lines.append(taxes.orders_fact(cfg))
     if rep := reputation.fact(cfg):
         lines.append(rep)
     fam = cfg.get("family")
@@ -239,7 +251,7 @@ def world_facts(cfg: dict) -> str:
                      f"fall after theft, violence or unpaid debts. At {fam['propose_min']}+ you can propose; married couples "
                      f"share a house and chests; the proposer chooses a public or a secret wedding. If you die, your debts are paid "
                      f"from what you leave, and the rest (things, coins, houses) goes to your spouse, else your best friend.")
-    if governance.enabled(cfg):
+    if governance.enabled(cfg) and shown(governance.ELECTIONS):
         lines.append(governance.facts(cfg))
     if plots.enabled(cfg):
         lines.append(plots.facts(cfg))
@@ -249,7 +261,7 @@ def world_facts(cfg: dict) -> str:
         lines.append(threat)
     if (hunt := animals.facts(cfg)) and "hunt" not in (cfg.get("disabled_actions") or []):
         lines.append(hunt)
-    if ride := transport.facts(cfg):
+    if shown(transport.FEATURE) and (ride := transport.facts(cfg)):
         lines.append(ride)
     if sick := illness.facts(cfg):
         lines.append(sick)
@@ -260,15 +272,16 @@ def world_facts(cfg: dict) -> str:
     if land.enabled(cfg):
         lines.append(land.facts(cfg))
     if labor.enabled(cfg):
-        lines.append(labor.facts(cfg))
-        if places.enabled(cfg):
+        lines.append(labor.facts(cfg, trader=shown(labor.TRADER), shown=shown if locked else None))
+        if places.enabled(cfg) and shown("action:change_trade"):
             lines.append(places.facts(cfg))
     if chronicle.enabled(cfg):
         lines.append(chronicle.facts(cfg))
     if honors.enabled(cfg):
         lines.append(honors.facts(cfg))
-    lines.append(pricing.tool_fact(cfg))
-    if pricing.enabled(cfg):
+    if not any(line.startswith("- Tools (") for line in lines):  # crafting.facts lists every tool
+        lines.append(pricing.tool_fact(cfg))
+    if pricing.enabled(cfg) and shown(labor.TRADER):
         lines.append(pricing.facts(cfg))
     if rot := spoilage.facts(cfg):
         lines.append(rot)
@@ -277,17 +290,18 @@ def world_facts(cfg: dict) -> str:
     if death := graves.facts(cfg):
         lines.append(death)
     if market.enabled(cfg):
-        lines.append(market.facts(cfg))
-    if trip := merchant.facts(cfg):
+        lines.append(market.facts(cfg) if shown("action:post_sale")
+                     else "- \"last_seen\" is where you last saw each villager.")
+    if shown(merchant.UNLOCK) and (trip := merchant.facts(cfg)):
         lines.append(trip)
-    if works.enabled(cfg):
+    if works.enabled(cfg) and shown(works.WORKS):
         lines.append(works.facts(cfg))
-    if built := construction.facts(cfg):
+    if built := construction.facts(cfg, shown if locked else None):
         lines.append(built)
     if stage := progress.facts(cfg):
         lines.append(stage)
-    if hire.enabled(cfg):
-        lines.append(hire.facts(cfg))
+    if hire.enabled(cfg) and shown("action:offer_job"):
+        lines.append(hire.facts(cfg, outsiders=shown("action:hire_npc")))
     caps = [f"{r} at most {s['per_hour']}/hour" for l in cfg["locations"].values()
             for r, s in l.get("resources", {}).items() if s.get("per_hour")]
     if caps:
@@ -295,7 +309,7 @@ def world_facts(cfg: dict) -> str:
     if conflict.enabled(cfg) and "attack" not in (cfg.get("disabled_actions") or []):
         lines.append(conflict.facts(cfg))
     lines += conflict.gear_facts(cfg)
-    if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []):
+    if dice.enabled(cfg) and "dice" not in (cfg.get("disabled_actions") or []) and shown("action:dice"):
         lines.append(dice.facts(cfg))
     return "\n".join(lines)
 
@@ -809,7 +823,12 @@ def compact_obs(obs: dict) -> dict:
     o = json.loads(json.dumps(obs))
     o["board"].pop("recipes", None)
     o.pop("locked_actions", None)  # progress.py: goes into the handbook instead
+    o.pop("locked_keys", None)  # progress.py: goes into World facts instead
     o.pop("record", None)  # reputation.record: in the long memory, taken at dawn
+    if "hours_left" in (o.get("work_today") or {}):  # next to the rest of "you": models missed it (audit D-2)
+        o["you"]["work_hours_left"] = o["work_today"].pop("hours_left")
+        if not o["work_today"]:
+            del o["work_today"]
     o["board"]["trader_prices"] = {k: f"{v['buy']}/{v['sell']}" for k, v in o["board"]["trader_prices"].items()}
     for k in ("fires", "offers_to_you", "your_offers"):
         if not o[k]:
@@ -830,6 +849,7 @@ class LLMAgent:
     client: Client
     notes: str = ""
     facts: str = ""
+    facts_cfg: dict | None = None  # with it, World facts follow what the village has opened (world_facts `locked`)
     usage: Usage = field(default_factory=Usage)
     recent: list = field(default_factory=list)  # last few own actions, so the model does not loop
     people: dict[str, str] = field(default_factory=dict)  # memory about other villagers, updated at night
@@ -851,15 +871,26 @@ class LLMAgent:
     record: dict | None = None  # reputation.record: the book of deeds as of the day's first turn (None: no book)
     record_day: int | None = None
     kept: list[dict] = field(default_factory=list)  # [{"day", "text"}]: what it chose at night to remember for long
+    _facts_locked: frozenset | None = None  # facts_now: the locked keys `facts` was built for
 
     def __post_init__(self):
         if getattr(self.client, "cache_key", None) is None:
             self.client.cache_key = f"aivillage-{self.name}"
 
+    def facts_now(self, obs: dict) -> str:
+        """World facts for what is open now. Unlocks are sticky, so the text changes a few times a run and the
+        cached prompt prefix with it (as the handbook already does)."""
+        if self.facts_cfg is None:
+            return self.facts
+        locked = frozenset(obs.get("locked_keys", ())) | {f"action:{n}" for n in self.disabled_actions}
+        if locked != self._facts_locked:
+            self.facts, self._facts_locked = world_facts(self.facts_cfg, locked), locked
+        return self.facts
+
     def system_prompt(self, obs: dict) -> str:
         off = self.disabled_actions | set(obs.get("locked_actions", ()))  # progress.py: not open yet
         return SYSTEM.format(name=self.name, profession=self.profession, handbook=handbook.text(off),
-                             facts=self.facts or "(none)", goals=GOALS if self.own_goals else "",
+                             facts=self.facts_now(obs) or "(none)", goals=GOALS if self.own_goals else "",
                              character="\n" + self.character if self.character else "")
 
     def system_message(self, obs: dict, extra: str = "") -> dict:
@@ -1013,6 +1044,8 @@ class LLMAgent:
         self.day_log = [l for i, l in enumerate(self.day_log) if i not in drop]
 
     def decide(self, obs: dict) -> dict:
+        if self.disabled_actions & set(obs.get("available_actions") or ()):  # kept out of the handbook: out of here too
+            obs = {**obs, "available_actions": [n for n in obs["available_actions"] if n not in self.disabled_actions]}
         self.take_record(obs)
         intro = self.introduce(obs) if self.own_goals and not self.introduced else None
         dec = self._decide(obs)

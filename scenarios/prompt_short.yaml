@@ -1,0 +1,33 @@
+# Опыт: короткая подсказка жителю (A) против прежней длинной (B).
+# Ветка AA (копия A) добавляется сама: по ней видно, насколько ветки расходятся случайно.
+title: "Опыт: короткая подсказка жителям"
+about: >-
+  Шесть обычных жителей «С нуля», три на Luna и три на Haiku 5.5, места моделей меняются между повторами.
+  В ветке A житель видит правила только того, что в деревне уже открыто, и один глагол стройки build.
+  В ветке B прежняя подсказка: все правила с первого часа и три шага стройки. Смотрим, не стали ли жители
+  ошибаться чаще или жить хуже, и сколько стоит ход.
+config:
+  mode: survival
+  seed: 11
+  villagers: 6
+  characters: "off"
+  world:
+    llm_facts: open
+    map: {procedural: true, unfairness: 0}
+play:
+  days: 2
+  ai: all
+  bots: builder
+  max_cost: 0.4
+  replicates: 2
+  reseed: true
+  seating:
+    models: [openai/gpt-6-luna, anthropic/claude-haiku-5.5]
+arms:
+  - name: B
+    about: прежняя длинная подсказка
+    config: {llm_facts: all}
+watch:
+  - {title: стройка, kind: construct}
+  - {title: сделки, kind: trade}
+  - {title: подарки, kind: give, ai: true}

@@ -195,7 +195,7 @@ def test_upgrade_house_left_out_of_the_handbook_with_construction():
     w = world()
     agent = llm_agents(w, {"Anna": "stub"})["Anna"]
     system = agent.messages(engine.observe(w, "Anna", consume_inbox=False))[0]["content"]
-    assert "upgrade_house(" not in system and "start_building(" in system
+    assert "upgrade_house(" not in system and "start_building(" not in system and "build(" in system
     w = engine.new_world({"seed": 1})  # houses upgraded at once: the action stays
     agent = llm_agents(w, {"Anna": "stub"})["Anna"]
     assert "upgrade_house(" in agent.messages(engine.observe(w, "Anna", consume_inbox=False))[0]["content"]
