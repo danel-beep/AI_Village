@@ -746,11 +746,6 @@ class Host:
                 self.sim = t["sim"]
         return self.sim
 
-    def tournaments_on(self) -> bool:
-        """An MCP tournament is gathering its players or its village still plays."""
-        return any(t["sim"] is None or not t["sim"].finished
-                   for k, t in self.tournaments.items() if k in remote.HUBS)
-
     def tournament_list(self) -> list[dict]:
         out = []
         for session, t in self.tournaments.items():
@@ -1366,11 +1361,12 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
 
     @app.get("/api/busy")
     def busy(request: Request) -> dict:
-        """A village, an MCP tournament (gathering or playing) or an experiment is on: the website (aivillage/web.py) must not stop this server."""
+        """A village, a tournament lobby or an experiment is on: the website (aivillage/web.py) must not stop this server."""
         local_only(request)
         sim, lab_ = host.sim, host.lab
         playing = sim is not None and not sim.finished
-        return {"busy": playing or host.tournaments_on() or bool(lab_ and lab_.status.get("state") == "running")}
+        lobby = host.lobby_opts is not None  # an MCP tournament gathering its players
+        return {"busy": playing or lobby or bool(lab_ and lab_.status.get("state") == "running")}
 
     @app.get("/api/status")
     def status() -> dict:
