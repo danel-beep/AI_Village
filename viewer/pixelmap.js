@@ -775,6 +775,8 @@ const PixelMap = (() => {
     if (window.Depth) Depth.paint(b, shown, one); else shown.forEach(one);   // trees and houses in front cover them
     if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
     if (CB) CB.draw(b, n => lastPos[n]);   // blows land: stars, flashes, dust, a stolen item flying
+    const GS = window.Gestures;   // gifts, loans, trades, sales flying between people (viewer/gestures.js)
+    if (GS) { GS.frame(t, sec); GS.draw(b, n => lastPos[n], loc => layout.anchors[loc]); }
     if (window.Fog) Fog.draw(b, t, layout, sec);   // places nobody has explored yet (viewer/fog.js)
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
     if (SL) SL.weather(b, hdr, t.view.day, sec, W, H);   // snowflakes, falling leaves
@@ -805,6 +807,7 @@ const PixelMap = (() => {
     const heads = shown.map(a => { const [sx, sy] = Camera.toScreen(a.x, a.y + 8 - ((sheets[a.n] || {}).fh || 16)); return { n: a.n, sx, sy }; });
     // Bubbles and icons grow with the zoom too, but less than the map (x1 at the whole village, up to x1.7).
     if (CB) CB.overlay(ctx, Camera.toScreen, n => lastPos[n]);   // damage numbers, «мимо», «!» over witnesses
+    if (GS) GS.overlay(ctx, Camera.toScreen, n => lastPos[n]);   // hearts, a broken heart, a smile over heads
     const k = Math.max(1, Math.min(1.7, Math.pow(cam.z, .45))), hk = heads.map(h => ({ n: h.n, sx: h.sx / k, sy: h.sy / k }));
     ctx.save(); ctx.scale(k, k);
     Actors.badges(ctx, hk, t);
