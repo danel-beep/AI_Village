@@ -377,6 +377,8 @@ def steal_from_plot(ctx: Ctx, a: Agent, args: StealPlotArgs) -> None:
              victim=victim, success=True, qty=qty, item=args.item, witnesses=witnesses, home=plot.home)
     ctx.emit("robbed", f"Someone stole {qty} {args.item} from your plot.", to=household(w, plot), victim=owner,
              home=plot.home)
+    if not guards and not witnesses:
+        theft.clue(ctx, a, owner, args.item, qty)
 
 
 # ---------- engine hooks ----------

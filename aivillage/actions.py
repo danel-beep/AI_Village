@@ -703,6 +703,7 @@ def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
             raise ActionError("a treasury holds only coins")
         holder, books, victim_name = found
         src, success = None, True
+        books_key = theft.treasury_key(w, a)
     elif args.target.lower() == "chest":
         chest = _chest_here(ctx, a)
         if chest.owner == a.name:
@@ -742,12 +743,14 @@ def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
         ops.move_items(src, a.inventory, {args.item: qty})
     ctx.emit("steal", f"You stole {qty} {args.item} from {victim_name}.", actor=a.name, to=[a.name],
              victim=victim_name, success=True, qty=qty, item=args.item, witnesses=witnesses,
-             **({"seen_by": seen_by} if seen_by else {}))
+             **({"seen_by": seen_by} if seen_by else {}), **({"treasury": books_key} if books is not None else {}))
     if books is not None:  # nobody is told; the books still show the coins until an audit
         theft.take_from_treasury(w, books, qty)
         return
     # The victim learns about the loss, but not who did it (unless they were awake and present).
     ctx.emit("robbed", f"Someone stole {qty} {args.item} from you.", to=[victim_name], victim=victim_name)
+    if not seen_by and not witnesses:
+        theft.clue(ctx, a, victim_name, args.item, qty)
 
 
 class PickUpArgs(BaseModel):
