@@ -364,6 +364,8 @@
     const presetDefaults = p => info.preset_defaults[p] || {};
     // config and action knobs (and «Еды в мире», which a preset may set) move with the preset
     const follows = k => !!(k.path || k.action || (info.follow || []).includes(k.key));
+    // `only` (knobs.py): the knob belongs to one kind of village ("llm", "bots", "mcp") or a list of them
+    const notHere = k => !!k.only && ![].concat(k.only).includes(values.brains);
     // Config knobs follow the preset until the user moves them; `touched` keeps what they set by hand.
     let touched = new Set(Object.keys(saved.__touched || {}));
     const values = {};
@@ -443,7 +445,7 @@
       r.about.textContent = [k.about ? k.about[v] : '', hint].filter(Boolean).join(' ');
       // hide_if: hidden while every listed knob holds one of the listed values (knobs.py)
       const hidden = k.hide_if && Object.entries(k.hide_if).every(([c, vs]) => vs.includes(values[c]));
-      const off = (k.only && k.only !== values.brains) || hidden;
+      const off = notHere(k) || hidden;
       r.el.style.display = off || (view === 'simple' && !k.simple) ? 'none' : '';
     }
 
@@ -500,7 +502,7 @@
       : k.key === 'seed' ? values.seed === null || values.seed === undefined || values.seed === ''
       : values[k.key] === info.defaults[k.key];
     function hiddenChanges() {  // how many knobs «Простой» does not show are set away from the preset
-      const off = knobs.filter(k => !k.simple && !(k.only && k.only !== values.brains) && !isDefault(k));
+      const off = knobs.filter(k => !k.simple && !notHere(k) && !isDefault(k));
       return off.length + (roster ? 1 : 0);
     }
     function note() {
@@ -658,7 +660,7 @@
       const go = $('su-go');
       go.disabled = true; $('su-msg').textContent = ''; $('su-msg').className = 'msg';
       const body = {};
-      for (const k of knobs) if (!(k.only && k.only !== values.brains)) body[k.key] = values[k.key];
+      for (const k of knobs) if (!notHere(k)) body[k.key] = values[k.key];
       if (roster) body.roster = roster.slice(0, n());
       goLoading('Строю деревню', 'Рисую карту, расселяю жителей, раскладываю ягоды по кустам…');
       post('/api/start', body).then(() => location.reload(), e => {

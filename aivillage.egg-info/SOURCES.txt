@@ -90,6 +90,7 @@ tests/test_buildart.py
 tests/test_builder_bots.py
 tests/test_buildings.py
 tests/test_buildlayer.py
+tests/test_camera.py
 tests/test_characters.py
 tests/test_chronicle.py
 tests/test_clock.py
@@ -133,6 +134,7 @@ tests/test_metrics.py
 tests/test_model_replies.py
 tests/test_money_by_villagers.py
 tests/test_money_power.py
+tests/test_motion.py
 tests/test_neutrality.py
 tests/test_own_goals.py
 tests/test_places.py

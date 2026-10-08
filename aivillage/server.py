@@ -890,6 +890,16 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
             seat.cond.notify_all()
         return {"ok": True}
 
+    @app.post("/api/remote/release")
+    def remote_release(body: dict, request: Request) -> dict:
+        """Free a seat a player took in the lobby (they left): the next player can take it."""
+        local_only(request)
+        seat = remote.HUB.by_name(str((body or {}).get("name")))
+        if seat is None:
+            raise HTTPException(404, "нет такого места")
+        remote.HUB.release(seat)
+        return {"ok": True}
+
     @app.post("/api/remote/tunnel")
     def remote_tunnel(body: dict, request: Request) -> dict:
         local_only(request)
@@ -962,6 +972,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
             sim = host.start(opts)
         except (ValueError, TypeError) as e:
             raise HTTPException(400, str(e)) from None
+        if opts.get("brains") == "mcp":  # the tournament's players are on other devices: open the tunnel at once
+            TUNNEL.start(request.url.port or 8000)
         return {"ok": True, **sim.status()}
 
     @app.post("/api/stop")

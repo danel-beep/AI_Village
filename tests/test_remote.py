@@ -214,6 +214,89 @@ def test_texts_the_ai_reads_are_neutral():
              *remote.KIND_HINT.values(), *(t["description"] for t in mcpserver.TOOLS)]
     hub.style = "self"
     texts.append(seat.card())
+    hub.style = "model"
+    texts += [seat.card(), remote.MODEL_CHARACTER]
     for text in texts:
         assert evaluative(text) == [], (text, evaluative(text))
     assert llm.SYSTEM  # the villager's own prompt is checked by test_neutrality
+
+
+def test_tournament_start_needs_no_key_and_gives_nothing_of_the_host(tmp_path, monkeypatch):
+    from aivillage.server import Host, create_app
+    run_opts = knobs.to_run({"brains": "mcp", "villagers": 4, "characters": "random", "villains": 2})
+    o = run_opts["override"]
+    assert run_opts["llm"] and run_opts["tournament"] and not run_opts["summaries"]
+    assert o["own_ai"]["seats"] == 4 and o["own_ai"]["style"] == "model"
+    assert o["villains"] == 0 and o["characters"] == "off"
+
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    for k in ("OPENAI_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    opened = []
+    monkeypatch.setattr(tunnel.TUNNEL, "start", lambda port: opened.append(port))
+    host = Host(None, str(tmp_path / "runs"), str(tmp_path / "reports"), setup=True)
+    c = TestClient(create_app(host=host))
+    try:
+        r = c.post("/api/start", json={"brains": "mcp", "villagers": 3, "days": 1, "pace": 0, "seed": 4})
+        assert r.status_code == 200, r.text
+        assert opened  # the tunnel opens by itself: the players are on other devices
+        agents = host.sim.decide.agents
+        assert all(isinstance(a.client, remote.RemoteClient) for a in agents.values())
+        assert all(a.character == remote.MODEL_CHARACTER for a in agents.values())
+        assert host.sim.summarizer is None
+        st = c.get("/api/remote").json()
+        assert len(st["seats"]) == 3 and st["lobby"].startswith("/mcp/join/") and st["style"] == "model"
+    finally:
+        host.stop()
+
+
+def test_lobby_one_invite_link_each_player_takes_a_villager():
+    hub = remote.Hub()
+    hub.reset(style="model", info={"villagers": 2, "days": 3})
+    a, b = hub.add("Anna", "villager"), hub.add("Boris", "villager")
+    w = engine.new_world({"population": {"size": 2}})
+    hub.world = w
+    fa = FastAPI()
+    mcpserver.mount(fa, hub)
+    fa.add_middleware(mcpserver.OutsideOnlyMcp)
+    c = TestClient(fa)
+    cf = {"cf-connecting-ip": "1.2.3.4"}  # everything below works through the internet tunnel
+    base = f"/mcp/join/{hub.lobby}"
+
+    page = c.get(base, headers=cf)
+    assert page.status_code == 200 and '"mode": "lobby"' in page.text and "/*AIV*/" not in page.text
+    assert c.get("/mcp/join/wrong/state", headers=cf).status_code == 404
+    assert c.post(f"{base}/take", json={"player": "  "}, headers=cf).status_code == 409  # a name is needed
+
+    t1 = c.post(f"{base}/take", json={"player": "Маша", "ai": "claude"}, headers=cf).json()
+    assert t1["path"] in (f"/mcp/{a.code}", f"/mcp/{b.code}")
+    again = c.post(f"{base}/take", json={"player": "Маша", "claim": t1["claim"]}, headers=cf).json()
+    assert again["path"] == t1["path"]  # the same browser keeps its villager
+    t2 = c.post(f"{base}/take", json={"player": "Петя", "ai": "chatgpt"}, headers=cf).json()
+    assert t2["path"] != t1["path"]
+    full = c.post(f"{base}/take", json={"player": "Ещё"}, headers=cf)
+    assert full.status_code == 409 and "заняты" in full.json()["detail"]
+
+    st = c.get(f"{base}/state", params={"claim": t1["claim"]}, headers=cf).json()
+    assert st["mine"]["path"] == t1["path"] and st["free"] == 0 and st["days"] == 3
+    assert {s["player"] for s in st["seats"]} == {"Маша", "Петя"}
+    assert all("worth" in s for s in st["seats"]) and st["day"] == w.day
+    public = c.get(f"{base}/state", headers=cf).text
+    assert a.code not in public and b.code not in public and "mine" not in public  # nobody sees others' links
+
+    # the connector link opened in a browser explains how to add it; an MCP client still gets 405
+    seat_page = c.get(t1["path"], headers={**cf, "accept": "text/html"})
+    assert seat_page.status_code == 200 and '"mode": "seat"' in seat_page.text
+    assert c.get(t1["path"], headers={**cf, "accept": "text/event-stream"}).status_code == 405
+
+    # a player who leaves frees the villager; one whose AI already plays keeps it
+    seat2 = hub.by_claim(t2["claim"])
+    seat2.join(hub.session)
+    c.post(f"{base}/leave", json={"claim": t2["claim"]}, headers=cf)
+    assert seat2.player == "Петя"
+    c.post(f"{base}/leave", json={"claim": t1["claim"]}, headers=cf)
+    assert c.get(f"{base}/state", headers=cf).json()["free"] == 1
+    hub.close()
+    assert c.post(f"{base}/take", json={"player": "Поздно"}, headers=cf).status_code == 409
+    hub.reset()
+    assert c.get(base, headers=cf).status_code == 404  # a new game: the old invite is dead
