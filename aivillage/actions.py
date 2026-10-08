@@ -363,20 +363,37 @@ class LendArgs(BaseModel):
     due_day: int = Field(description="day by which it must be repaid")
 
 
-@ACTIONS.action("lend", "Lend coins to a person here. The debt is written in the private debt book.",
-                LendArgs)
+@ACTIONS.action("lend", "Offer a loan to a person here. If they accept, they get the coins and owe you repay_coins "
+                "by due_day, written in the private debt book.", LendArgs)
 def lend(ctx: Ctx, a: Agent, args: LendArgs) -> None:
+    """Only an offer: the debt starts when the borrower accepts it (audit B-6: a lender could write any debt,
+    a billion for 1 coin, on someone who never agreed)."""
     other = _agent_here(ctx, a, args.to)
     if a.coins < args.coins:
         raise ActionError(f"you only have {a.coins} coins")
     if args.due_day <= ctx.world.day:
         raise ActionError("due_day must be in the future")
-    ops.move_coins(a, other, args.coins)
-    d = Debt(ctx.world.new_id("debt"), a.name, other.name, args.repay_coins, args.due_day, day=ctx.world.day)
+    from . import debts  # debts imports this module
+    cap = debts._cfg(ctx.cfg).get("max_promise", 500)
+    if args.repay_coins > cap:
+        raise ActionError(f"at most {cap} coins to repay per loan")
+    o = Offer(ctx.world.new_id("offer"), a.name, other.name, {"coins": args.coins}, {},
+              ctx.world.tick + clock.hours(ctx.cfg, ctx.cfg["offer_ttl_ticks"]),
+              due_day=args.due_day, you_owe={"coins": args.repay_coins})
+    ctx.world.offers[o.id] = o
+    ctx.emit("offer", f"{a.name} {_offer_text(o)} ({o.id}).", actor=a.name, to=[other.name], offer=o.id)
+    ctx.emit("offer", f"You {_offer_text(o, own=True)} ({o.id}).", actor=a.name, to=[a.name], offer=o.id)
+
+
+def _loan_made(ctx: Ctx, o: Offer, lender: Agent, borrower: Agent) -> None:
+    """`accept` of a loan offer: the coins move and the debt is written."""
+    ops.move_coins(lender, borrower, o.give["coins"])
+    repay = o.you_owe["coins"]
+    d = Debt(ctx.world.new_id("debt"), lender.name, borrower.name, repay, o.due_day, day=ctx.world.day)
     ctx.world.debts[d.id] = d
-    ctx.emit("lend", f"{a.name} lent {args.coins} coins to {other.name}; {other.name} must repay "
-             f"{args.repay_coins} by day {args.due_day} ({d.id}).", actor=a.name, location=a.location,
-             visibility="location", to=[other.name], debt=d.id)
+    ctx.emit("lend", f"{lender.name} lent {o.give['coins']} coins to {borrower.name}; {borrower.name} must repay "
+             f"{repay} by day {o.due_day} ({d.id}).", actor=lender.name, location=borrower.location,
+             visibility="location", to=[lender.name, borrower.name], debt=d.id, offer=o.id)
 
 
 class RepayArgs(BaseModel):
@@ -423,15 +440,25 @@ class OfferArgs(BaseModel):
 
 
 def offer_view(o: Offer) -> dict:
-    """An offer as agents see it (the i_owe part only when there is one)."""
+    """An offer as agents see it (the i_owe / you_owe part only when there is one)."""
     v = dict(vars(o))
+    if not o.you_owe:
+        del v["you_owe"]
+        if not o.i_owe:
+            del v["due_day"]
     if not o.i_owe:
-        del v["i_owe"], v["due_day"]
+        del v["i_owe"]
     return v
 
 
 def _offer_text(o: Offer, own: bool = False) -> str:
     """The offer in words, for its receiver ("offers you ...") or its sender (own: "offered Anna ...")."""
+    if o.you_owe:
+        lent, repay = o.give["coins"], o.you_owe["coins"]
+        if own:
+            return f"offered {o.to} a loan of {lent} coins, {repay} to repay by day {o.due_day}"
+        return (f"offers you a loan of {lent} coins: you would owe {repay} coins by day {o.due_day} "
+                f"(accept or decline)")
     if not o.i_owe:
         return f"{'offered ' + o.to if own else 'offers you'} {fmt_items(o.give)} for {fmt_items(o.want)}"
     if own:
@@ -517,9 +544,12 @@ def accept(ctx: Ctx, a: Agent, args: OfferIdArgs) -> None:
         raise ActionError(f"{sender.name} no longer has {fmt_items(o.give)}; offer cancelled")
     if not _holds(a, o.want):
         raise ActionError(f"you do not have {fmt_items(o.want)}")
-    if o.i_owe and o.due_day <= ctx.world.day:
+    if (o.i_owe or o.you_owe) and o.due_day <= ctx.world.day:
         del ctx.world.offers[o.id]
         raise ActionError(f"the repayment day in {o.id} (day {o.due_day}) has come; offer cancelled")
+    if o.you_owe:
+        del ctx.world.offers[o.id]
+        return _loan_made(ctx, o, sender, a)
     _transfer_bundle(sender, a, o.give)
     _transfer_bundle(a, sender, o.want)
     from . import places  # places imports the action registry

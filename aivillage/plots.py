@@ -193,19 +193,30 @@ def _avail_home(ctx: Ctx, a: Agent) -> bool:
 # ---------- actions ----------
 
 class BuildArgs(BaseModel):
-    kind: str = Field(description="garden_bed, chicken_coop, cow_pen, beehive or fence")
+    kind: str = Field(description="what to build: a yard item (garden_bed, chicken_coop, cow_pen, beehive, fence) "
+                                  "or a building from World facts, e.g. shelter, house, workbench")
 
 
-@ACTIONS.action("build", "Build on your own land: your yard at home or a lot you own (garden_bed, chicken_coop, "
-                "cow_pen, beehive, fence). "
-                "Costs coins and materials from your inventory and takes free cells.", BuildArgs,
-                available=_avail_own)
+def _avail_build(ctx: Ctx, a: Agent) -> bool:
+    from . import construction  # construction -> plots: import here
+    return _avail_own(ctx, a) or construction.can_build_here(ctx.world, a)
+
+
+@ACTIONS.action("build", "Build here. A yard item on your own land (garden_bed, chicken_coop, cow_pen, beehive, "
+                "fence) stands at once, paid from your inventory. A building (World facts, Building): opens its site "
+                "if there is none, puts in what you carry that it needs and works an hour on it.", BuildArgs,
+                available=_avail_build)
 def build(ctx: Ctx, a: Agent, args: BuildArgs) -> None:
-    plot = _at_own_plot(ctx, a)
+    from . import construction
+    if construction.enabled(ctx.cfg) and args.kind.strip().lower() in construction.catalog(ctx.cfg):
+        construction.build_step(ctx, a, args.kind)
+        return
     specs = _p(ctx.cfg)["buildings"]
     spec = specs.get(args.kind)
     if spec is None:
-        raise ActionError(f"unknown building '{args.kind}'; can build: {', '.join(specs)}")
+        more = f"; buildings: {', '.join(construction.catalog(ctx.cfg))}" if construction.enabled(ctx.cfg) else ""
+        raise ActionError(f"unknown building '{args.kind}'; yard items: {', '.join(specs)}{more}")
+    plot = _at_own_plot(ctx, a)
     have = sum(1 for b in plot.buildings if b["kind"] == args.kind)
     if "max" in spec and have >= spec["max"]:
         raise ActionError(f"your plot already has {have} {args.kind} (max {spec['max']})")
@@ -498,7 +509,7 @@ def facts(cfg: dict) -> str:
         if "crop" in s:
             bonus = (f" ({s['yield'] + s['profession_bonus']} if you are a "
                      f"{'/'.join(k for k, v in cfg['professions'].items() if s['crop'] in v)})"
-                     if s.get("profession_bonus") else "")
+                     if s.get("profession_bonus") and not labor.no_professions(cfg) else "")
             hoe = f", +{s['tool_bonus']} if you carry a tool" if s.get("tool_bonus") else ""
             what = f"plant {s['seed']} {s['crop']} -> {s['yield']}{bonus}{hoe} after {s['days']} nights, only yours"
         elif "makes" in s:

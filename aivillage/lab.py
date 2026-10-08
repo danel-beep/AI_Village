@@ -190,8 +190,9 @@ def _verdict(diff: float | None, noise: float | None) -> str:
 
 def compare(logs: list[str]) -> dict:
     """Arms and models from the logs of one experiment (`fork` in their headers)."""
-    from .run import read_log
-    runs, per_arm = [], {}
+    from .registry import ACTIONS
+    from .run import hidden_actions, read_log
+    runs, per_arm, use = [], {}, {}
     for p in logs:
         recs = list(read_log(p))
         head = recs[0]
@@ -200,7 +201,19 @@ def compare(logs: list[str]) -> dict:
         last = next((r.get("view") for r in reversed(recs) if r.get("type") == "tick"), None) or {}
         alive = [s.get("status") != "dead" for s in (last.get("agents") or {}).values()]
         vals = {**SM.summary(sm), "survival": round(sum(alive) / len(alive), 3) if alive else None}
+        ai = set(fork.get("seats") or {}) or {n for n, b in (head.get("brains") or {}).items()
+                                               if not str(b).startswith("bot:")}
+        acts, answered = use.setdefault(fork["arm"], {"turns": Counter(), "offered": set()}), Counter()
+        acts["offered"] |= set(ACTIONS.specs) - hidden_actions(head.get("config") or {})
+        for r in recs:
+            for n, d in ((r.get("decisions") or {}).items() if r.get("type") == "tick" else ()):
+                if n in ai and isinstance(d, dict):
+                    act = d.get("action") if isinstance(d.get("action"), dict) else {}
+                    acts["turns"][str(act.get("name") or "none")] += 1
+                    if (d.get("call") or {}).get("model"):
+                        answered[d["call"]["model"]] += 1
         runs.append({"log": p, "arm": fork["arm"], "replicate": fork.get("replicate"), "seed": fork.get("seed"),
+                     "code": head.get("code"), "answered": dict(answered),
                      "override": fork.get("model_override"),
                      "seats": fork.get("seats") or {}, "brains": head.get("brains") or {}, "values": vals,
                      "social": sm})
@@ -228,9 +241,11 @@ def compare(logs: list[str]) -> dict:
     sensitive = [k for k in keys if noise[k] is not None and (arms.get("A") or {}).get(k, {}).get("mean")
                  and arms["A"][k]["mean"] > 2 * noise[k]]
     models = models_by_arm(runs)
+    actions = {arm: {"turns": sum(u["turns"].values()), "used": dict(u["turns"].most_common()),
+                     "never": sorted(u["offered"] - set(u["turns"]))} for arm, u in use.items()}
     return {"runs": [{k: v for k, v in r.items() if k not in ("social", "by")} for r in runs], "arms": arms,
             "effects": effects, "aa_diff": aa, "noise": noise, "sensitive": sensitive,
-            "models": models}
+            "models": models, "actions": actions}
 
 
 def models_by_arm(runs: list[dict]) -> dict:
@@ -334,11 +349,27 @@ def markdown(rep: dict) -> str:
                 cells.append(_fmt(c["value"], c["kind"]) + (f" ({_fmt(rng[0], c['kind'])}–{_fmt(rng[1], c['kind'])})"
                                                              if rng and rng[0] != rng[1] else ""))
             lines.append(f"| {titles[k]} | " + " | ".join(cells) + " |")
+    for arm, a in (rep.get("actions") or {}).items():
+        if not a["turns"]:
+            continue
+        lines += ["", f"## Какие действия выбирали ИИ-жители, ветка {arm}", "",
+                  f"Ходов: {a['turns']}. Выбрано {len(a['used'])} разных действий"
+                  f" из {len(a['used']) + len(a['never'])} доступных.", "", "| Действие | Раз | Доля ходов |", "|---|---|---|"]
+        lines += [f"| {k} | {n} | {_fmt(n / a['turns'], 'share')} |" for k, n in a["used"].items()]
+        if a["never"]:
+            lines += ["", "Ни разу: " + ", ".join(a["never"]) + "."]
+    codes = {(r.get("code") or {}).get("source") for r in rep["runs"]}
+    if len(codes) > 1:
+        lines += ["", f"Внимание: прогоны сыграны разными версиями кода ({len(codes)}), сравнение веток может врать."]
     lines += ["", "## Прогоны", ""]
     for r in rep["runs"]:
         seats = ", ".join(f"{n}: {m.split('/')[-1]}" for n, m in sorted(r["seats"].items()))
+        code = (r.get("code") or {})
+        ver = (code.get("commit") or "")[:7] or code.get("source") or ""
+        answered = ", ".join(f"{m.split('/')[-1]} {n}" for m, n in sorted((r.get("answered") or {}).items()))
         lines.append(f"- {r['arm']} r{r['replicate']} (сид {r['seed']}){': ' + seats if seats else ''}: "
-                     f"`{Path(r['log']).name}`")
+                     f"`{Path(r['log']).name}`" + (f"; код {ver}" if ver else "")
+                     + (f"; фактически ответили: {answered}" if answered else ""))
     return "\n".join(lines) + "\n"
 
 

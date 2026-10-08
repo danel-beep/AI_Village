@@ -48,12 +48,14 @@ def test_trade_and_repay_raise_score_default_lowers_only_for_the_lender(w):
     assert w.agents["Anna"].reputation["Boris"]["score"] == 1
     assert w.agents["Boris"].reputation["Anna"]["score"] == 1
     act(w, "Anna", "lend", to="Boris", coins=5, repay_coins=5, due_day=2)
+    act(w, "Boris", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     debt = next(iter(w.debts))
     before = w.agents["Anna"].reputation["Boris"]["score"]
     act(w, "Boris", "repay", debt_id=debt, coins=5)
     assert w.agents["Anna"].reputation["Boris"]["score"] == before + 2  # on time, seen by the lender
     assert "Boris" not in w.agents["Clara"].reputation  # debts are private
     act(w, "Boris", "lend", to="Anna", coins=3, repay_coins=4, due_day=w.day + 1)
+    act(w, "Anna", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     lender_view = w.agents["Boris"].reputation["Anna"]["score"]
     for _ in range(60):
         if any(d.status == "defaulted" for d in w.debts.values()):

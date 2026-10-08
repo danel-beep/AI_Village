@@ -334,8 +334,10 @@ class WorkerBot(Bot):
                 return decision("extinguish") if loc == fire["house"] else go(fire["house"], "fight fire")
             return decision("work", {"resource": "water"}) if loc == "river" else go("river", "fetch water")
 
-        # Trades offered to me: accept if I can afford it
+        # Trades offered to me: accept if I can afford it (a loan: if it asks back at most twice the coins)
         for o in obs["offers_to_you"]:
+            if o.get("you_owe", {}).get("coins", 0) > 2 * o["give"].get("coins", 0):
+                continue
             if all(inv.get(k, 0) >= v + (1 if k in FOODS else 0) for k, v in o["want"].items() if k != "coins") \
                     and me["coins"] >= o["want"].get("coins", 0):
                 return decision("accept", {"offer_id": o["id"]}, say="Deal.")

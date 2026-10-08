@@ -51,7 +51,9 @@ def compute(records: list[dict]) -> dict:
     fires: list[dict] = []
     open_fires: dict[str, dict] = {}    # home location -> fire record
     last_view_by_day: dict[int, dict] = {}
+    played: set[int] = set()  # days someone decided in; the last view is already the next, unplayed morning
     agents: set[str] = set()
+    day = ((records[0].get("start") or {}).get("day") or 1) if records else 1  # the day the villagers decide in
 
     def edge(a: str | None, b: str | None, kind: str) -> None:
         if a and b and a != b:
@@ -61,8 +63,10 @@ def compute(records: list[dict]) -> dict:
         view = rec.get("view") or {}
         positions = {n: s.get("location") for n, s in (view.get("agents") or {}).items()}
         agents.update(positions)
+        played.add(day)
         if view:
             last_view_by_day[view["day"]] = view
+            day = view["day"]
         attempts = {(e.get("actor"), tuple(e.get("to") or [])) for e in rec["events"] if e["kind"] == "steal_attempt"}
         for ev in rec["events"]:
             kind, actor, data = ev["kind"], ev.get("actor"), ev.get("data") or {}
@@ -154,7 +158,7 @@ def compute(records: list[dict]) -> dict:
 
     return {
         "ticks": len(ticks),
-        "days": sorted(last_view_by_day),
+        "days": sorted(played),
         "agents": sorted(agents),
         "interactions": {
             "graph": {a: dict(bs) for a, bs in graph.items()},

@@ -403,7 +403,9 @@ def observe(world: World, name: str) -> dict:
     return out
 
 
-def facts(cfg: dict) -> str:
+def facts(cfg: dict, trader: bool = True, shown=None) -> str:
+    """Rules lines on work; `trader` False (no market yet, llm.world_facts) leaves out the trader's limits and
+    `shown(key)` False leaves out the mastery needs of recipes not open yet."""
     lab = cfg["labor"]
     lines = []
     if no_professions(cfg):
@@ -418,25 +420,31 @@ def facts(cfg: dict) -> str:
         lines.append("- Trades and gifts are carried: an offer can be accepted from anywhere, a gift (give) reaches the "
                      "receiver wherever they are, and the goods change hands at once.")
     if lab.get("work_hours_per_day"):
-        lines.append(f"- You can work (gather) at most {lab['work_hours_per_day']} hours a day.")
+        lines.append(f"- You can work (gather) at most {lab['work_hours_per_day']} hours a day "
+                     "(\"you.work_hours_left\").")
     if no_professions(cfg):
-        lines += mastery_facts(cfg)
+        lines += mastery_facts(cfg, shown)
     else:
         steps = lab["skill_levels"]
         lines.append(f"- Skill: hours of work at your own trade raise your level (level 1/2/3 after "
                      f"{'/'.join(map(str, steps))} hours); each level gives +{lab['skill_bonus']} per hour of work.")
     buy, sell = lab.get("trader_buys_per_day") or {}, lab.get("trader_sells_per_day") or {}
-    if buy or sell:
+    if trader and (buy or sell):
         lines.append("- The trader deals in limited amounts each day for the whole village (first come, first "
                      "served; resets at dawn): \"trader_today\" shows how many of each item he will still buy "
                      "and still has for sale today.")
-    if lab.get("trader_coins_per_trade"):
+    if trader and lab.get("trader_coins_per_trade"):
         lines.append("- He spends a limited number of coins a day on the goods of each trade, shared by all "
                      "its goods (a miner's stone, ore and gold come out of one purse).")
     return "\n".join(lines)
 
 
-def mastery_facts(cfg: dict) -> list[str]:
+def _recipe_shown(cfg: dict, rid: str, shown) -> bool:
+    building = cfg["recipes"][rid].get("building")
+    return shown(f"recipe:{rid}") and (not building or shown(f"building:{building}"))
+
+
+def mastery_facts(cfg: dict, shown=None) -> list[str]:
     m = _m(cfg)
     kinds = "; ".join(f"{k} ({', '.join(g)})" for k, g in m["gather"].items())
     crafts: dict[str, list[str]] = {}
@@ -450,10 +458,10 @@ def mastery_facts(cfg: dict) -> list[str]:
              f"+{m['hunt_bonus']} to every strike (hunting). A kind of work left alone for more than "
              f"{m['forget_after_days']} days loses {m['forget_per_day']} hours of mastery a day. \"work_today\" "
              f"shows yours; \"villagers\" shows what each person is best at."]
-    if req := m.get("requires"):
-        lines.append("- Fine things need mastery first: " + ", ".join(
-            f"{rid} ({craft_activity(cfg, cfg['recipes'][rid])} {n})" for rid, n in req.items()
-            if rid in cfg["recipes"]) + ".")
+    fine = [f"{rid} ({craft_activity(cfg, cfg['recipes'][rid])} {n})" for rid, n in (m.get("requires") or {}).items()
+            if rid in cfg["recipes"] and (shown is None or _recipe_shown(cfg, rid, shown))]
+    if fine:
+        lines.append("- Fine things need mastery first: " + ", ".join(fine) + ".")
     if m.get("house_bonus_pct"):
         lines.append(f"- Household: each level of your house gives +{m['house_bonus_pct']}% to what your own yard "
                      "makes (garden beds, animals) and to what you make at home or at your own workshop.")

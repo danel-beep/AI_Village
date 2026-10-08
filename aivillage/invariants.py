@@ -79,6 +79,14 @@ def check(world: World) -> None:
         bag(f"chest {c.id}", c.items)
         if c.coins < 0:
             errors.append(f"chest {c.id}: coins {c.coins}")
+    for s in world.sales.values():  # the board holds these items outside the ledger (market.py burns and remints)
+        bag(f"sale {s.id}", s.items)
+        if not s.items or s.price < 1 or s.seller not in world.agents:
+            errors.append(f"sale {s.id}: bad listing")
+    for o in world.offers.values():
+        for part in ("give", "want", "i_owe", "you_owe"):
+            if any(v <= 0 for v in getattr(o, part).values()):
+                errors.append(f"offer {o.id}: {part} {getattr(o, part)}")
     for loc in world.locations.values():
         bag(f"ground {loc.id}", loc.ground)
         for r, v in loc.resources.items():
