@@ -164,3 +164,86 @@ def test_overlaps_proposals_and_places():
     ]
     # the fire's zero and aftermath stay on screen although the beast's countdown is already running
     assert out["at"] == [["fire", True], ["fire", False], ["fire", False], ["beast_attack", False], ["beast_attack", False]]
+
+
+# ---------- «Часы судьбы» (viewer/fate.js) ----------
+
+CFG = {"tick_minutes": 15, "day_start_hour": 6, "day_end_hour": 22, "satiety_loss_per_hour": 2,
+       "satiety_loss_asleep_per_hour": 2, "satiety_loss_night": 10, "starving_health_loss_per_hour": 5,
+       "starving_health_loss_night": 20, "fire_spread_hours": 6, "fire_night_hours": 4, "lives": 2,
+       "polity": {"vote_hours": 24, "law_vote_hours": 24}}
+
+
+def test_index_loads_fate():
+    html = (VIEWER / "index.html").read_text(encoding="utf-8")
+    assert '<script src="fate.js"></script>' in html and html.index("fate.js") < html.index("efir.js")
+
+
+def _fate_scene():
+    """Day 1 from 06:00, 15-minute ticks. Elena hungry on her last life; a fire that jumps at tick 24 (its 6th hour);
+    Boris starts a petition for a single ruler twice; a theft nobody saw, reported at tick 30; a leader ballot."""
+    T = []
+    for n in range(40):
+        ag = {"Elena": {**_agent("camp", 6), "health": 40, "hospital_stays": 1},
+              "Boris": _agent("camp", 70), "Dmitri": _agent("camp", 70)}
+        t = _tick(n, ag)
+        t["view"]["locations"] = {"home_Anna": "Anna's house", "home_Clara": "Clara's house", "camp": "Camp"}
+        if n >= 1:
+            t["view"]["fire_info"] = {"home_Anna": {"water_needed": 3, "hours_left": 10 - n // 4, "hours": n // 4}}
+        T.append(t)
+    ev = lambda n, kind, actor=None, text="", **d: T[n]["events"].append({"kind": kind, "actor": actor, "text": text, "data": d})
+    ev(1, "fire", victim="Anna", house="home_Anna", cause="accident")
+    ev(24, "fire", victim="Clara", house="home_Clara", cause="spread", spread_from="home_Anna")
+    ev(2, "polity_founded", polity="p1")
+    ev(3, "polity_form", polity="p1", form="assembly", votes={"assembly": 3})
+    ev(3, "polity_leaders", polity="p1", rulers=[], keeper="Dmitri", votes={"Dmitri": 2, "Boris": 1})
+    ev(4, "polity_petition", "Boris", polity="p1", form="ruler", signed=["Boris"], needed=2)
+    ev(6, "polity_form", "Dmitri", polity="p1", form="assembly", old_form="assembly", signed=["Dmitri", "Elena"])
+    ev(6, "polity_leaders", polity="p1", rulers=[], keeper=None)
+    ev(8, "polity_petition", "Boris", polity="p1", form="ruler", signed=["Boris"], needed=2)
+    ev(10, "steal", "Boris", victim="Dmitri", success=True, item="bread", qty=1, witnesses=[])
+    ev(30, "theft_report", "Dmitri", thief="Boris", victim="Dmitri", fine=0)
+    return T
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
+def test_fate_clocks():
+    js = (VIEWER / "fate.js").read_text(encoding="utf-8")
+    probe = js + """
+    const T = %s, cfg = %s;
+    const F = Fate.create(cfg);
+    T.forEach((t, k) => F.add(T, k));
+    const at = k => F.lines(T, k, { item: x => x === 'bread' ? 'хлеб' : x }).map(l => l.icon + ' ' + l.text);
+    const G = Fate.create({ ...cfg, lives: 0 });
+    T.forEach((t, k) => G.add(T, k));
+    const lives0 = k => G.lines(T, k, { item: x => x === 'bread' ? 'хлеб' : x }).map(l => l.icon + ' ' + l.text);
+    console.log(JSON.stringify({
+      a5: at(5), a9: at(9), a12: at(12), a31: at(31),
+      b9: lives0(9), b12: lives0(12), b31: lives0(31),
+      // hunger: satiety 6 at 06:00 → 0 at 09:00, then -5 health an hour: 40 health lasts 8 more hours
+      starve: F.collapse({ satiety: 6, health: 40 }, { day: 1, hour: 6, minute: 0 }, null, 24),
+      night: F.collapse({ satiety: 4, health: 30 }, { day: 1, hour: 18, minute: 0 }, null, 24),
+      fed: F.collapse({ satiety: 80, health: 100 }, { day: 1, hour: 6, minute: 0 }, null, 24),
+      burn: [F.burnsIn(10, { hour: 8, minute: 0 }), F.burnsIn(5, { hour: 20, minute: 0 })],
+      time: F.timeOf(64 + 4 * 13 + 2),
+    }));
+    """ % (json.dumps(_fate_scene()), json.dumps(CFG))
+    out = json.loads(subprocess.run(["node", "-e", probe], capture_output=True, text=True, check=True).stdout)
+    assert out["starve"] == {"hours": 10, "night": False}         # satiety 0 at 09:00, health 35 → 0 at 16:00
+    assert out["night"] == {"hours": 4, "night": True}            # health 15 at 22:00, the night takes 20
+    assert out["fed"] is None
+    assert out["burn"] == [{"hours": 10, "night": False}, {"hours": 2, "night": True}]
+    assert out["time"] == {"day": 2, "hour": 19, "minute": 30}
+    # never more than three clocks, the most urgent first: the last life, then the fire
+    assert all(len(v) <= 3 for v in (out["a5"], out["a9"], out["a12"], out["a31"]))
+    assert out["a5"][0].startswith("☠ Elena · последняя жизнь")
+    assert out["a5"][1] == "🔥 Дом Anna · сгорит через 9 ч · перекинется через 5 ч · 🪣 3"
+    # after the jump (tick 24) the first fire no longer says it will spread; before it, it does (no peeking ahead)
+    assert not any("перекинется" in x for x in out["a31"])
+    # the Nth petition for a single ruler is the Nth coup attempt; a leader ballot names the one who lost before
+    assert out["a5"][2] == "📜 Петиция «один правитель» · 1 из 2 · 👑 Boris: переворот, попытка №1"
+    assert out["b9"][1:] == ["📜 Петиция «один правитель» · 1 из 2 · 👑 Boris: переворот, попытка №2",
+                             "🗳 Выбор казначея · до завтра, 15:30 · 👑 Boris, попытка №2"]
+    # a theft nobody saw: only the viewer knows, until it is reported
+    assert "🤫 Boris → хлеб у Dmitri · знает только зритель" in out["b12"]
+    assert not any("🤫" in x for x in out["b31"])
