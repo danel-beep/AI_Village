@@ -215,3 +215,42 @@ def test_god_beast_reply_says_when_it_really_comes(tmp_path):
     assert clock.label(sim.world.config, t["arrive_tick"]) == r["arrives_at"]
     arrived = [tk for tk in sim.ticks if any(e["kind"] == "threat_arrived" for e in tk["events"])]
     assert arrived and arrived[0]["view"]["threats"][0]["state"] == "here"
+
+
+def test_other_sites_and_rebound_names_are_refused(tmp_path):
+    # Audit B-7: a hostile page (DNS rebinding or a plain cross-site form) must not drive the local app.
+    sim, client = make(tmp_path)
+    assert client.get("/api/status").status_code == 200
+    assert client.get("/api/status", headers={"Host": "evil.example"}).status_code == 400
+    assert client.get("/api/status", headers={"Host": "evil.example:8000"}).status_code == 400
+    assert client.get("/api/status", headers={"Host": "127.0.0.1:8000"}).status_code == 200
+    assert client.get("/api/status", headers={"Host": "[::1]:8000"}).status_code == 200
+    pause = {"cmd": "pause"}
+    bad = client.post("/api/control", json=pause, headers={"Host": "127.0.0.1:8000", "Origin": "http://evil.example"})
+    assert bad.status_code == 403 and sim.running.is_set()
+    for o in ("null", "http://127.0.0.1:9999", "http://localhost:8000"):  # another port or name = another site
+        assert client.post("/api/control", json=pause, headers={"Host": "127.0.0.1:8000", "Origin": o}).status_code == 403
+    ok = client.post("/api/control", json=pause, headers={"Host": "127.0.0.1:8000", "Origin": "http://127.0.0.1:8000"})
+    assert ok.status_code == 200 and not sim.running.is_set()
+    assert client.post("/api/control", json={"cmd": "resume"}).status_code == 200  # scripts send no Origin
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises(WebSocketDisconnect) as e:
+        with client.websocket_connect("/ws", headers={"Origin": "http://evil.example"}) as ws:
+            ws.receive_text()
+    assert e.value.code == 1008
+    # The tunnel reaches /mcp under its internet name; seat codes guard it, not Host.
+    assert client.post("/mcp/nope", json={}, headers={"Host": "x.trycloudflare.com"}).status_code != 400
+    extra = TestClient(create_app(sim, allowed_hosts=("192.168.1.5",)))
+    assert extra.get("/api/status", headers={"Host": "192.168.1.5:8000"}).status_code == 200
+
+
+def test_god_and_control_only_from_this_computer(tmp_path):
+    world = engine.new_world({"seed": 3})
+    sim = LiveSim(world, bots_decider(world, ["worker"], 3), 1, str(tmp_path / "live.jsonl"), 0.0)
+    other = TestClient(create_app(sim), client=("192.168.1.7", 5000))
+    assert other.get("/api/status").status_code == 200  # watching is fine
+    assert other.post("/api/control", json={"cmd": "pause"}).status_code == 403
+    assert other.post("/api/god", json={"name": "rain", "args": {}}).status_code == 403
+    assert other.post("/api/summary").status_code == 403
+    assert other.post("/api/report", json={"note": "x"}).status_code == 403
+    assert sim.running.is_set()

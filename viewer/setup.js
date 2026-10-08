@@ -160,12 +160,16 @@
       'font:600 13px system-ui,sans-serif;cursor:pointer';
     b.onclick = () => {
       if (!info.finished && !confirm('Остановить эту деревню и настроить новую? Она сохранится (продолжить можно с начального экрана), сводка сессии тоже.')) return;
-      post('/api/stop').then(() => location.reload(), e => alert(e.message));
+      post('/api/stop').then(d => { if (d.in_flight) alert(stillOut(d.in_flight)); location.reload(); }, e => alert(e.message));
     };
     const bar = document.getElementById('rp-bar');
     if (bar) bar.appendChild(b);
     else { b.style.cssText += ';position:fixed;left:8px;bottom:12px;z-index:30'; document.body.appendChild(b); }
   }
+
+  // Stopped, but some model requests were already sent: they finish on their own (and are paid for).
+  const stillOut = n => `Деревня остановлена. Ещё ${n} ${n === 1 ? 'запрос' : n < 5 ? 'запроса' : 'запросов'} к ИИ в пути: ` +
+    'они уже отправлены и закончатся сами, обычно за минуту.';
 
   function screen(info, saves, scens) {
     const css = document.createElement('style');

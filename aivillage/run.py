@@ -395,7 +395,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         models = {n: models[i % len(models)] for i, n in enumerate(seats)}
     if not models:
         return {}
-    from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
+    from .llm import DECISION_TIMEOUT_S, LLMAgent, StubClient, character_text, make_client, world_facts
     off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config) \
         | transport.hidden_actions(world.config) \
         | hire.hidden_actions(world.config) | construction.hidden_actions(world.config) \
@@ -419,6 +419,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
             client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
                              character=character,
+                             # own AIs wait longer (own_ai.wait_minutes); the stub never hangs
+                             decision_timeout_s=None if m in ("mcp", "stub") else DECISION_TIMEOUT_S,
                              own_goals=bool(world.config.get("own_goals", True)),
                              memory=world.config.get("llm_memory", "day"),
                              obs_mode=world.config.get("llm_obs", "changes"))

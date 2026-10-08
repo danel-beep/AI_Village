@@ -48,6 +48,10 @@
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || 'Не получилось.');
       ended = true;
+      if (body.in_flight) {  // already sent: they finish on their own, usually within a minute
+        msg.textContent = `Деревня остановлена. Ещё ${body.in_flight} запр. к ИИ в пути, они закончатся сами.`;
+        await new Promise(r => setTimeout(r, 2500));
+      }
       location.href = body.url;
     } catch (e) {
       msg.textContent = e.message === 'Failed to fetch' ? 'Нет связи с игрой.' : e.message;

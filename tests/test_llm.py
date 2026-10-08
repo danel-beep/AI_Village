@@ -132,3 +132,57 @@ def test_cost_cap_stops_the_run_early_and_log_still_replays(tmp_path):
     recs = list(read_log(log))
     assert any(r["type"] == "stop" for r in recs) and recs[-1]["type"] == "usage"
     assert replay(log).hash() == w.hash()
+
+
+class Hung:
+    """Answers only when released: a provider that hangs."""
+    model = "hung"
+
+    def __init__(self):
+        import threading
+        self.release, self.calls = threading.Event(), 0
+
+    def complete(self, messages):
+        self.calls += 1
+        self.release.wait(10)
+        return json.dumps({"thought": "late", "action": {"name": "sleep"}}), {"cost": 0.25, "prompt_tokens": 10}
+
+
+def test_hung_model_waits_this_turn_and_late_answer_is_dropped():
+    # Audit task 7: one hung call must not hold the whole tick; the answer that comes later is not acted on,
+    # but what it cost is still counted.
+    import time
+    w = engine.new_world()
+    c = Hung()
+    agent = LLMAgent("Anna", "farmer", c, decision_timeout_s=0.2)
+    t0 = time.monotonic()
+    dec = agent.decide(engine.observe(w, "Anna"))
+    assert time.monotonic() - t0 < 2
+    assert dec["action"] == {"name": "wait"} and "no answer in 0.2 s" in dec["thought"]
+    assert agent.usage.failures == 1 and agent.usage.cost_usd == 0 and agent.recent == []
+    c.release.set()
+    end = time.monotonic() + 5
+    while agent.usage.cost_usd == 0 and time.monotonic() < end:
+        time.sleep(0.01)
+    assert agent.usage.cost_usd == 0.25 and agent.usage.calls == 1 and agent.recent == []
+    # Without a deadline (a player's own AI, the stub) the answer is waited for.
+    agent2 = LLMAgent("Anna", "farmer", c)
+    assert agent2.decide(engine.observe(w, "Anna"))["action"]["name"] == "sleep"
+
+
+def test_live_villagers_get_the_deadline_stub_does_not(monkeypatch):
+    import aivillage.llm as llm_mod
+    w = engine.new_world()
+    assert all(a.decision_timeout_s is None for a in llm_agents(w, ["stub"]).values())
+    monkeypatch.setattr(llm_mod, "make_client", lambda m, fallbacks=None: llm_mod.StubClient("x"))
+    agents = llm_agents(w, ["some/model"])
+    assert all(a.decision_timeout_s == llm_mod.DECISION_TIMEOUT_S == 60 for a in agents.values())
+
+
+def test_in_flight_counts_requests_on_their_way():
+    from aivillage import llm
+    before = llm.in_flight()
+    with llm._sending():
+        with llm._sending():
+            assert llm.in_flight() == before + 2
+    assert llm.in_flight() == before

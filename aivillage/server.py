@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -718,12 +719,59 @@ class Host:
         return self.reports_dir or str(self.runs_dir.parent / "reports")
 
 
-def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
+LOCAL_NAMES = ("127.0.0.1", "localhost", "::1", "testserver")  # testserver: FastAPI's TestClient
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
+class LocalSiteOnly:
+    """ASGI middleware: only this app's own pages may use it. A request must name this computer in `Host`
+    (a hostile site that re-points its own name at 127.0.0.1, "DNS rebinding", gets 400), and a browser POST or
+    live feed must come from a page of this same address (`Origin`; any other site gets 403). Requests without
+    `Origin` (scripts, curl) pass: browsers always send it across sites. `/mcp/...` has its own guard (seat
+    codes, OutsideOnlyMcp) and is reached through the tunnel under its internet name, so it is not checked."""
+
+    def __init__(self, app, allowed: tuple[str, ...] = ()):
+        self.app = app
+        self.allowed = {n.lower().strip("[]") for n in (*LOCAL_NAMES, *allowed)}
+
+    async def __call__(self, scope, receive, send):
+        kind = scope["type"]
+        if kind in ("http", "websocket") and not scope.get("path", "").startswith(("/mcp/", "/.well-known/")):
+            headers = {k.lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
+            host = headers.get(b"host", "").strip().lower()
+            if _hostname(host) not in self.allowed:
+                return await _refuse(scope, send, 400, "Unknown address: open the village at http://127.0.0.1.")
+            origin = headers.get(b"origin")
+            if origin is not None and (kind == "websocket" or scope.get("method") not in SAFE_METHODS):
+                if urllib.parse.urlsplit(origin.strip().lower()).netloc != host:
+                    return await _refuse(scope, send, 403, "Only the village's own pages may do this.")
+        await self.app(scope, receive, send)
+
+
+def _hostname(host: str) -> str | None:
+    try:
+        return urllib.parse.urlsplit("//" + host).hostname if host else None
+    except ValueError:
+        return None
+
+
+async def _refuse(scope, send, status: int, text: str) -> None:
+    if scope["type"] == "websocket":
+        await send({"type": "websocket.close", "code": 1008})
+        return
+    await send({"type": "http.response.start", "status": status,
+                "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
+    await send({"type": "http.response.body", "body": text.encode()})
+
+
+def create_app(sim: LiveSim | None = None, host: Host | None = None, allowed_hosts: tuple[str, ...] = ()) -> FastAPI:
+    """`allowed_hosts`: more names this server may be opened under (--host / --allow-host), besides this computer."""
     app = FastAPI(title="AI Village live")
     host = host or Host(sim)
     app.state.host = host
     mcpserver.mount(app)  # /mcp/<seat code>: people's own AIs (aivillage/remote.py)
     app.add_middleware(mcpserver.OutsideOnlyMcp)  # the internet tunnel reaches /mcp only
+    app.add_middleware(LocalSiteOnly, allowed=allowed_hosts)  # other sites and rebound names get nothing
 
     def need() -> LiveSim:
         if host.sim is None:
@@ -784,7 +832,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         return {"highlights": sim.highlights + ([today] if today else [])}
 
     @app.post("/api/summary")
-    def summary_now() -> dict:
+    def summary_now(request: Request) -> dict:  # calls a model: costs money
+        local_only(request)
         sim = need()
         if sim.summarizer is None:
             raise HTTPException(400, "Сводки выключены: нужен ключ OpenRouter.")
@@ -796,7 +845,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         return rec
 
     @app.post("/api/report")
-    def report(body: dict) -> dict:
+    def report(body: dict, request: Request) -> dict:
+        local_only(request)
         note = str(body.get("note") or "").strip()
         if not note:
             raise HTTPException(400, "Напишите пару слов, что не так.")
@@ -906,7 +956,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if not host.setup:
             raise HTTPException(400, "this server runs one village (started without --setup)")
         host.stop()
-        return {"ok": True}
+        return {"ok": True, "in_flight": llm.in_flight()}
 
     # --- saves (aivillage/saves.py, viewer/saves.js) ---
     @app.get("/api/saves")
@@ -1066,7 +1116,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         s = host.end()
         if s is None:
             raise HTTPException(500, "Не получилось собрать сводку: журнал игры не записан.")
-        return {"ok": True, "name": s["name"], "url": f"/session/{s['name']}"}
+        return {"ok": True, "name": s["name"], "url": f"/session/{s['name']}", "in_flight": llm.in_flight()}
 
     def session_log(name: str) -> Path:
         log = host.log_of(name)
@@ -1128,7 +1178,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         return need().status()
 
     @app.post("/api/god")
-    def god(body: dict) -> dict:
+    def god(body: dict, request: Request) -> dict:
+        local_only(request)
         sim = need()
         try:
             shown = body.get("shown_tick")
@@ -1140,7 +1191,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
                 "lead_minutes": pending["lead_minutes"], "arrives_at": pending.get("arrives_at")}
 
     @app.post("/api/control")
-    def control(body: dict) -> dict:
+    def control(body: dict, request: Request) -> dict:
+        local_only(request)
         sim = need()
         cmd = body.get("cmd")
         if cmd == "pause":
@@ -1189,6 +1241,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="USD the models may spend per real day (all villages together); then the village pauses "
                         "until the next day. 0 = no cap")
     p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--allow-host", action="append", default=[],
+                   help="another name or address the app may be opened under (e.g. this computer's address on "
+                        "the home network with --host 0.0.0.0); repeat for more")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--summary-model", default=None,
                    help="model for the recap panel: OpenRouter id, 'default', 'stub' or 'off' "
@@ -1208,12 +1263,13 @@ def main(argv: list[str] | None = None) -> int:
         a.seed = random.SystemRandom().randrange(1, 1_000_000)
 
     import uvicorn
+    allowed = tuple(a.allow_host) + (() if a.host in ("0.0.0.0", "::") else (a.host,))
 
     if a.setup:  # the app's start screen picks everything; the CLI flags are not used
         runs = a.runs or str(Path(a.log).parent)
         host = Host(None, runs, a.reports, a.reveal_reports, setup=True)
         print(f"AI Village: http://{a.host}:{a.port} (настройте деревню и нажмите «Играть»)")
-        uvicorn.run(create_app(host=host), host=a.host, port=a.port, log_level="warning")
+        uvicorn.run(create_app(host=host, allowed_hosts=allowed), host=a.host, port=a.port, log_level="warning")
         return 0
 
     override: dict = {**modes.world_override(a.mode), "seed": a.seed}
@@ -1230,7 +1286,7 @@ def main(argv: list[str] | None = None) -> int:
                    view_lag_minutes=a.view_lag_minutes, daily_budget=a.daily_budget if a.models else 0.0)
     sim.start()
     print(f"AI Village live: http://{a.host}:{a.port}")
-    uvicorn.run(create_app(sim), host=a.host, port=a.port, log_level="warning")
+    uvicorn.run(create_app(sim, allowed_hosts=allowed), host=a.host, port=a.port, log_level="warning")
     return 0
 
 

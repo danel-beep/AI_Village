@@ -300,6 +300,40 @@ def world_facts(cfg: dict) -> str:
     return "\n".join(lines)
 
 
+_USAGE_LOCK = threading.Lock()
+
+# Model requests sent and not answered yet, all clients together: "Стоп" tells how many are still on their way.
+_IN_FLIGHT = 0
+_IN_FLIGHT_LOCK = threading.Lock()
+
+
+def in_flight() -> int:
+    return _IN_FLIGHT
+
+
+class _sending:
+    """Counts one HTTP request to a model while it is out (`in_flight`)."""
+
+    def __enter__(self):
+        global _IN_FLIGHT
+        with _IN_FLIGHT_LOCK:
+            _IN_FLIGHT += 1
+
+    def __exit__(self, *exc):
+        global _IN_FLIGHT
+        with _IN_FLIGHT_LOCK:
+            _IN_FLIGHT -= 1
+
+
+# Seconds one villager's decision may take (retries and waiting for a free slot included). Then it waits this
+# turn and the tick goes on: one hung call no longer holds the whole village for minutes (audit B, task 7).
+DECISION_TIMEOUT_S = 60.0
+
+
+class DecisionTimeout(RuntimeError):
+    """The model did not answer within LLMAgent.decision_timeout_s."""
+
+
 @dataclass
 class Usage:
     prompt_tokens: int = 0
@@ -311,6 +345,10 @@ class Usage:
     by_model: dict = field(default_factory=dict)  # model that actually answered -> calls (fallbacks show here)
 
     def add(self, other: dict) -> None:
+        with _USAGE_LOCK:  # a late answer (LLMAgent._complete) adds its cost from its own thread
+            self._add(other)
+
+    def _add(self, other: dict) -> None:
         self.prompt_tokens += int(other.get("prompt_tokens", 0))
         self.cached_tokens += int((other.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
         self.completion_tokens += int(other.get("completion_tokens", 0))
@@ -429,7 +467,7 @@ class OpenRouterClient(Client):
             body["models"] = models
         req = urllib.request.Request(self.URL, json.dumps(body).encode(),
                                      {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json"})
-        with gate_for(models[0], self.parallel):
+        with gate_for(models[0], self.parallel), _sending():
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 data = json.load(r)
         usage = dict(data.get("usage") or {})
@@ -582,7 +620,7 @@ class OpenAIClient(Client):
         req = urllib.request.Request(self.URL, json.dumps(body).encode(),
                                      {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json"})
         gate = gate_for(f"direct:{self.name}", self.parallel)
-        with gate:
+        with gate, _sending():
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 data = json.load(r)
                 self._pace(gate, getattr(r, "headers", None))
@@ -863,6 +901,7 @@ class LLMAgent:
     record: dict | None = None  # reputation.record: the book of deeds as of the day's first turn (None: no book)
     record_day: int | None = None
     kept: list[dict] = field(default_factory=list)  # [{"day", "text"}]: what it chose at night to remember for long
+    decision_timeout_s: float | None = None  # one whole decision (retries included); None = wait for the answer
 
     def __post_init__(self):
         if getattr(self.client, "cache_key", None) is None:
@@ -1032,17 +1071,50 @@ class LLMAgent:
             dec["intro"] = intro
         return dec
 
+    def _complete(self, messages: list[dict], deadline: float | None) -> tuple[str, dict]:
+        """`client.complete`, given up at `deadline` (time.monotonic) so one slow model does not hold the whole
+        tick: DecisionTimeout then. The call itself runs on; its late answer is dropped, its cost still counts."""
+        if deadline is None:
+            return self.client.complete(messages)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise DecisionTimeout(f"no answer in {self.decision_timeout_s:g} s")
+        box: dict = {}
+        done, lock = threading.Event(), threading.Lock()
+
+        def call() -> None:
+            try:
+                box["ok"] = self.client.complete(messages)
+            except Exception as e:
+                box["err"] = e
+            with lock:
+                done.set()
+                late = box.get("late")
+            if late and "ok" in box:
+                self.usage.add(box["ok"][1])
+
+        threading.Thread(target=call, name=f"llm-{self.name}", daemon=True).start()
+        done.wait(left)
+        with lock:
+            if not done.is_set():
+                box["late"] = True
+                raise DecisionTimeout(f"no answer in {self.decision_timeout_s:g} s")
+        if "err" in box:
+            raise box["err"]
+        return box["ok"]
+
     def _decide(self, obs: dict) -> dict:
+        deadline = time.monotonic() + self.decision_timeout_s if self.decision_timeout_s else None
         try:
-            text, usage = self.client.complete(self.messages(obs))
-        except Exception as e:  # a dead provider must never stop the village
+            text, usage = self._complete(self.messages(obs), deadline)
+        except Exception as e:  # a dead or hung provider must never stop the village
             self.usage.failures += 1
             return {"thought": f"(model error: {e})"[:200], "action": {"name": "wait"}}
         self.usage.add(usage)
         dec = parse_decision(text)
         if "parse_error" in dec:  # one retry: cheap models sometimes cut a reply short
             try:
-                text, usage = self.client.complete(self.messages(obs))
+                text, usage = self._complete(self.messages(obs), deadline)
                 self.usage.add(usage)
                 dec = parse_decision(text)
             except Exception:
