@@ -158,6 +158,8 @@
   $('link-copy').onclick = () => copy(link, $('link-copy'));
 
   if (!AIV) return;
+  // On the public website the game sits under /p/<id>/ (aivillage/web.py): keep that prefix in links and calls.
+  const PREFIX = location.pathname.slice(0, Math.max(0, location.pathname.indexOf('/mcp/')));
   if (AIV.mode === 'seat') {  // the connector link opened in a browser
     link = location.origin + location.pathname;
     $('mine').hidden = false;
@@ -170,7 +172,7 @@
   }
 
   const key = 'aiv-claim-' + AIV.base;
-  const post = (url, body) => fetch(AIV.base + url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const post = (url, body) => fetch(PREFIX + AIV.base + url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body) }).then(r => r.json().then(d => { if (!r.ok) throw new Error(d.detail || r.status); return d; }));
   $('player').value = store.get('aiv-player');
   $('ai').value = store.get('aiv-ai') || 'claude';
@@ -195,7 +197,7 @@
     $('take-btn').disabled = !st.free;
     $('mine').hidden = !mine;
     if (mine) {
-      link = location.origin + mine.path;
+      link = location.origin + PREFIX + mine.path;
       if (shownMine !== mine.path) { ai = store.get('aiv-ai') || 'claude'; shownMine = mine.path; $('link').value = link; drawSteps(); }
       $('mine-title').textContent = `Ваш житель: ${mine.name}`;
       $('mine-state').textContent = STATE[mine.state] || '';
@@ -210,7 +212,7 @@
     $('table-card').hidden = false;
   }
   function poll() {
-    return fetch(`${AIV.base}/state?claim=${encodeURIComponent(store.get(key))}`).then(r => {
+    return fetch(`${PREFIX}${AIV.base}/state?claim=${encodeURIComponent(store.get(key))}`).then(r => {
       if (r.status === 404) { for (const id of ['take', 'mine', 'table-card']) $(id).hidden = true; $('gone').hidden = false; return; }
       return r.json().then(draw);
     }).catch(() => {});
