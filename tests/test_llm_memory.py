@@ -110,3 +110,10 @@ def test_a_busy_day_keeps_letters_for_the_diary():
     ag.client.complete = lambda m: sent.append(m) or (json.dumps({"diary": "x", "people": {}}), {})
     ag.reflect(6)
     assert "Letter from anonymous" in sent[0][-1]["content"]
+
+
+def test_a_bare_string_action_does_not_crash_the_day_log():
+    """Haiku once answered "action": "wait" and remember_turn crashed the whole run (E0 arm A, 2026-10-08)."""
+    ag = LLMAgent("Anna", "farmer", Echo())
+    ag.remember_turn({"time": {"hour": 9, "minute": 0}, "you": {"location": "square"}}, {"action": "wait"})
+    assert "I did None" in ag.day_log[-1]

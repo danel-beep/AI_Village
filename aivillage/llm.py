@@ -877,7 +877,7 @@ class LLMAgent:
         lines = [f"{hm} news: {n}" for n in obs.get("news", [])]
         if obs.get("last_error"):
             lines.append(f"{hm} failed: {obs['last_error']}")
-        act = dec.get("action") or {}
+        act = dec.get("action") if isinstance(dec.get("action"), dict) else {}  # a model may send a bare string
         line = f"{hm} at {obs.get('you', {}).get('location', '?')}: I did {act.get('name')}"
         if act.get("args"):
             line += " " + json.dumps(act["args"])
