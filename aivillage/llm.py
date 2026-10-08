@@ -589,6 +589,8 @@ class OpenAIClient(Client):
         usage = dict(data.get("usage") or {})
         usage["cost"] = token_cost(self.name, usage) * (FLEX_PRICE_SHARE if data.get("service_tier") == "flex" else 1)
         usage["model"] = self.model
+        usage["answered"] = data.get("model")  # the exact snapshot behind the alias, for the log (llm.LLMAgent)
+        usage["tier"] = data.get("service_tier")
         return data["choices"][0]["message"]["content"] or "", usage
 
     @staticmethod
@@ -774,31 +776,17 @@ def parse_decision(text: str) -> dict:
 
 
 def parse_json_object(text: str, key: str) -> dict | None:
-    """The first JSON object in `text` that has `key`, or None."""
+    """The first JSON object in `text` that has `key`, or None. Text around the object (prose, code fences) is
+    skipped; the standard decoder reads each candidate, so braces and escaped quotes inside strings are fine."""
+    decoder = json.JSONDecoder()
     start = text.find("{")
     while start != -1:
-        depth, in_str, esc = 0, False, False
-        for i in range(start, len(text)):
-            ch = text[i]
-            if in_str:
-                esc = (ch == "\\") and not esc
-                if ch == '"' and not esc:
-                    in_str = False
-                continue
-            if ch == '"':
-                in_str = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        d = json.loads(text[start:i + 1])
-                        if isinstance(d, dict) and key in d:
-                            return d
-                    except json.JSONDecodeError:
-                        pass
-                    break
+        try:
+            d, _ = decoder.raw_decode(text, start)
+            if isinstance(d, dict) and key in d:
+                return d
+        except json.JSONDecodeError:
+            pass
         start = text.find("{", start + 1)
     return None
 
@@ -941,8 +929,8 @@ class LLMAgent:
         line = (f"{t.get('hour', '?')}:{t.get('minute', 0):02d} at {you.get('location', '?')}, "
                 f"satiety {you.get('satiety', '?')}, health {you.get('health', '?')}, coins {you.get('coins', '?')}")
         news = [str(n)[:300] for n in obs.get("news", [])]
-        if news:
-            line += "\nNews: " + " | ".join(news)
+        if news:  # a JSON list, as in the full observation: quoted speech cannot pass for another news line
+            line += "\nNews: " + json.dumps(news, ensure_ascii=False)
         if obs.get("last_error"):
             line += f"\nYour last action failed: {obs['last_error']}"
         return line
@@ -986,7 +974,7 @@ class LLMAgent:
         self.villagers |= {v["name"] for v in obs.get("board", {}).get("villagers", [])} - {self.name}
         t = obs.get("time", {})
         hm = f"{t.get('hour', '?')}:{t.get('minute', 0):02d}"
-        lines = [f"{hm} news: {n}" for n in obs.get("news", [])]
+        lines = [f"{hm} news: {json.dumps(str(n), ensure_ascii=False)}" for n in obs.get("news", [])]
         if obs.get("last_error"):
             lines.append(f"{hm} failed: {obs['last_error']}")
         act = dec.get("action") if isinstance(dec.get("action"), dict) else {}  # a model may send a bare string
@@ -994,7 +982,7 @@ class LLMAgent:
         if act.get("args"):
             line += " " + json.dumps(act["args"])
         if dec.get("say"):
-            line += f', said "{dec["say"]}"'
+            line += ", said " + json.dumps(str(dec["say"]), ensure_ascii=False)
         if dec.get("thought"):
             line += f" (thinking: {dec['thought']})"
         self.day_log.extend(l[:300] for l in lines + [line])  # as long as the news lines it carries
@@ -1033,20 +1021,28 @@ class LLMAgent:
         return dec
 
     def _decide(self, obs: dict) -> dict:
+        t0 = time.monotonic()
         try:
             text, usage = self.client.complete(self.messages(obs))
         except Exception as e:  # a dead provider must never stop the village
             self.usage.failures += 1
-            return {"thought": f"(model error: {e})"[:200], "action": {"name": "wait"}}
+            return {"thought": f"(model error: {e})"[:200], "action": {"name": "wait"},
+                    "call": {"model": None, "ms": round((time.monotonic() - t0) * 1000), "tries": 1}}
         self.usage.add(usage)
         dec = parse_decision(text)
+        tries = 1
         if "parse_error" in dec:  # one retry: cheap models sometimes cut a reply short
             try:
+                tries = 2
                 text, usage = self.client.complete(self.messages(obs))
                 self.usage.add(usage)
                 dec = parse_decision(text)
             except Exception:
                 pass
+        # Who actually answered (a fallback shows here, not only in the per-run totals) and how long it took.
+        dec["call"] = {"model": usage.get("answered") or usage.get("model") or getattr(self.client, "model", None),
+                       "ms": round((time.monotonic() - t0) * 1000), "tries": tries,
+                       **({"tier": usage["tier"]} if usage.get("tier") else {})}
         act = dec.get("action") if isinstance(dec.get("action"), dict) else {}
         t = obs.get("time", {})
         self.recent = (self.recent + [f"{t.get('hour', '?')}:{t.get('minute', 0):02d} {act.get('name')} {json.dumps(act.get('args') or {})}"])[-3:]

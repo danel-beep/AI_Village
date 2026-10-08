@@ -89,6 +89,10 @@ class LiveSim:
         self.budget_poll = 1.0  # seconds between checks for the next real day while paused
         self._spent_seen: float | None = None  # model cost already counted toward the daily cap
         self._own_today: tuple[str, float] = ("", 0.0)  # this village's share today (if spend.json is unwritable)
+        # Budget pacing: the least real seconds the next tick takes so today's money lasts the whole day
+        # (budget.pace_seconds); the watch pace (`pace`) still applies when it is slower.
+        self.budget_pace = 0.0
+        self._last_checkpoint: float | None = None
         self.log_meta = meta  # extra log header fields (a scenario run: its starting world, aivillage/scenario.py)
         # Saves (aivillage/saves.py): `<log>.save.json`, taken between ticks on request, every game hour,
         # when the village is stopped and when it ends. `resume_header`: this sim continues a loaded save.
@@ -203,7 +207,11 @@ class LiveSim:
     def _wait(self) -> None:
         """Pace the sim so people can watch; block while paused. `pace` is seconds per game hour."""
         per_tick = self.pace / clock.per_hour(self.world.config)
-        deadline = time.monotonic() + per_tick
+        now = time.monotonic()
+        # The budget counts the whole tick, the models' thinking included: wait only for the rest of it.
+        since = now - self._last_checkpoint if self._last_checkpoint is not None else 0.0
+        deadline = now + max(per_tick, self.budget_pace - since)
+        day = budget.today()
         while not self.stopping:
             self._serve_saves()  # "save" pressed while paused
             if not self.running.is_set():
@@ -211,7 +219,8 @@ class LiveSim:
                 deadline = time.monotonic() + per_tick
                 continue
             left = deadline - time.monotonic()
-            if left <= 0:
+            if left <= 0 or budget.today() != day:  # a new real day brings fresh money: no budget wait
+                self._last_checkpoint = time.monotonic()
                 return
             time.sleep(min(left, 0.1))
         self._save_quietly()  # closing a village keeps it: it can be continued from the start screen
@@ -231,7 +240,8 @@ class LiveSim:
         own = self._own_today[1] if self._own_today[0] == budget.today() else 0.0
         return max(budget.spent_today(), own)
 
-    def _count_spending(self) -> None:
+    def _count_spending(self) -> float:
+        """Add what the models cost since the last check to today's total; returns that cost."""
         now = self.spent()
         if self._spent_seen is None:  # a loaded save's villagers bring the cost of earlier days: not today's
             self._spent_seen = now
@@ -240,15 +250,25 @@ class LiveSim:
             day = budget.today()
             self._own_today = (day, (self._own_today[1] if self._own_today[0] == day else 0.0) + delta)
             budget.add(delta)
+        return max(0.0, delta)
 
     def _check_budget(self) -> None:
         """Before every tick: once today's spending reaches the cap, wait for the next real day (saves and
         "stop" still work). The village goes on by itself; it is not stopped."""
         if self.daily_budget <= 0:
+            self.budget_pace = 0.0
             return
-        self._count_spending()
+        cost = self._count_spending()
         if self._spent_today() < self.daily_budget:
+            pace = budget.pace_seconds(cost, self.daily_budget, self._spent_today(), budget.seconds_left_today())
+            slow = pace > self.pace / clock.per_hour(self.world.config)
+            if slow != (self.budget_pace > self.pace / clock.per_hour(self.world.config)):
+                self._publish({"type": "budget_pace", "tick": self.world.tick, "slow": slow,
+                               "seconds": round(pace, 1), "text": "Темп по бюджету: деньги растянуты до конца суток."
+                               if slow else "Темп обычный."})
+            self.budget_pace = pace
             return
+        self.budget_pace = 0.0
         day = budget.today()
         self.budget_paused = True
         self._publish({"type": "budget_pause", "tick": self.world.tick, "cap": self.daily_budget,
@@ -495,6 +515,7 @@ class LiveSim:
                 "view_lag_ticks": self.view_lag_ticks,
                 "paused": not self.running.is_set(), "pace": self.pace, "finished": self.finished,
                 "budget_paused": self.budget_paused, "daily_budget": self.daily_budget,
+                "budget_pace": round(self.budget_pace, 1),
                 "error": self.error, "last_save": self.last_save,
                 "log_name": Path(self.log_path).stem if self.log_path else None}
 
