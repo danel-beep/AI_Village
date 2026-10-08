@@ -224,8 +224,7 @@ def _workshop_bonus(ctx: Ctx, ev: ops.Event, names: list[str]) -> None:
         return
     from . import crafting
     fits = {r.get("building")} | set(r.get("more_at", {}))
-    here = [x for x in crafting.workshops_at(w, a.location) if x["kind"] in fits
-            and (x.get("users") is None or a.name in x["users"])]
+    here = [x for x in crafting.workshops_at(w, a.location) if x["kind"] in fits and crafting._may_use(x, a.name)]
     best = max(((int(_row(cfg, x["kind"], x["level"]).get("extra_per_batch", 0)), x) for x in here),
                default=(0, None), key=lambda t: t[0])
     if best[0] <= 0:
@@ -346,7 +345,8 @@ def effect_text(cfg: dict, kind: str, lvl: int) -> str:
         parts.append("a roof to sleep under")
     if row.get("food_keeps_x"):
         what = "/".join(row["food_items"]) if row.get("food_items") else "food"
-        parts.append(f"{what} in the owner's store keeps {row['food_keeps_x']}x as long")
+        parts.append(f"{what} in the owner's store keeps {row['food_keeps_x']}x as long" if spoilage.enabled(cfg)
+                     else f"keeps {what} longer, but food does not spoil in this village, so it changes nothing")
     if row.get("sell_bonus"):
         parts.append(f"the trader pays {row['sell_bonus']:.0%} more")
     if row.get("defense"):

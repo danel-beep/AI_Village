@@ -55,6 +55,10 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Больше пяти: новые жители получают имена и профессии сами, ресурсов в мире больше."},
     {"key": "days", "group": "Деревня", "type": "range", "label": "Сколько игровых дней",
      "min": 1, "max": 60, "step": 1, "default": 3, "unit": " дн."},
+    {"key": "daily_budget", "group": "Деревня", "type": "range", "label": "Бюджет в сутки, $", "only": "llm",
+     "min": 0.5, "max": 50, "step": 0.5, "default": 5.0, "unit": " $",
+     "hint": "Сколько можно потратить на ИИ за одни настоящие сутки (все деревни вместе). Потратили: деревня "
+             "ставится на паузу и сама продолжает на следующий день."},
     {"key": "bot_mix", "group": "Деревня", "type": "choice", "label": "Какие боты", "only": "bots",
      "default": "mixed", "options": [["mixed", "Смешанные"], ["workers", "Трудяги"], ["traders", "Торговцы"],
                                      ["thieves", "Много воров"], ["homestead", "Хозяйственные"]]},
@@ -529,7 +533,7 @@ HINTS = {
 
 # Start-screen layout (viewer/setup.js). MAIN: the few knobs always shown at the top; the rest sit in folded
 # SECTIONS (title, one-line about, keys in order). A knob in neither lands in a section named by its own `group`.
-MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days"]
+MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, память, свои цели и что жители видят друг о друге.",
      ["characters", "own_goals", "llm_memory", "craft_hint", "summaries", "luxury", "hungry_seen_below",
@@ -770,4 +774,5 @@ def to_run(opts: dict) -> dict:
             _set(override, f"seasons.{k}", v)
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
-            "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"], "values": val}
+            "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"],
+            "daily_budget": val["daily_budget"], "values": val}

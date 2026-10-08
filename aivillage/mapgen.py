@@ -722,7 +722,7 @@ def _scale(spec: dict, f: float, objects: float = 1.0) -> dict:
     out = dict(spec)
     for k in ("start", "max", "regen"):
         if k in out:
-            out[k] = max(1, round(out[k] * f))
+            out[k] = max(1, round(out[k] * f)) if out[k] else 0  # a mine with no gold regrowth keeps none
     if "slots" in out:
         out["slots"] = max(1, min(round(out["slots"] * objects), out["max"]))
     out["start"] = min(out.get("start", 0), out.get("max", out.get("start", 0)))

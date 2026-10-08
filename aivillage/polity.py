@@ -18,7 +18,9 @@ Rules, in the order a villager meets them:
   members), expel (a member leaves and may not join again for `expel_days`). A new polity taxes nothing: whether
   there is a tax, how much and how often is only what its laws say (no world rule taxes anyone).
 - sign_petition(form): when more than half of the members signed for the same form, the polity takes it (open
-  proposals lapse) and elects its council or ruler anew. So no form lasts unless the members keep it.
+  proposals lapse) and elects its council, ruler or treasurer anew: a petition for the form the polity already
+  has is a recall that removes the current leaders and the treasury holder (with an audit on handover). So no
+  form lasts unless the members keep it.
 - Tax day (every `tax_every` days per polity): a member's bill is tax + income_tax% + wealth_tax%;
   laws.enforcement "auto" takes it (what they lack stays unpaid, said in public); "voluntary" writes a bill in
   the debt book owed to the polity's treasury, paid with pay_bill or left unpaid (public when overdue). Nobody
@@ -369,9 +371,10 @@ class PetitionArgs(BaseModel):
     form: Literal["assembly", "council", "ruler"]
 
 
-@ACTIONS.action("sign_petition", "Sign a petition that your polity take this form of government (the same form "
-                "elects its council or ruler anew). It happens when more than half of the members signed for it; "
-                "signing again moves your signature.", PetitionArgs,
+@ACTIONS.action("sign_petition", "Sign a petition that your polity take this form of government. It happens when more "
+                "than half of the members signed for it: all leaders and the treasury holder lose office (the "
+                "treasury is counted in public when it changes hands) and new ones are elected. A petition for the "
+                "current form is a recall of the current leaders and treasurer. Signing again moves your signature.", PetitionArgs,
                 available=lambda c, a: enabled(c.cfg) and bool((of(c.world, a.name) or {}).get("form")))
 def sign_petition(ctx: Ctx, a: Agent, args: PetitionArgs) -> None:
     p = _member(ctx, a)
@@ -392,7 +395,8 @@ def sign_petition(ctx: Ctx, a: Agent, args: PetitionArgs) -> None:
     p["proposals"] = {}
     p["ballot"].pop("leader", None)
     ctx.emit("polity_form", f"Petition signed by {len(signed)} of {len(p['members'])} members ({', '.join(signed)}): "
-             f"{title(p)} is now a {args.form} ({form_text(ctx.cfg, args.form)}), it was a {old}."
+             + (f"{title(p)} stays a {args.form} and re-elects its leaders." if old == args.form else
+                f"{title(p)} is now a {args.form} ({form_text(ctx.cfg, args.form)}), it was a {old}.")
              + (f" Open proposals lapse: {', '.join(lapsed)}." if lapsed else ""), actor=a.name,
              visibility="public", polity=p["id"], form=args.form, old_form=old, signed=signed)
     _open_leaders(ctx, p, "the form changed")
@@ -789,7 +793,8 @@ def facts(cfg: dict) -> str:
             f"polity's name, its coin name (the coins are the same everywhere), its form of government and who "
             f"leads it; the ballot closes after {c['vote_hours']} hours. Forms: assembly ({form_text(cfg, 'assembly')}); "
             f"council ({form_text(cfg, 'council')}); ruler ({form_text(cfg, 'ruler')}). More than half of the "
-            "members can change the form with sign_petition. Laws: tax (coins per member every tax day), income_tax "
+            "members can change the form with sign_petition; any completed petition, even for the current form, removes "
+            "all leaders and the treasury holder and elects new ones (a recall). Laws: tax (coins per member every tax day), income_tax "
             "(percent of the coins a member got from the trader and orders since the last tax day), wealth_tax "
             "(percent of a member's coins on tax day), tax_every (days between tax days, "
             f"{cfg['tax_every_days']} until a law sets it), fine, grant, payout, expel (no rejoining for {c['expel_days']} days)" + (", title" if honors.enabled(cfg) else "")
