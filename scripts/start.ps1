@@ -1,6 +1,8 @@
 ﻿# AI Village launcher for Windows. install.ps1 puts a Desktop shortcut "AI Village" to this file.
 # Each start: get uv (it brings Python), refresh the code from GitHub, open the Russian menu
 # (aivillage/launcher.py). Key and runs live in %USERPROFILE%\AIVillage.
+# The code is the `stable` tag (CI moves it to main only after the tests pass), and the
+# packages are the exact versions from uv.lock (`--frozen`), so a broken main never reaches players.
 $Repo = "danel-beep/ai_village"
 $HomeDir = Join-Path $env:USERPROFILE "AIVillage"
 $App = Join-Path $HomeDir "app"
@@ -25,7 +27,7 @@ Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Tmp | Out-Null
 try {
     $Zip = Join-Path $Tmp "game.zip"
-    Invoke-WebRequest "https://codeload.github.com/$Repo/zip/refs/heads/main" -OutFile $Zip -UseBasicParsing
+    Invoke-WebRequest "https://codeload.github.com/$Repo/zip/refs/tags/stable" -OutFile $Zip -UseBasicParsing
     Expand-Archive $Zip -DestinationPath $Tmp -Force
     $New = Get-ChildItem $Tmp -Directory | Select-Object -First 1
     Remove-Item -Recurse -Force $App -ErrorAction SilentlyContinue
@@ -37,5 +39,6 @@ try {
 Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 
 Set-Location $App
-uv run --quiet --python 3.12 --extra live python -m aivillage.launcher --home $HomeDir
+$Frozen = @(); if (Test-Path "uv.lock") { $Frozen = @("--frozen") }
+uv run --quiet @Frozen --python 3.12 --extra live python -m aivillage.launcher --home $HomeDir
 if ($LASTEXITCODE -ne 0) { Read-Host "Нажмите Enter, чтобы закрыть окно" }

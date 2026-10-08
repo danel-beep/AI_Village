@@ -1,7 +1,9 @@
 #!/bin/sh
 # AI Village launcher for macOS / Linux. install.sh copies this file to the Desktop as
 # "AI Village.command". Each start: get uv (it brings Python), refresh the code from GitHub,
-# open the Russian menu (aivillage/launcher.py). Key and runs live in ~/AIVillage.
+# open the app (aivillage/launcher.py). Key and runs live in ~/AIVillage.
+# The code is the `stable` tag (CI moves it to main only after the tests pass), and the
+# packages are the exact versions from uv.lock (`--frozen`), so a broken main never reaches players.
 REPO="danel-beep/ai_village"
 HOME_DIR="$HOME/AIVillage"
 APP="$HOME_DIR/app"
@@ -20,7 +22,7 @@ fi
 echo "Проверяю обновления игры..."
 TMP="$HOME_DIR/.download"
 rm -rf "$TMP" && mkdir -p "$TMP"
-if curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/main" | tar xz -C "$TMP" 2>/dev/null; then
+if curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/tags/stable" | tar xz -C "$TMP" 2>/dev/null; then
   rm -rf "$APP.old"; [ -d "$APP" ] && mv "$APP" "$APP.old"
   mv "$TMP"/*/ "$APP" && rm -rf "$APP.old"
 elif [ ! -d "$APP" ]; then
@@ -31,4 +33,5 @@ fi
 rm -rf "$TMP"
 
 cd "$APP" || exit 1
-uv run --quiet --python 3.12 --extra live python -m aivillage.launcher --home "$HOME_DIR" || pause
+FROZEN=""; [ -f uv.lock ] && FROZEN="--frozen"
+uv run --quiet $FROZEN --python 3.12 --extra live python -m aivillage.launcher --home "$HOME_DIR" || pause

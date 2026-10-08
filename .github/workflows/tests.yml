@@ -20,3 +20,27 @@ jobs:
           python-version: "3.11"
       - run: pip install "pydantic>=2" "pyyaml>=6" "pytest>=8"
       - run: python -m pytest -q
+
+  lock:
+    # uv.lock pins the exact packages the desktop launcher installs (`uv run --frozen`);
+    # it must match pyproject.toml, or the launcher would refuse to start.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv lock --check
+
+  stable-tag:
+    # The launcher downloads the `stable` tag, so players only get commits whose tests passed.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [pytest, lock]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git tag -f stable "$GITHUB_SHA"
+          git push -f origin refs/tags/stable
