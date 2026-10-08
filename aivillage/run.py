@@ -391,7 +391,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
                              character=character,
                              own_goals=bool(world.config.get("own_goals", True)),
-                             memory=world.config.get("llm_memory", "day"))
+                             memory=world.config.get("llm_memory", "day"),
+                             obs_mode=world.config.get("llm_obs", "changes"))
     return out
 
 
