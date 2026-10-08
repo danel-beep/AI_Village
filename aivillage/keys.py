@@ -125,7 +125,7 @@ def public(h: Path | None = None) -> dict:
     """Settings for the viewer: keys masked, plus where each value came from."""
     saved = load(h)
     out: dict = {"provider": provider(h), "model": get("model", h) or "", "parallel": get("parallel", h) or "",
-                 "openai_tier": get("openai_tier", h) or "flex"}
+                 "openai_tier": get("openai_tier", h) or "default"}
     for k in ("openai_key", "openrouter_key"):
         v = get(k, h)
         out[k] = {"set": bool(v), "masked": mask(v), "from": "file" if saved.get(k) else ("env" if v else "")}

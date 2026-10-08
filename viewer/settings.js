@@ -48,8 +48,8 @@
     <input id="st-model" type="text" autocomplete="off">
     <label>Тариф OpenAI</label>
     <select id="st-tier">
+      <option value="default">Обычный: ход ~3 с</option>
       <option value="flex">Экономный: в 2 раза дешевле, ход думает дольше (~10 с вместо ~3 с)</option>
-      <option value="default">Обычный: быстрее, в 2 раза дороже</option>
     </select>
     <label>Сколько жителей думают одновременно (для OpenAI)</label>
     <input id="st-parallel" type="number" min="1" max="64" placeholder="16">
@@ -88,7 +88,7 @@
     $('st-model').value = s.model || '';
     $('st-model').placeholder = s.default_model || '';
     $('st-parallel').value = s.parallel || '';
-    $('st-tier').value = s.openai_tier || 'flex';
+    $('st-tier').value = s.openai_tier || 'default';
     $('st-openai').value = $('st-openrouter').value = '';
     clear.length = 0;
     savedLine('st-openai-saved', 'openai_key', s.openai_key);
