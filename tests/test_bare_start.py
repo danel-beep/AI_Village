@@ -83,7 +83,8 @@ def test_start_stage_knob_only_in_survival():
     k = next(k for k in knobs.active() if k["key"] == "start_stage")
     assert k["mode"] == "survival" and [o[0] for o in k["options"]] == progress.stage_ids(knobs.DEFAULT_CONFIG)
     r = knobs.to_run({"mode": "survival", "start_stage": "village"})
-    assert r["override"]["progress"] == {"enabled": True, "start_stage": "village"}
+    assert r["override"]["progress"] == {"enabled": True, "start_stage": "village",
+                                          "unlocks": {"feature:raids": {"stage": "hamlet"}}}
     assert progress.stage(engine.new_world(r["override"])) == "village"
 
 
