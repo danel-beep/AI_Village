@@ -382,7 +382,7 @@ def to_markdown(rep: dict) -> str:
 
 
 # Identical bots, survival, 30 seeds: a random 2-of-6 group differed from the rest by more than 20% in wealth in
-# 65% of cases and in building hours in 48% (fairness audit, docs/STATUS.md). Below this many seeds, say so.
+# 65% of cases and in building hours in 48% (fairness audit, docs/changelog/status-archive-2026-10-08.md). Below this many seeds, say so.
 FEW_SEEDS = 5
 
 
