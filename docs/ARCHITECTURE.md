@@ -30,7 +30,7 @@ Start from this map; per-module details are in `docs/modules.md` (read only the 
 | Numbers, presets | `config.py`, `modes.py` + `presets/*.yaml` (the one «С нуля» world, presets on top), `knobs.py` (settings shown in the app), `runconfig.py` |
 | Villager prompt and model calls | `llm.py` (`SYSTEM`, `world_facts`, JSON parsing, memory, cache), `handbook.py`, `talk.py`, `addressed.py`, `budget.py`, `keys.py` |
 | Bots | `bots.py` |
-| Run loop, log, snapshot | `run.py` (`view`, `llm_agents`, log header), `saves.py`, `session.py`, `population.py`, `scenario.py` + `scenarios/*.yaml` |
+| Run loop, log, snapshot | `run.py` (`view`, `llm_agents`, log header), `logio.py` (view deltas; read logs only through `read_log`), `saves.py`, `session.py`, `population.py`, `scenario.py` + `scenarios/*.yaml` |
 | Economy | `market.py`, `pricing.py`, `merchant.py`, `crafting.py`, `labor.py`, `hire.py`, `spoilage.py`, `transport.py`, `dice.py`, `luxury.py` |
 | Land, building, map | `land.py`, `plots.py`, `settle.py`, `construction.py`, `works.py`, `tiles.py`, `mapgen.py`, `explore.py`, `places.py`, `progress.py` |
 | Power and money | `governance.py`, `polity.py`, `taxes.py`, `debts.py`, `theft.py` |

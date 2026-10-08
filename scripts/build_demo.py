@@ -7,7 +7,7 @@ highlights (<log>.highlights.json; picked by rules if missing, see aivillage/hig
 --fragment drops the <html>/<head>/<body> wrapper (for hosts that add their own).
 Every tick's view is a full snapshot, but most of it (map, plots, social, honors...) rarely changes: a view key equal
 to the previous tick's is left out and named in "_keep", and the viewer (Viewer.push) takes it from the previous
-tick. A 40-day log goes from ~34 MB to a few MB. The log file itself is untouched.
+tick (aivillage/logio.py; live logs are written this way too). A 40-day log goes from ~34 MB to a few MB.
 """
 import json
 import re
@@ -16,24 +16,15 @@ from pathlib import Path
 
 log, out = Path(sys.argv[1]), Path(sys.argv[2])
 viewer = Path(__file__).parent.parent / "viewer"
+sys.path.insert(0, str(viewer.parent))
+from aivillage.logio import ViewDeltas, parse  # noqa: E402
 html = (viewer / "index.html").read_text()
 
 
 def slim(lines):
-    prev = {}
-    for line in lines:
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        view = row.get("view") if row.get("type") == "tick" else None
-        if isinstance(view, dict):
-            enc = {k: json.dumps(v, sort_keys=True) for k, v in view.items()}
-            keep = [k for k in view if prev.get(k) == enc[k]]
-            if keep:
-                row["view"] = {k: v for k, v in view.items() if k not in keep}
-                row["_keep"] = keep
-            prev = enc
-        yield json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+    deltas = ViewDeltas()
+    for row in parse(lines):  # a log written with deltas already: whole views first, then one chain of deltas
+        yield json.dumps(deltas.compact(row), ensure_ascii=False, separators=(",", ":"))
 
 
 embed = "<script>window.EMBEDDED_LOG = " + json.dumps("\n".join(slim(log.read_text().splitlines()))).replace("</", "<\\/") + ";</script>\n"
@@ -42,7 +33,6 @@ if tr.exists():
     embed += "<script>window.EMBEDDED_TR = " + tr.read_text().replace("</", "<\\/") + ";</script>\n"
 hl = log.with_name(log.name.removesuffix(".jsonl") + ".highlights.json")
 if not hl.exists():  # no sidecar from a live run: pick highlights by rules (free, no model)
-    sys.path.insert(0, str(viewer.parent))
     from aivillage import highlights
     highlights.main([str(log), "--model", "stub"])
 if hl.exists():

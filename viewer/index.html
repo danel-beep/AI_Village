@@ -157,10 +157,23 @@ function load(text) {
 }
 window.Viewer = { start, push, load, setPlaying };
 // Live feed (viewer/live.js): append a row and keep following if the viewer was at the newest ticks.
+// A 24/7 stream never ends, so live mode keeps a window of the newest ticks (~60 game days of quarter hours, about
+// the server's backlog): past it the oldest chunk is dropped. Older days stay in the log file and its replay.
+const LIVE_WINDOW = 6000, LIVE_DROP = 1000;
+function trimLive() {
+  if (ticks.length <= LIVE_WINDOW) return;
+  const n = Math.min(LIVE_DROP, ticks.length - 2);
+  ticks.splice(0, n); i = Math.max(0, i - n);
+  for (const d of diaries) d.at = Math.max(-1, d.at - n);   // tick indices shift; a diary before the window stays read
+  document.getElementById('scrub').max = ticks.length - 1; lastPanel = -1;
+  if (window.Efir) { Efir.reset(); for (let k = 0; k < ticks.length; k++) Efir.add(k); }   // Efir keeps tick indices
+  window.dispatchEvent(new CustomEvent('viewer-trim', { detail: n }));
+}
 window.viewerAppend = row => {
   live = true;
   const follow = i >= ticks.length - 7; push(row);
   if (follow && row.view && !userPaused) { if (ticks.length - 1 - i > 6) { i = ticks.length - 2; frac = 0; } playing = true; }
+  if (row.view) trimLive();
 };
 // Translations: sidecar <log>.ru.json from aivillage/translate.py maps original text -> Russian.
 let TR = null, lang = 'en';
