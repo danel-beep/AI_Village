@@ -101,6 +101,8 @@ class Offer:
     # Left out of the dict when empty, so old saves, logs and hashes stay the same.
     i_owe: dict[str, int] = field(default_factory=dict)
     due_day: int = 0
+    # A loan offer (`lend`): on accept the receiver owes these coins by due_day. Dropped when empty, like i_owe.
+    you_owe: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -354,9 +356,13 @@ class World:
             del d["addressed"]
         if not d["merchant"]:  # merchant off or not come yet: same dict and hash as before the field existed
             del d["merchant"]
-        for o in d["offers"].values():  # plain offers and coin debts: same dict and hash as before
+        for o in d["offers"].values():  # plain offers, IOUs and loans: same dict and hash as before
+            if not o["you_owe"]:
+                del o["you_owe"]
+                if not o["i_owe"]:
+                    del o["due_day"]
             if not o["i_owe"]:
-                del o["i_owe"], o["due_day"]
+                del o["i_owe"]
         for x in d["debts"].values():
             if not x["items_owed"]:
                 del x["items_owed"]

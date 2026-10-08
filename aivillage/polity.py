@@ -814,8 +814,12 @@ def after_night(ctx: Ctx) -> None:
 
 def observe(world: World, name: str) -> dict:
     cfg = world.config
-    if not enabled(cfg) or not progress.unlocked(world, f"action:{ACTION_NAMES[0]}"):
+    if not enabled(cfg):
         return {}
+    # the village-wide government's actions are off: keep them out of the handbook too (llm.LLMAgent)
+    locked = sorted(set(progress.locked_actions(world)) | set(governance.REPLACED))
+    if not progress.unlocked(world, f"action:{ACTION_NAMES[0]}"):
+        return {"locked_actions": locked}
     out = []
     for p in world.polities.values():
         row = {"id": p["id"], "name": p["name"], "coin_name": p["coin"], "town_hall_at": p["location"],
@@ -863,8 +867,7 @@ def observe(world: World, name: str) -> dict:
                 row["signatures_to_change_form"] = len(p["members"]) // 2 + 1
         out.append(row)
     res = {"polities": out} if out else {}
-    # the village-wide government's actions are off: keep them out of the handbook too (llm.LLMAgent)
-    res["locked_actions"] = sorted(set(progress.locked_actions(world)) | set(governance.REPLACED))
+    res["locked_actions"] = locked
     return res
 
 

@@ -8,10 +8,13 @@
 from __future__ import annotations
 
 import argparse
+import functools
+import hashlib
 import json
 import os
 import sys
 import random
+import subprocess
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -25,6 +28,22 @@ from .logio import ViewDeltas, read_log  # noqa: F401  (read_log: the public rea
 from .state import World
 
 LOG_VERSION = 1
+
+
+@functools.lru_cache(maxsize=1)
+def code_version() -> dict:
+    """Which code played a log: the git commit when run from a checkout (None from the launcher's download) and a
+    hash of the package sources, which also tells two downloads apart. Rules and prompts live in the code."""
+    pkg = Path(__file__).resolve().parent
+    h = hashlib.sha256()
+    for p in sorted(pkg.rglob("*.py")):
+        h.update(p.relative_to(pkg).as_posix().encode() + b"\0" + p.read_bytes())
+    try:
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=pkg, capture_output=True, text=True,
+                                timeout=5).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        commit = None
+    return {"commit": commit, "source": h.hexdigest()[:16]}
 
 # decide(name, observation) -> decision
 DecideFn = Callable[[str, dict], dict]
@@ -79,7 +98,8 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
         if on_record:
             on_record(resume_header)
     else:
-        emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(), **meta})
+        emit({"type": "header", "version": LOG_VERSION, "config": world.config, "hash": world.hash(),
+              "code": code_version(), **meta})
     stats: Counter = Counter()
     end_day = world.day + days
     try:
@@ -148,6 +168,13 @@ def decide_all(world: World, decide: DecideFn, asked: list[str], observations: d
         for part in pool.map(take_turns, jobs):
             results.update(part)
     return {n: results[n] for n in asked}
+
+
+def hidden_actions(cfg: dict) -> frozenset[str]:
+    """Actions the villagers' prompt leaves out under this config (switched off, or their mechanic is off)."""
+    return frozenset(cfg.get("disabled_actions") or ()) | animals.hidden_actions(cfg) | transport.hidden_actions(cfg) \
+        | hire.hidden_actions(cfg) | construction.hidden_actions(cfg) | land.hidden_actions(cfg) \
+        | settle.hidden_actions(cfg) | crafting.hidden_actions(cfg) | merchant.hidden_actions(cfg)
 
 
 def brains_of(decide: DecideFn) -> dict[str, str]:
@@ -391,11 +418,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if not models:
         return {}
     from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
-    off = frozenset(world.config.get("disabled_actions") or ()) | animals.hidden_actions(world.config) \
-        | transport.hidden_actions(world.config) \
-        | hire.hidden_actions(world.config) | construction.hidden_actions(world.config) \
-        | land.hidden_actions(world.config) | settle.hidden_actions(world.config) \
-        | crafting.hidden_actions(world.config) | merchant.hidden_actions(world.config)
+    off = hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")
@@ -412,7 +435,9 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
                 character = remote.OWNER_CHARACTER
         else:
             client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
-        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts, disabled_actions=off,
+        out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts,
+                             facts_cfg=world.config if world.config.get("llm_facts", "open") == "open" else None,
+                             disabled_actions=off,
                              character=character,
                              own_goals=bool(world.config.get("own_goals", True)),
                              memory=world.config.get("llm_memory", "day"),

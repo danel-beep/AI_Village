@@ -149,6 +149,7 @@ def test_lend_repay_and_default(w):
     put(w, "Anna", "square")
     put(w, "Boris", "square")
     act(w, "Anna", "lend", to="Boris", coins=10, repay_coins=12, due_day=2)
+    act(w, "Boris", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     d = next(iter(w.debts.values()))
     assert w.agents["Boris"].coins == 30
     act(w, "Boris", "repay", debt_id=d.id, coins=5)
