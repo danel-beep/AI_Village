@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import socket
 import threading
 import webbrowser
@@ -36,6 +37,40 @@ def open_later(url: str, delay: float = 2.0) -> None:
     threading.Timer(delay, lambda: webbrowser.open(url)).start()
 
 
+def refresh_start_scripts(home: Path, app: Path | None = None, desktop: Path | None = None) -> list[Path]:
+    """Copy the start scripts shipped with this code over the installed ones that differ.
+
+    The desktop icon runs a copy made at install time, so without this an old icon would keep
+    downloading whatever it was written to download. Only runs from an installed app
+    (<home>/app). Each file is replaced by rename, so a script that is running right now keeps
+    reading its old copy. Returns the files that were updated.
+    """
+    app = (app or Path(__file__).resolve().parents[1]).resolve()
+    if app != (home / "app").resolve():
+        return []
+    desktop = desktop or Path.home() / "Desktop"
+    targets = [(app / "scripts" / "start.sh", [home / "start.sh", desktop / "AI Village.command",
+                                               home / "AI Village.command"]),
+               (app / "scripts" / "start.ps1", [home / "start.ps1"])]
+    updated = []
+    for src, dests in targets:
+        if not src.is_file():
+            continue
+        new = src.read_bytes()
+        for dest in dests:
+            try:
+                if not dest.is_file() or dest.read_bytes() == new:
+                    continue
+                tmp = dest.with_name(dest.name + ".new")
+                tmp.write_bytes(new)
+                shutil.copymode(dest, tmp)
+                os.replace(tmp, dest)
+                updated.append(dest)
+            except OSError:
+                continue
+    return updated
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="AI Village launcher: opens the app in the browser.")
     p.add_argument("--home", default=str(Path.home() / "AIVillage"), help="where keys, runs and reports are kept")
@@ -44,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     home = Path(a.home)
     os.environ["AIVILLAGE_HOME"] = a.home  # the server and LLM clients read keys from there
     (home / "runs").mkdir(parents=True, exist_ok=True)
+    refresh_start_scripts(home)
 
     from . import server
 

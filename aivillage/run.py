@@ -57,10 +57,13 @@ class JsonlLog:
             self.f = open(path, "a" if append else "w", encoding="utf-8")
         self.deltas = ViewDeltas()  # tick views as deltas (aivillage/logio.py); an appended run starts whole
 
-    def write(self, rec: dict) -> None:
+    def write(self, rec: dict) -> str:
+        """Write one record (a tick view as a delta); returns the whole record's JSON line, without the newline."""
+        line = json.dumps(rec, ensure_ascii=False)
         if self.f:
             self.f.write(json.dumps(self.deltas.compact(rec), ensure_ascii=False) + "\n")
             self.f.flush()  # a problem report can zip the log mid-run
+        return line
 
     def close(self) -> None:
         if self.f:
@@ -90,9 +93,9 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
     llm = getattr(decide, "agents", None) or {}
 
     def emit(rec: dict) -> None:
-        log.write(rec)
-        if on_record:
-            on_record(rec)
+        line = log.write(rec)
+        if on_record:  # a copy read back from the line: `view` holds live world containers that change later
+            on_record(json.loads(line))
 
     if resume_header is not None:
         if on_record:

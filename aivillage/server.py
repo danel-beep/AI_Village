@@ -106,6 +106,7 @@ class LiveSim:
         self.budget_poll = 1.0  # seconds between checks for the next real day while paused
         self._spent_seen: float | None = None  # model cost already counted toward the daily cap
         self._own_today: tuple[str, float] = ("", 0.0)  # this village's share today (if spend.json is unwritable)
+        self._count_lock = threading.Lock()  # recaps and highlights finish on their own threads
         # Budget pacing: the least real seconds the next tick takes so today's money lasts the whole day
         # (budget.pace_seconds); the watch pace (`pace`) still applies when it is slower.
         self.budget_pace = 0.0
@@ -175,6 +176,7 @@ class LiveSim:
         except Exception as e:  # surface crashes in the viewer instead of dying silently
             self.error = f"{type(e).__name__}: {e}"
             self._publish({"type": "error", "text": self.error})
+        self._count_spending()  # the last tick and the last night: no checkpoint after them
         self.finished = True
         self._serve_saves()  # whoever asked to save while the last tick ran
         if self.log_path:  # end-of-run scorecard next to the log (aivillage/scorecard.py)
@@ -197,6 +199,7 @@ class LiveSim:
         if last_day is not None:
             self._end_of_day(last_day)
         self.save_session("error" if self.error else "finished")
+        self._count_spending()
 
     def _on_record(self, rec: dict) -> None:
         if rec["type"] == "header":
@@ -259,24 +262,26 @@ class LiveSim:
         return max(budget.spent_today(), own)
 
     def _count_spending(self) -> float:
-        """Add what the models cost since the last check to today's total; returns that cost."""
-        now = self.spent()
-        if self._spent_seen is None:  # a loaded save's villagers bring the cost of earlier days: not today's
-            self._spent_seen = now
-        delta, self._spent_seen = now - self._spent_seen, now
-        if delta > 0:
-            day = budget.today()
-            self._own_today = (day, (self._own_today[1] if self._own_today[0] == day else 0.0) + delta)
-            budget.add(delta)
-        return max(0.0, delta)
+        """Add what the models cost since the last count to today's total (spend.json); returns that cost.
+        Called before every tick, after the last one, and after every recap / highlight pick (own threads)."""
+        with self._count_lock:
+            now = self.spent()
+            if self._spent_seen is None:  # a loaded save's villagers bring the cost of earlier days: not today's
+                self._spent_seen = now
+            delta, self._spent_seen = now - self._spent_seen, now
+            if delta > 0:
+                day = budget.today()
+                self._own_today = (day, (self._own_today[1] if self._own_today[0] == day else 0.0) + delta)
+                budget.add(delta)
+            return max(0.0, delta)
 
     def _check_budget(self) -> None:
         """Before every tick: once today's spending reaches the cap, wait for the next real day (saves and
         "stop" still work). The village goes on by itself; it is not stopped."""
+        cost = self._count_spending()  # counted with no cap too: another village today may have one
         if self.daily_budget <= 0:
             self.budget_pace = 0.0
             return
-        cost = self._count_spending()
         if self._spent_today() < self.daily_budget:
             pace = budget.pace_seconds(cost, self.daily_budget, self._spent_today(), budget.seconds_left_today())
             slow = pace > self.pace / clock.per_hour(self.world.config)
@@ -416,6 +421,7 @@ class LiveSim:
         if self.summarizer:
             self._summarize_day(days)
         self._highlight_day(days[0] if days else [])
+        self._count_spending()
 
     def _highlight_day(self, ticks: list[dict]) -> None:
         try:
@@ -463,6 +469,7 @@ class LiveSim:
                 rec = self.summarizer.summarize(ticks)
             except Exception as e:  # a failed recap must never stop the village
                 rec = {"error": f"{type(e).__name__}: {e}"}
+            self._count_spending()  # the "Что произошло?" button recaps between ticks too
             if rec and "error" not in rec:
                 self.summaries.append(rec)
                 self.summaries.sort(key=lambda r: r["from_tick"])
@@ -587,7 +594,7 @@ class LabJob:
         self.thread = threading.Thread(target=self._run, daemon=True, name=f"lab-{name}")
 
     def _progress(self, info: dict) -> None:
-        if info["state"] == "done":
+        if info["state"] in ("done", "failed"):
             budget.add(info["cost"])
         self.status.update(index=info["index"], of=info["of"], arm=info["arm"], replicate=info["replicate"],
                            spent=round(info["spent"], 4))
@@ -680,8 +687,9 @@ class Host:
                 raise ValueError("Эта деревня ещё сохраняется (жители додумывают ход). Попробуйте через минуту.")
             snap = saves.read(saves.path_for(log))
             world = saves.world_of(snap)
-            decide, on_night = saves.decider(world, snap)  # before the log is cut: a bad save changes nothing
-            recs = saves.rewind_log(log, snap)
+            # Everything is checked before the log is cut: a bad save or a wrong answer changes nothing.
+            decide, on_night = saves.decider(world, snap)
+            recs = saves.check_log(log, snap)
             info = dict(snap.get("run") or {})
             left = snap["end_day"] - world.day
             days = int(days) if days else (left if left > 0 else int(info.get("days") or 1))
@@ -689,6 +697,9 @@ class Host:
                 raise ValueError("Сколько дней играть: от 1 до 365.")
             sm = "default" if info.get("summaries") and keys.has_any_key() else "off"
             summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
+            kept = saves.cut_log(log, snap)  # what came after the save stays next to the log
+            if kept:
+                print(f"Log after the save kept in {kept}")
             sim = LiveSim(world, decide, days, str(log), float(info.get("pace", 1.0)), on_night, summarizer,
                           self.reports_dir, self.reveal_reports,
                           int(info.get("view_lag_minutes") or VIEW_LAG_MINUTES), resume_header=recs[0],
