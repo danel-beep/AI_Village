@@ -20,7 +20,7 @@ def test_every_mode_has_a_slider_position_for_every_config_knob():
 def test_start_screen_layout_main_on_top_every_knob_placed_with_a_hint():
     s = knobs.schema()
     keys = [k["key"] for k in s["knobs"]]
-    assert sorted(keys) == sorted(k["key"] for k in knobs.active())  # nothing lost, nothing doubled
+    assert sorted(keys) == sorted(k["key"] for k in knobs.active() if k["key"] not in knobs.RETIRED)  # nothing lost or doubled
     main = [k["key"] for k in s["knobs"] if k["section"] == "main"]
     assert main == [k for k in knobs.MAIN if k in keys] and keys[:len(main)] == main
     titles = [sec["title"] for sec in s["sections"]]
@@ -28,6 +28,19 @@ def test_start_screen_layout_main_on_top_every_knob_placed_with_a_hint():
     assert all(k["hint"] for k in s["knobs"]), [k["key"] for k in s["knobs"] if not k["hint"]]
     listed = set(knobs.MAIN) | {key for _, _, ks in knobs.SECTIONS for key in ks}
     assert listed <= {k["key"] for k in knobs.KNOBS}  # no typos in the layout
+
+
+def test_simple_view_and_retired_knobs():
+    """«Простой» shows a handful of knobs; retired switches (older, dearer ways) are off the screen but still work."""
+    s = knobs.schema()
+    shown = {k["key"] for k in s["knobs"]}
+    assert not knobs.RETIRED & shown and knobs.RETIRED <= {k["key"] for k in knobs.active()}
+    assert [k["key"] for k in s["knobs"] if k["simple"]] and {k["key"] for k in s["knobs"] if k["simple"]} == set(knobs.SIMPLE)
+    assert all(k["section"] != k["group"] for k in s["knobs"])  # every knob sits in a planned section
+    o = knobs.to_run({"brains": "bots"})["override"]
+    assert o["llm_memory"] == "day" and o["llm_obs"] == "changes" and o["map"]["procedural"] is True
+    o = knobs.to_run({"brains": "bots", "llm_obs": "full", "fixed_map": True})["override"]  # an old saved form
+    assert o["llm_obs"] == "full" and o["map"]["procedural"] is False
 
 
 def test_a_knob_missing_from_the_layout_falls_back_to_its_group():
@@ -67,7 +80,7 @@ def test_knobs_for_features_not_in_config_are_hidden(monkeypatch):
 
 def test_world_from_start_screen_has_the_settings():
     from aivillage import engine
-    r = knobs.to_run({"brains": "bots", "villagers": 7, "start_coins": 55, "tax_amount": 5})
+    r = knobs.to_run({"brains": "bots", "mode": "crafts", "villagers": 7, "start_coins": 55, "tax_amount": 5})
     w = engine.new_world({**r["override"], "seed": 4})
     assert len(w.agents) == 7 and w.config["tax_amount"] == 5 and w.config["start_coins"] == 55
 
@@ -123,7 +136,7 @@ def test_setup_mode_start_stop_and_past_runs(tmp_path, monkeypatch):
     assert c.get("/api/runs").json()["runs"] == []
 
     r = c.post("/api/start", json={"brains": "bots", "villagers": 3, "days": 1, "pace": 0, "seed": 9,
-                                   "start_coins": 33})
+                                   "mode": "crafts", "start_coins": 33})
     assert r.status_code == 200, r.text
     sim = host.sim
     wait(lambda: sim.finished)
@@ -207,7 +220,7 @@ def test_app_village_always_has_boris_on_a_random_seat():
     from aivillage import engine
     seats, profs = set(), set()
     for seed in range(1, 21):
-        run = knobs.to_run({"seed": seed})
+        run = knobs.to_run({"seed": seed, "mode": "crafts"})  # a mode with professions (no camp start)
         w = engine.new_world({**run["override"], "seed": seed})
         names = list(w.agents)
         assert names.count("Boris") == 1

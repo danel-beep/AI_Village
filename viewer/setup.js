@@ -1,18 +1,155 @@
 // Start screen (injected by aivillage/server.py when it runs with --setup, i.e. from the launcher).
-// Before a village runs: a full-screen form drawn from GET /api/setup (aivillage/knobs.py), "▶ Играть"
-// posts the answers to /api/start and reloads into the live map. While a village runs: a
+// Before a village runs: a title menu (new village, continue a save, experiments, past villages) over the map;
+// "Новая деревня" is a form drawn from GET /api/setup (aivillage/knobs.py) in two views: «Простой» (knobs.SIMPLE,
+// the default) and «Расширенный» (every knob). "▶ Играть" posts the answers to /api/start and reloads into the
+// live map; a loading screen covers the wait until the first hour arrives. While a village runs: a
 // "🔄 Новая деревня" button that stops it (POST /api/stop) and comes back here.
-// New knobs need no code here: add them to KNOBS in aivillage/knobs.py.
+// New knobs need no code here: add them to KNOBS in aivillage/knobs.py. saves.js and scenarios.js fill the
+// "continue" and "experiments" pages (#su-saves-slot, #su-scen-slot) and use window.VillageLoading.
 (function () {
-  const STORE = 'aivillage-setup';
+  const STORE = 'aivillage-setup', VIEW = 'aivillage-setup-view', LOADING = 'aivillage-loading';
+  const PAGES = { home: '🏡 AI Village', new: 'Новая деревня', cont: 'Продолжить деревню', lab: 'Опыты и сценарии',
+    past: 'Прошлые деревни' };
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}) }).then(async r => {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.detail || ('ошибка ' + r.status));
       return data;
     });
+  const getJson = url => fetch(url).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  const store = {  // browser storage may be blocked (private window): the screen works without it
+    get(k, s) { try { return (s ? sessionStorage : localStorage).getItem(k); } catch (e) { return null; } },
+    set(k, v, s) { try { (s ? sessionStorage : localStorage).setItem(k, v); } catch (e) { /* blocked */ } },
+    del(k, s) { try { (s ? sessionStorage : localStorage).removeItem(k); } catch (e) { /* blocked */ } },
+  };
 
-  fetch('/api/setup').then(r => r.json()).then(info => info.running ? restartButton(info) : screen(info));
+  // --- loading screen: from "Играть" / "Продолжить" / a scenario until the first game hour is on the map ---
+  const TIPS = [
+    'Нажмите на жителя на карте: увидите, что он думает, что у него в карманах и с кем он дружит.',
+    'Пауза останавливает и жителей: пока стоит пауза, ИИ ничего не тратит.',
+    'Деревня сама сохраняется каждый игровой час. Продолжить можно с начального экрана.',
+    'В режиме бога можно вмешаться: поджечь дом, устроить праздник, прислать торговца.',
+    'Дойдя до бюджета в сутки, деревня встанет на паузу и сама продолжит завтра.',
+    'Нажмите на дом, грядку или шахту: увидите, что там лежит и что там случилось.',
+  ];
+  let loadEl = null;
+  function loadingCss() {
+    if (document.getElementById('su-load-css')) return;
+    const css = document.createElement('style');
+    css.id = 'su-load-css';
+    css.textContent = `
+      #su-load { position:fixed; inset:0; z-index:60; background:radial-gradient(circle at 50% 40%, #26302c, #141917 70%);
+        color:#e8efe9; font:15px system-ui, sans-serif; display:flex; align-items:center; justify-content:center;
+        padding:16px; text-align:center; transition:opacity .4s; }
+      #su-load.gone { opacity:0; pointer-events:none; }
+      #su-load .box { max-width:460px; }
+      #su-load canvas { image-rendering:pixelated; background:none; width:240px; height:78px; display:block; margin:0 auto 18px; }
+      #su-load h2 { font-size:24px; margin:0 0 8px; color:#f2c14e; }
+      #su-load .sub { color:#c9d6ce; line-height:1.45; min-height:22px; }
+      #su-load .bar { height:6px; background:#2f3935; border-radius:3px; overflow:hidden; margin:20px auto 14px; width:240px; }
+      #su-load .bar i { display:block; height:100%; width:40%; background:#76b041; border-radius:3px;
+        animation:su-slide 1.4s ease-in-out infinite; }
+      @keyframes su-slide { 0% { transform:translateX(-100%); } 100% { transform:translateX(250%); } }
+      #su-load .tip { font-size:13px; color:#9db0a4; line-height:1.45; min-height:38px; }
+      #su-load button { margin-top:16px; background:#34403b; color:#e8efe9; border:0; border-radius:10px;
+        padding:9px 16px; font:600 14px system-ui; cursor:pointer; }
+      #su-load .bad { color:#ff8a72; }`;
+    document.head.appendChild(css);
+  }
+  // A few villagers walking in place (viewer/sprites.js), drawn when the sprites are ready.
+  function walkers(canvas, n) {
+    const S = window.Sprites;
+    if (!S || !canvas) return;
+    const looks = Array.from({ length: n }, () => Math.floor(Math.random() * (S.LOOKS || 24)));
+    let f = 0;
+    const sheets = [];
+    const draw = () => {
+      if (!canvas.isConnected) return;
+      const g = canvas.getContext('2d');
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      looks.forEach((k, j) => {
+        const sheet = sheets[j] || (sheets[j] = S.villager(k));
+        if (!sheet) return;
+        const x = Math.round((j + 0.5) * canvas.width / n - sheet.fw / 2), col = (f + j) % 4 === 3 ? 1 : [0, 1, 0, 2][(f + j) % 4];
+        g.drawImage(sheet, col * sheet.fw, 0, sheet.fw, sheet.fh, x, canvas.height - sheet.fh, sheet.fw, sheet.fh);
+      });
+      f++;
+      setTimeout(draw, 380);
+    };
+    S.ok ? draw() : S.onReady && S.onReady(draw);
+  }
+  function showLoading(title, sub) {
+    loadingCss();
+    if (!loadEl) {
+      loadEl = document.createElement('div');
+      loadEl.id = 'su-load';
+      loadEl.innerHTML = '<div class="box"><canvas width="96" height="31"></canvas><h2></h2><div class="sub"></div>' +
+        '<div class="bar"><i></i></div><div class="tip"></div><button hidden>Показать карту</button></div>';
+      document.body.appendChild(loadEl);
+      walkers(loadEl.querySelector('canvas'), 5);
+      let t = Math.floor(Math.random() * TIPS.length);
+      const tip = () => { if (loadEl) { loadEl.querySelector('.tip').textContent = '💡 ' + TIPS[t++ % TIPS.length]; } };
+      tip();
+      loadEl._tips = setInterval(tip, 6000);
+      loadEl.querySelector('button').onclick = hideLoading;
+    }
+    loadEl.classList.remove('gone');
+    loadEl.querySelector('h2').textContent = title;
+    const s = loadEl.querySelector('.sub');
+    s.textContent = sub || ''; s.className = 'sub';
+  }
+  function hideLoading() {
+    store.del(LOADING, true);
+    if (!loadEl) return;
+    const el = loadEl;
+    loadEl = null;
+    clearInterval(el._tips);
+    el.classList.add('gone');
+    setTimeout(() => el.remove(), 450);
+  }
+  function loadingFailed(text) {
+    if (!loadEl) return;
+    const s = loadEl.querySelector('.sub');
+    s.textContent = text; s.className = 'sub bad';
+    loadEl.querySelector('.bar').hidden = true;
+    loadEl.querySelector('button').hidden = false;
+  }
+  // Before a reload into the village: the loading screen stays up across it (sessionStorage flag).
+  function goLoading(title, sub) {
+    showLoading(title, sub);
+    store.set(LOADING, '1', true);
+    if (/^#(home|new|cont|lab|past)$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
+  }
+  window.VillageLoading = { start: goLoading, fail: e => { hideLoading(); return e; } };
+
+  // In a running village: keep the loading screen until the first game hour is on the map (viewer `ticks`).
+  function waitForMap() {
+    const has = () => typeof ticks !== 'undefined' && ticks.length > 0;  // eslint-disable-line no-undef
+    const flagged = store.get(LOADING, true);
+    if (has()) return hideLoading();
+    const show = () => showLoading('Деревня просыпается', 'Жители осматриваются и думают над первым шагом. ' +
+      'С ИИ-жителями это занимает до минуты.');
+    if (flagged) show();
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (has()) { clearInterval(iv); hideLoading(); return; }
+      if (!flagged && !loadEl && Date.now() - t0 > 1500) show();
+      if (loadEl && Date.now() - t0 > 90000) loadEl.querySelector('button').hidden = false;
+    }, 300);
+    window.addEventListener('village-live', e => {
+      const r = e.detail || {};
+      if (r.type === 'error' && loadEl) { clearInterval(iv); loadingFailed('Деревня не запустилась: ' + (r.text || 'ошибка')); }
+      if (r.type === 'budget_pause' && loadEl) { clearInterval(iv); loadingFailed(r.text || 'Бюджет на сегодня потрачен.'); }
+    });
+  }
+
+  Promise.all([getJson('/api/setup'), getJson('/api/saves'), getJson('/api/scenarios')]).then(([info, sv, sc]) => {
+    if (info.running) {
+      if (/^#(home|new|cont|lab|past)$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
+      restartButton(info);
+      waitForMap();
+    } else screen(info, sv.can_load ? (sv.saves || []) : [], sc.can_start ? (sc.scenarios || []) : []);
+  });
 
   function restartButton(info) {
     if (!info.can_restart) return;
@@ -30,17 +167,43 @@
     else { b.style.cssText += ';position:fixed;left:8px;bottom:12px;z-index:30'; document.body.appendChild(b); }
   }
 
-  function screen(info) {
+  function screen(info, saves, scens) {
     const css = document.createElement('style');
     css.textContent = `
       #su { position:fixed; inset:0; z-index:31; overflow:auto; background:#1a201e; color:#e8efe9;
         font:14px system-ui, sans-serif; }
-      #su .wrap { max-width:760px; margin:0 auto; padding:20px 16px 60px; }
-      #su header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
-      #su h1 { font-size:24px; margin:0; flex:1; min-width:200px; }
+      #su .wrap { max-width:760px; margin:0 auto; padding:20px 16px 60px; box-sizing:border-box; }
+      #su header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+      #su h1 { font-size:24px; margin:0; flex:1; min-width:180px; }
       #su header #st-toggle { position:static; }
+      #su .back { background:none; border:0; color:#9db0a4; font:600 14px system-ui; cursor:pointer; padding:6px 4px; }
+      #su .back:hover { color:#e8efe9; }
       #su .keyline.bad { color:#ffb36b; }
       #su #su-model .small { padding:5px 10px; }
+      /* title menu */
+      #su .hero { text-align:center; padding:26px 0 18px; }
+      #su .hero canvas { image-rendering:pixelated; background:none; cursor:default; width:min(100%, 420px); height:auto; display:block; margin:0 auto 14px; }
+      #su .hero .name { font:800 40px system-ui; color:#f2c14e; letter-spacing:.5px; margin:0; }
+      #su .hero .tag { color:#c9d6ce; max-width:520px; margin:8px auto 0; line-height:1.45; }
+      #su .menu { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:18px; }
+      #su .card { text-align:left; background:#232b28; color:#e8efe9; border:1px solid #2f3935; border-radius:14px;
+        padding:16px 18px; cursor:pointer; font:14px system-ui; }
+      #su .card:hover { border-color:#76b041; }
+      #su .card b { display:block; font-size:17px; margin-bottom:4px; }
+      #su .card span { color:#9db0a4; font-size:13px; line-height:1.4; }
+      #su .card.main { grid-column:1 / -1; background:#76b041; color:#1d2321; border-color:#76b041; padding:20px 22px; }
+      #su .card.main b { font-size:22px; }
+      #su .card.main span { color:#24331c; }
+      @media (max-width:560px) { #su .menu { grid-template-columns:1fr; } #su .hero .name { font-size:32px; } }
+      /* simple / advanced */
+      #su .view { display:flex; background:#232b28; border-radius:12px; padding:4px; gap:4px; margin-bottom:6px; }
+      #su .view button { flex:1; background:none; color:#c9d6ce; border:0; border-radius:9px; padding:10px 8px;
+        font:700 14px system-ui; cursor:pointer; }
+      #su .view button.on { background:#76b041; color:#1d2321; }
+      #su .view-hint { margin:0 2px 12px; }
+      #su .note { background:#2b2a1f; border:1px solid #5b5426; border-radius:10px; padding:10px 12px; margin:-2px 0 12px;
+        font-size:13px; color:#e9dfb5; line-height:1.45; }
+      #su .note button { margin-left:6px; }
       #su h3.more { font-size:15px; margin:22px 0 2px; color:#e8efe9; }
       #su .more-hint { margin:0 0 10px; }
       #su summary .about { display:block; font-size:12px; font-weight:400; color:#9db0a4; margin-top:2px; }
@@ -50,6 +213,7 @@
       #su h2, #su summary { font-size:15px; margin:0 0 6px; color:#f2c14e; cursor:default; }
       #su summary { cursor:pointer; margin:0; }
       #su details[open] summary { margin-bottom:6px; }
+      #su #pg-cont #su-saves > h2, #su #pg-lab #su-scen > h2 { display:none; }
       #su .k { padding:9px 0; border-top:1px solid #2f3935; }
       #su .k:first-of-type { border-top:0; }
       #su .lab { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
@@ -99,43 +263,66 @@
     const panel = document.getElementById('st');  // the keys panel opens above the start screen
     if (panel) panel.style.zIndex = 40;
 
+    const pad = n => String(n).padStart(2, '0');
+    const latest = saves[0];
+    const savedAt = s => { const m = /^\d{4}-(\d\d)-(\d\d)_(\d\d)-(\d\d)/.exec(s.name); return m ? `${m[2]}.${m[1]} ${m[3]}:${m[4]}` : ''; };
     const root = document.createElement('div');
     root.id = 'su';
     root.innerHTML = `<div class="wrap">
-      <header><h1>🏡 AI Village: новая деревня</h1></header>
-      <section id="su-main"><h2>Главное</h2>
-        <div class="k" id="su-model"><div class="lab"><b>Модель ИИ</b><button class="small" id="su-model-btn"></button></div>
-          <div class="hint keyline" id="su-model-txt"></div></div>
-      </section>
-      <div id="su-key"></div>
-      <h3 class="more">Дополнительно</h3>
-      <p class="hint more-hint">Режим уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
-        зелёной точкой ●, «Сбросить к режиму» внизу вернёт всё как было.</p>
-      <div id="su-groups"></div>
-      <details id="su-people"><summary>👥 Жители по одному: имена, профессии, характеры</summary>
-        <div class="vbar"><label class="tog"><input type="checkbox" id="su-own"><span></span></label>
-          <span>Настроить каждого жителя вручную</span></div>
-        <div class="hint">Выключено: имена и профессии подберутся сами, характер по выбору «Характер жителей» выше.
-          Характер: мягкий намёк на темперамент в подсказке жителя, а не приказ что-то делать.</div>
-        <div id="su-vbox" hidden>
-          <div class="vbar"><button class="small" id="su-rand">🎲 Случайные жители</button>
-            <button class="small" id="su-neutral">😐 Всем нейтральный</button></div>
-          <div id="su-vlist"></div>
+      <header><button class="back" id="su-back" hidden>← Меню</button><h1 id="su-title"></h1></header>
+      <div class="page" id="pg-home">
+        <div class="hero"><canvas id="su-folk" width="140" height="31"></canvas>
+          <p class="name">AI Village</p>
+          <div class="tag">Деревня, где каждый житель думает своим ИИ. Они сами строят, торгуют, дружат и ссорятся,
+            а вы смотрите и, если хочется, вмешиваетесь.</div></div>
+        <div class="menu">
+          <button class="card main" data-go="new"><b>▶ Новая деревня</b><span>Пара простых вопросов, и жители просыпаются</span></button>
+          <button class="card" data-go="cont" id="m-cont"><b>💾 Продолжить</b><span id="m-cont-txt"></span></button>
+          <button class="card" data-go="lab" id="m-lab"><b>🧪 Опыты и сценарии</b><span>Готовые ситуации и сравнение моделей ИИ</span></button>
+          <button class="card" data-go="past"><b>📂 Прошлые деревни</b><span>Повторы, сводки и отчёт о проблеме</span></button>
         </div>
-      </details>
-      <div class="play">
-        <button class="go" id="su-go">▶ Играть</button>
-        <button class="small" id="su-reset">Сбросить к режиму</button>
-        <div class="msg" id="su-msg"></div>
       </div>
-      <details id="su-past"><summary>📂 Прошлые сессии и отчёт о проблеме</summary>
+      <div class="page" id="pg-new" hidden>
+        <div class="view"><button data-v="simple">🙂 Простой</button><button data-v="adv">🛠 Расширенный</button></div>
+        <div class="hint view-hint" id="su-view-hint"></div>
+        <section id="su-main">
+          <div class="k" id="su-model"><div class="lab"><b>Модель ИИ</b><button class="small" id="su-model-btn"></button></div>
+            <div class="hint keyline" id="su-model-txt"></div></div>
+        </section>
+        <div class="note" id="su-note-adv" hidden></div>
+        <div id="su-adv">
+          <h3 class="more">Все остальные настройки</h3>
+          <p class="hint more-hint">Режим уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
+            зелёной точкой ●, «Сбросить к режиму» внизу вернёт всё как было.</p>
+          <div id="su-groups"></div>
+          <details id="su-people"><summary>👥 Жители по одному: имена, характеры, внешность</summary>
+            <div class="vbar"><label class="tog"><input type="checkbox" id="su-own"><span></span></label>
+              <span>Настроить каждого жителя вручную</span></div>
+            <div class="hint">Выключено: имена подберутся сами, характер по выбору «Характер жителей» выше.
+              Характер: мягкий намёк на темперамент в подсказке жителя, а не приказ что-то делать.</div>
+            <div id="su-vbox" hidden>
+              <div class="vbar"><button class="small" id="su-rand">🎲 Случайные жители</button>
+                <button class="small" id="su-neutral">😐 Всем нейтральный</button></div>
+              <div id="su-vlist"></div>
+            </div>
+          </details>
+        </div>
+        <div class="play">
+          <button class="go" id="su-go">▶ Играть</button>
+          <button class="small" id="su-reset">Сбросить к режиму</button>
+          <div class="msg" id="su-msg"></div>
+        </div>
+      </div>
+      <div class="page" id="pg-cont" hidden><div id="su-saves-slot"></div></div>
+      <div class="page" id="pg-lab" hidden><div id="su-scen-slot"></div></div>
+      <div class="page" id="pg-past" hidden><section>
         <div class="runs" id="su-runs">загружаю…</div>
-        <div class="hint" style="margin-top:12px">Что-то пошло не так в последнем прогоне? Опишите, и я соберу файл-отчёт:
+        <div class="hint" style="margin-top:14px">Что-то пошло не так в последнем прогоне? Опишите, и я соберу файл-отчёт:
           его можно перетащить в чат проекта.</div>
         <textarea id="su-note" placeholder="Например: на второй день все жители стояли на месте"></textarea>
         <button class="small" id="su-report" style="margin-top:6px">🐞 Собрать отчёт</button>
         <div class="msg" id="su-rmsg"></div>
-      </details>
+      </section></div>
     </div>`;
     document.body.appendChild(root);
     const $ = id => document.getElementById(id);
@@ -143,9 +330,29 @@
     if (st) { st.className = ''; st.style.cssText = 'background:#34403b;color:#e8efe9;border:0;border-radius:20px;' +
       'padding:8px 14px;font:600 13px system-ui,sans-serif;cursor:pointer'; root.querySelector('header').appendChild(st); }
 
+    // --- pages: the title menu and what it opens (browser "back" works: #new, #cont, ...) ---
+    $('m-cont').hidden = !latest;
+    if (latest) $('m-cont-txt').textContent = `Деревня от ${savedAt(latest)}: ${latest.finished ? 'закончилась' : 'остановлена'} ` +
+      `на дне ${latest.day}, ${pad(latest.hour)}:${pad(latest.minute || 0)}` + (saves.length > 1 ? ` · всего сохранений: ${saves.length}` : '');
+    $('m-lab').hidden = !scens.length;
+    function page(p, push) {
+      if (!PAGES[p] || (p === 'cont' && !latest) || (p === 'lab' && !scens.length)) p = 'home';
+      for (const k of Object.keys(PAGES)) { const el = $('pg-' + k); if (el) el.hidden = k !== p; }
+      $('su-title').textContent = p === 'home' ? '' : PAGES[p];
+      $('su-back').hidden = p === 'home';
+      root.scrollTop = 0;
+      if (push) history.pushState({ su: p }, '', p === 'home' ? location.pathname + location.search : '#' + p);
+    }
+    root.querySelectorAll('[data-go]').forEach(b => { b.onclick = () => page(b.dataset.go, true); });
+    $('su-back').onclick = () => page('home', true);
+    window.addEventListener('popstate', () => page((location.hash || '#home').slice(1)));
+    page((location.hash || '#home').slice(1));
+    walkers($('su-folk'), 7);
+
+    // --- the "new village" form ---
     const knobs = info.knobs, byKey = Object.fromEntries(knobs.map(k => [k.key, k]));
     let saved = {};
-    try { saved = JSON.parse(localStorage.getItem(STORE) || '{}') || {}; } catch (e) { /* private window */ }
+    try { saved = JSON.parse(store.get(STORE) || '{}') || {}; } catch (e) { /* broken storage */ }
     const start = Object.assign({}, info.defaults, info.last || {}, saved);
     if (!(start.mode in info.mode_defaults)) start.mode = info.defaults.mode;
     const modeVals = m => info.mode_defaults[m] || {};
@@ -159,6 +366,8 @@
     for (const k of knobs) if (!follows(k)) values[k.key] = k.key in start ? start[k.key] : k.default;
     for (const k of knobs) if (follows(k))
       values[k.key] = touched.has(k.key) && k.key in start ? start[k.key] : base(start.mode)[k.key];
+    // «Простой» (default): only knobs.SIMPLE; «Расширенный»: every knob.
+    let view = store.get(VIEW) === 'adv' ? 'adv' : 'simple';
 
     const fmt = (k, v) => k.type === 'toggle' ? (v ? 'да' : 'нет')
       : k.type === 'choice' ? '' : (v === null || v === undefined || v === '' ? 'случайно' : v + (k.unit || ''));
@@ -217,12 +426,15 @@
       else for (const b of r.control.children) b.classList.toggle('on', b.dataset.v === String(v));
       if (r.val.isConnected) {
         r.val.textContent = fmt(k, v);
-        r.val.classList.toggle('changed', follows(k) && v !== base(values.mode)[k.key]);
+        r.val.classList.toggle('changed', view === 'adv' && follows(k) && v !== base(values.mode)[k.key]);
       }
-      r.about.textContent = [k.about ? k.about[v] : '', k.hint || ''].filter(Boolean).join(' ');
+      // In «Простой» a choice explains its picked option only (its general hint talks about sliders not shown there).
+      const hint = view === 'simple' && k.about ? '' : (k.hint || '');
+      r.about.textContent = [k.about ? k.about[v] : '', hint].filter(Boolean).join(' ');
       // hide_if: hidden while every listed knob holds one of the listed values (knobs.py)
       const hidden = k.hide_if && Object.entries(k.hide_if).every(([c, vs]) => vs.includes(values[c]));
-      r.el.style.display = (k.only && k.only !== values.brains) || (k.mode && k.mode !== values.mode) || hidden ? 'none' : '';
+      const off = (k.only && k.only !== values.brains) || (k.mode && k.mode !== values.mode) || hidden;
+      r.el.style.display = off || (view === 'simple' && !k.simple) ? 'none' : '';
     }
 
     function set(k, v) {
@@ -232,24 +444,20 @@
       if (k.key === 'mode' || k.sets) {  // the mode / preset moves every slider the user has not set by hand
         for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = base(values.mode)[c.key];
       }
-      knobs.forEach(paint);
-      sections();
-      keyLine();
+      repaint();
       if (k.key === 'villagers') syncRoster();
       remember();
     }
 
     function remember() {
-      try {
-        localStorage.setItem(STORE, JSON.stringify(Object.assign({}, values,
-          { seed: null, roster: roster, __touched: Object.fromEntries([...touched].map(t => [t, 1])) })));
-      } catch (e) { /* storage blocked: the form still works */ }
+      store.set(STORE, JSON.stringify(Object.assign({}, values,
+        { seed: null, roster: roster, __touched: Object.fromEntries([...touched].map(t => [t, 1])) })));
     }
 
     // "Главное" on top (knobs.MAIN), every other knob in a folded section (knobs.SECTIONS); the server orders them.
     const model = $('su-model');
     for (const k of knobs.filter(k => k.section === 'main')) $('su-main').insertBefore(row(k), model);
-    const boxes = {};
+    const boxes = {}, spot = {};
     for (const sec of info.sections || []) {
       const box = document.createElement('details');
       const h = document.createElement('summary');
@@ -259,22 +467,75 @@
       h.appendChild(cnt);
       if (sec.about) { const a = document.createElement('span'); a.className = 'about'; a.textContent = sec.about; h.appendChild(a); }
       box.appendChild(h);
-      for (const k of knobs.filter(k => k.section === sec.title)) box.appendChild(row(k));
+      for (const k of knobs.filter(k => k.section === sec.title)) {
+        box.appendChild(row(k));
+        if (k.simple) { spot[k.key] = document.createComment(k.key); box.appendChild(spot[k.key]); }
+      }
       $('su-groups').appendChild(box);
       boxes[sec.title] = { box, cnt, knobs: knobs.filter(k => k.section === sec.title) };
     }
     // Per section: hide it when none of its knobs applies here, count the knobs set away from the mode.
     function sections() {
       for (const b of Object.values(boxes)) {
-        const shown = b.knobs.filter(k => rows[k.key].el.style.display !== 'none');
+        const shown = b.knobs.filter(k => rows[k.key].el.style.display !== 'none' && b.box.contains(rows[k.key].el));
         const changed = shown.filter(k => follows(k) && values[k.key] !== base(values.mode)[k.key]).length;
         b.box.style.display = shown.length ? '' : 'none';
         b.cnt.textContent = changed ? 'изменено: ' + changed : '';
         b.cnt.hidden = !changed;
       }
     }
-    knobs.forEach(paint);
-    sections();
+
+    // What «Простой» does not show but will still apply: changes made in «Расширенный».
+    const isDefault = k => follows(k) ? !touched.has(k.key) || values[k.key] === base(values.mode)[k.key]
+      : k.key === 'seed' ? values.seed === null || values.seed === undefined || values.seed === ''
+      : values[k.key] === info.defaults[k.key];
+    function hiddenChanges() {  // [mode label or '', how many other knobs]
+      const off = knobs.filter(k => !k.simple && k.key !== 'mode' && !(k.only && k.only !== values.brains) && !isDefault(k));
+      const mode = byKey.mode && values.mode !== info.defaults.mode
+        ? (byKey.mode.options.find(o => o[0] === values.mode) || [, values.mode])[1] : '';
+      return [mode, off.length + (roster ? 1 : 0)];
+    }
+    function note() {
+      const [mode, n] = view === 'simple' ? hiddenChanges() : ['', 0], el = $('su-note-adv');
+      el.hidden = !mode && !n;
+      if (el.hidden) return;
+      const what = [mode ? `режим «${mode}»` : '', n ? `изменённых настроек: ${n}` : ''].filter(Boolean).join(', ');
+      el.textContent = `В «Расширенном» выбрано: ${what}. Это тоже сработает.`;
+      const b = document.createElement('button');
+      b.className = 'small'; b.textContent = 'Вернуть как задумано';
+      b.onclick = resetAll;
+      el.appendChild(b);
+    }
+    function resetAll() {
+      touched = new Set();
+      for (const k of knobs) if (!follows(k) && !k.simple && k.key in info.defaults) values[k.key] = info.defaults[k.key];
+      roster = null; drawRoster();
+      set(byKey.mode, info.defaults.mode);
+    }
+
+    function setView(v) {
+      view = v;
+      store.set(VIEW, v);
+      root.querySelectorAll('.view button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+      $('su-view-hint').textContent = v === 'simple'
+        ? 'Только главное. Остальное выставлено как задумано: так деревня работает лучше всего.'
+        : 'Здесь можно поменять всё: режим экономики, налоги, кражи, беды, скорость, каждого жителя.';
+      for (const [key, ph] of Object.entries(spot)) {  // simple knobs from the sections join «Главное» in «Простой»
+        if (v === 'simple') $('su-main').insertBefore(rows[key].el, model);
+        else ph.parentNode.insertBefore(rows[key].el, ph);
+      }
+      $('su-adv').hidden = v === 'simple';
+      $('su-reset').hidden = v === 'simple';
+      repaint();
+    }
+    root.querySelectorAll('.view button').forEach(b => { b.onclick = () => setView(b.dataset.v); });
+
+    function repaint() {
+      knobs.forEach(paint);
+      sections();
+      keyLine();
+      note();
+    }
 
     let hasKey = info.has_key;
     // The model row in "Главное": which AI the villagers think with; the button opens the keys panel (settings.js).
@@ -287,7 +548,6 @@
       el.textContent = hasKey ? `Жители думают через ${info.model}. Модель и ключ меняются кнопкой справа.`
         : 'Для ИИ-жителей нужен ключ OpenAI или OpenRouter: нажмите кнопку справа и вставьте его.';
     }
-    keyLine();
     // The settings panel saves keys on its own; notice a new key without a reload.
     setInterval(() => fetch('/api/setup').then(r => r.json()).then(i => {
       if (i.running) return location.reload();  // started from another tab
@@ -377,14 +637,19 @@
     $('su-neutral').onclick = () => { roster.forEach(v => { v.character = 'default'; }); drawRoster(); remember(); };
     syncRoster();
 
+
+    setView(view);
+
     $('su-reset').onclick = () => { touched = new Set(); set(byKey.mode, values.mode); };
     $('su-go').onclick = () => {
       const go = $('su-go');
-      go.disabled = true; $('su-msg').textContent = 'Строю деревню…'; $('su-msg').className = 'msg';
+      go.disabled = true; $('su-msg').textContent = ''; $('su-msg').className = 'msg';
       const body = {};
       for (const k of knobs) if (!(k.only && k.only !== values.brains)) body[k.key] = values[k.key];
       if (roster) body.roster = roster.slice(0, n());
+      goLoading('Строю деревню', 'Рисую карту, расселяю жителей, раскладываю ягоды по кустам…');
       post('/api/start', body).then(() => location.reload(), e => {
+        hideLoading();
         go.disabled = false; $('su-msg').textContent = e.message; $('su-msg').className = 'msg bad';
       });
     };
@@ -392,7 +657,7 @@
     // Past sessions (aivillage/session.py): the summary page, plus the replay of the map.
     fetch('/api/sessions').then(r => r.json()).then(d => {
       const box = $('su-runs');
-      box.textContent = d.sessions.length ? '' : 'Прошлых сессий пока нет.';
+      box.textContent = d.sessions.length ? '' : 'Прошлых деревень пока нет.';
       for (const s of d.sessions.slice(0, 10)) {
         const line = document.createElement('div');
         const a = document.createElement('a');

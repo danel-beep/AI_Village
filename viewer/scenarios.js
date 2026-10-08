@@ -1,5 +1,5 @@
 // Scenarios (aivillage/scenario.py, scenarios/*.yaml), injected by aivillage/server.py on every page.
-// On the start screen: "🧪 Сценарии", ready-made situations (GET /api/scenarios). "▶ ИИ" plays one with AI
+// On the start screen's "🧪 Опыты и сценарии" page (setup.js): ready-made situations (GET /api/scenarios). "▶ ИИ" plays one with AI
 // villagers, "▶ Боты" with bots only (free, to see the setup); POST /api/scenario, then the page reloads into
 // the village. What the scenario looked for is written next to the run's log (<log>.scenario.md) at the end.
 // Experiments (scenarios with arms, replicates or seating, aivillage/lab.py) get «🔬 Опыт» instead: they play in
@@ -22,7 +22,7 @@
       if (!d.can_start || !d.scenarios.length) return;
       let tries = 0;  // setup.js draws the start screen after its own fetch: wait for it
       const t = setInterval(() => {
-        const key = document.getElementById('su-key');
+        const key = document.getElementById('su-scen-slot');
         if (key || ++tries > 100) { clearInterval(t); if (key) draw(key, d.scenarios, sv.saves || []); }
       }, 50);
     }).catch(() => {});
@@ -121,7 +121,10 @@
         b.onclick = () => {
           buttons.forEach(x => { x.disabled = true; });
           msg.textContent = 'Готовлю сценарий…'; msg.className = 'msg';
+          const L = window.VillageLoading;  // setup.js: the loading screen until the village is on the map
+          if (L) L.start('Готовлю сценарий', 'Расставляю мир и память жителей.');
           post('/api/scenario', { name: s.name, brains }).then(() => location.reload(), e => {
+            if (L) L.fail(e);
             buttons.forEach(x => { x.disabled = false; });
             msg.textContent = e.message; msg.className = 'msg bad';
           });
