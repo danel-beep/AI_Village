@@ -150,6 +150,7 @@
   }
 
   Promise.all([getJson('/api/setup'), getJson('/api/saves'), getJson('/api/scenarios')]).then(([info, sv, sc]) => {
+    if (info.lobby && !info.running) { location.href = info.lobby; return; }  // a «MCP-турнир» is gathering its players
     if (info.running) {
       if (/^#(home|new|cont|lab|past)$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
       restartButton(info);
@@ -663,7 +664,7 @@
       for (const k of knobs) if (!notHere(k)) body[k.key] = values[k.key];
       if (roster) body.roster = roster.slice(0, n());
       goLoading('Строю деревню', 'Рисую карту, расселяю жителей, раскладываю ягоды по кустам…');
-      post('/api/start', body).then(() => location.reload(), e => {
+      post('/api/start', body).then(d => { if (d && d.lobby) location.href = d.lobby; else location.reload(); }, e => {
         hideLoading();
         go.disabled = false; $('su-msg').textContent = e.message; $('su-msg').className = 'msg bad';
       });

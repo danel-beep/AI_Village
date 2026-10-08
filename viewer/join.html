@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>AI Village · MCP-турнир</title>
-<!-- Served by aivillage/mcpserver.py at /mcp/join/<lobby> (the tournament's invite link: take a villager, get its
-     connector link) and at /mcp/<seat code> opened in a browser (how to add that link to your AI). Self-contained:
-     it is reached through the internet tunnel, which serves nothing but /mcp/. Data: window.AIV below. -->
+<!-- Served by aivillage/mcpserver.py at /mcp/join/<lobby> (the tournament's invite link: take up to two places,
+     pick each villager's look, get the connector links; the AIs name themselves) and at /mcp/<seat code> opened in a
+     browser (how to add that link to your AI). The host, on their own computer, also gets «Начать игру» here.
+     Reached through the internet tunnel, which serves nothing but /mcp/: the looks come from /mcp/assets/.
+     Data: window.AIV below. -->
 <style>
   :root { --bg:#1d2321; --card:#252c29; --line:#34403b; --text:#e8efe9; --dim:#9db0a4; --go:#76b041; --warn:#e3c46b; }
   * { box-sizing:border-box; }
@@ -37,6 +39,12 @@
   th { color:var(--dim); font-weight:600; font-size:12px; border-top:0; }
   .big { font-size:18px; font-weight:700; }
   .scroll { overflow-x:auto; }
+  .looks { display:grid; grid-template-columns:repeat(auto-fill, minmax(52px, 1fr)); gap:6px; }
+  .looks button { padding:4px 0; height:64px; display:flex; align-items:center; justify-content:center; }
+  .looks button.on { outline:3px solid var(--go); }
+  canvas.face { image-rendering:pixelated; }
+  .me { display:flex; gap:12px; align-items:center; }
+  .host { border:2px solid var(--go); }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -44,56 +52,82 @@
 <main>
   <h1>🏡 AI Village · MCP-турнир</h1>
   <div class="sub" id="sub">Деревня, где каждым жителем играет ИИ. Здесь жителем играет <b>ваш</b> ИИ: Claude, ChatGPT,
-    Gemini или другой, на вашей подписке.</div>
+    Gemini или другой, на вашей подписке. Имя и характер жителю он придумает сам, а внешность выбираете вы.</div>
+
+  <div class="card host" id="host" hidden>
+    <h2>👑 Вы хозяин турнира</h2>
+    <div class="row" style="margin:0 0 6px"><span id="host-tunnel" class="sub" style="margin:0"></span>
+      <button id="retry" hidden>Повторить</button></div>
+    <label>Ссылка-приглашение: отправьте её всем игрокам</label>
+    <div class="row"><input id="invite" readonly><button class="go" id="invite-copy">Копировать</button></div>
+    <div class="row" id="host-lobby"><button class="go" id="begin">▶ Начать игру</button>
+      <button id="cancel">Отменить турнир</button></div>
+    <div class="sub" id="host-note" style="margin:6px 0 0"></div>
+    <div class="row" id="host-game" hidden><a href="/"><button class="go">Смотреть деревню</button></a></div>
+    <div class="msg" id="host-msg"></div>
+  </div>
+
+  <div id="mine-list"></div>
 
   <div class="card" id="take" hidden>
-    <h2>Занять место</h2>
+    <h2 id="take-title">Занять место</h2>
     <label for="player">Ваше имя (его увидят другие игроки)</label>
     <input id="player" maxlength="30" autocomplete="nickname">
     <label for="ai">Каким ИИ будете играть</label>
     <select id="ai"></select>
-    <div class="row"><button class="go" id="take-btn">Занять жителя</button><span id="free" class="sub" style="margin:0"></span></div>
+    <label>Как выглядит ваш житель</label>
+    <div class="looks" id="looks"></div>
+    <div class="row"><button class="go" id="take-btn">Занять место</button><span id="free" class="sub" style="margin:0"></span></div>
     <div class="msg" id="take-msg"></div>
-  </div>
-
-  <div class="card" id="mine" hidden>
-    <div class="big" id="mine-title"></div>
-    <div id="mine-state" class="sub" style="margin:2px 0 8px"></div>
-    <label>Ссылка-коннектор вашего жителя (личная, никому не отправляйте)</label>
-    <div class="row"><input id="link" readonly><button id="link-copy">Копировать</button></div>
-    <h2 style="margin-top:16px">Как подключить</h2>
-    <div class="tabs" id="tabs"></div>
-    <ol id="steps"></ol>
-    <label>Текст для вашего ИИ (вставьте в новый чат)</label>
-    <textarea id="prompt" readonly></textarea>
-    <div class="row"><button id="prompt-copy">Копировать текст</button></div>
-    <div class="note">ИИ покажет карточку сессии и спросит вас. Ответьте «да»: без вашего «да» он не играет.
-      Ваш ИИ работает на вашей подписке; хозяин деревни не видит ваших ключей и паролей, а его ключи не участвуют.</div>
-    <div class="row"><button id="leave" hidden>Отказаться от места</button></div>
   </div>
 
   <div class="card" id="table-card" hidden>
     <h2 id="table-title">Жители</h2>
-    <div class="scroll"><table><thead><tr><th>Житель</th><th>Игрок</th><th>ИИ</th><th>Статус</th><th>Ходов</th>
+    <div class="scroll"><table><thead><tr><th></th><th>Житель</th><th>Игрок</th><th>ИИ</th><th>Статус</th><th>Ходов</th>
       <th>Богатство</th><th>Здоровье</th></tr></thead><tbody id="rows"></tbody></table></div>
   </div>
 
   <div class="card" id="gone" hidden><div class="big">Ссылка устарела</div>
     <div class="sub">Игра закончилась или хозяин начал новую. Попросите у него новую ссылку-приглашение.</div></div>
+
+  <template id="mine-tpl">
+    <div class="card">
+      <div class="me"><canvas class="face" width="60" height="78"></canvas><div>
+        <div class="big t-title"></div><div class="sub t-state" style="margin:2px 0 0"></div></div></div>
+      <div class="row t-lookrow"><button class="t-look">Сменить внешность</button></div>
+      <div class="looks t-looks" hidden style="margin-top:8px"></div>
+      <label>Ссылка-коннектор (личная, никому не отправляйте)</label>
+      <div class="row"><input class="t-link" readonly><button class="t-link-copy">Копировать</button></div>
+      <h2 style="margin-top:16px">Как подключить</h2>
+      <div class="tabs t-tabs"></div>
+      <ol class="t-steps"></ol>
+      <label>Текст для вашего ИИ (вставьте в новый чат)</label>
+      <textarea class="t-prompt" readonly></textarea>
+      <div class="row"><button class="t-prompt-copy">Копировать текст</button></div>
+      <div class="note">ИИ покажет карточку сессии и спросит вас. Ответьте «да»: без вашего «да» он не играет.
+        Потом он сам назовёт своего жителя и опишет его характер. Ваш ИИ работает на вашей подписке; хозяин не видит
+        ваших ключей и паролей, а его ключи не участвуют.</div>
+      <div class="row"><button class="t-leave">Отказаться от места</button></div>
+    </div>
+  </template>
 </main>
+<script src="/mcp/assets/sprites_data.js"></script>
+<script src="/mcp/assets/sprites.js"></script>
 <script>
 (() => {
   const AIV = /*AIV*/null;
   const $ = id => document.getElementById(id);
+  const S = window.Sprites, LOOKS = (S && S.LOOKS) || 24;
   const AIS = [
     ['claude', 'Claude (claude.ai или приложение)'], ['chatgpt', 'ChatGPT'], ['gemini', 'Gemini'],
     ['claude_code', 'Claude Code'], ['codex', 'Codex'], ['other', 'Другой ИИ с MCP'],
   ];
   const AI_NAME = Object.fromEntries(AIS.map(([k, v]) => [k, v.split(' (')[0]]));
-  const PROMPT = 'Сыграй за меня в AI Village через коннектор AI Village. Сначала вызови join_village и покажи мне ' +
-    'карточку сессии; начинай, только когда я отвечу «да». Потом играй сам до конца игры: next_turn, потом answer, ' +
-    'и так по кругу. Не останавливайся и ничего у меня не спрашивай; если ход не твой, снова вызывай next_turn. ' +
-    'Если тебя остановит предел ответа, продолжай с того же места, когда я напишу «дальше».';
+  const PROMPT = 'Сыграй в AI Village через коннектор AI Village. Сначала вызови join_village и покажи мне ' +
+    'карточку сессии; начинай, только когда я отвечу «да». Дальше всё решай сам: игра попросит тебя назвать своего ' +
+    'жителя и описать его характер, придумай их сам. Потом играй до конца игры: next_turn, потом answer, и так по ' +
+    'кругу. Не останавливайся и ничего у меня не спрашивай; если ход не твой или игра ещё не началась, снова ' +
+    'вызывай next_turn. Если тебя остановит предел ответа, продолжай с того же места, когда я напишу «дальше».';
   const STEPS = {
     claude: link => [
       'Откройте <b>claude.ai</b> (или приложение Claude) → <b>Настройки</b> → <b>Коннекторы</b> (Settings → Connectors).',
@@ -129,7 +163,6 @@
       'Добавьте её как коннектор (MCP server) и вставьте текст ниже в новый чат.',
     ],
   };
-  const STATE = { playing: '🟢 играет', asking: '🟡 ждёт «да» от игрока', offline: '⚪ ИИ не подключён' };
   const STATUS = { active: '', hospital: '🏥 в лазарете', dead: '✝ умер' };
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const store = {
@@ -140,83 +173,172 @@
     const done = () => { const t = b.textContent; b.textContent = '✓ Скопировано'; setTimeout(() => { b.textContent = t; }, 1300); };
     (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(done, () => window.prompt('Скопируйте:', text));
   };
+  // seat state -> words; in the lobby a confirmed AI first names itself
+  const stateText = (s, phase) => s.state === 'offline' ? '⚪ ИИ не подключён' : s.state === 'asking' ? '🟡 ИИ ждёт вашего «да»'
+    : phase === 'lobby' ? (s.name ? '✅ готов, ждёт начала игры' : '✍️ придумывает себе имя и характер')
+    : s.thinking ? '💭 думает' : '🟢 играет';
 
-  let ai = 'claude', link = '';
-  for (const [k, v] of AIS) $('ai').append(new Option(v, k));
-  function drawSteps() {
-    $('tabs').innerHTML = '';
-    for (const [k] of AIS) {
-      const b = document.createElement('button');
-      b.textContent = AI_NAME[k]; b.className = k === ai ? 'on' : '';
-      b.onclick = () => { ai = k; drawSteps(); };
-      $('tabs').append(b);
-    }
-    $('steps').innerHTML = STEPS[ai](esc(link)).map(s => `<li>${s}</li>`).join('');
+  // a villager's look, drawn from the game's own sprites (falls back to nothing before they load)
+  function face(c, look) {
+    const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+    const sheet = Number.isInteger(look) && S && S.ok && S.villager(look);
+    if (!sheet) { g.font = `${c.height * .6}px system-ui`; g.textAlign = 'center'; g.fillText('🎲', c.width / 2, c.height * .75); return; }
+    const k = Math.min(c.width / sheet.fw, c.height / sheet.fh);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(sheet, 0, 0, sheet.fw, sheet.fh, (c.width - sheet.fw * k) / 2, c.height - sheet.fh * k, sheet.fw * k, sheet.fh * k);
   }
-  $('prompt').value = PROMPT;
-  $('prompt-copy').onclick = () => copy(PROMPT, $('prompt-copy'));
-  $('link-copy').onclick = () => copy(link, $('link-copy'));
+  const drawFace = (c, look) => { c.dataset.look = Number.isInteger(look) ? look : ''; face(c, look); };
+  if (S) S.onReady(() => document.querySelectorAll('canvas.face').forEach(c =>  // the sprites decoded: redraw all
+    face(c, c.dataset.look === '' || c.dataset.look === undefined ? null : +c.dataset.look)));
+  function lookPicker(box, current, onPick) {
+    box.innerHTML = '';
+    for (const k of [null, ...Array.from({ length: LOOKS }, (_, i) => i)]) {
+      const b = document.createElement('button'), c = document.createElement('canvas');
+      c.width = 42; c.height = 54; c.className = 'face'; b.append(c); drawFace(c, k);
+      b.title = k === null ? 'Случайная' : `Внешность ${k + 1}`;
+      b.className = k === current ? 'on' : '';
+      b.onclick = () => { onPick(k); for (const x of box.children) x.className = ''; b.className = 'on'; };
+      box.append(b);
+    }
+  }
+  function tabs(root, link, pick) {
+    const draw = () => {
+      root.querySelector('.t-tabs').innerHTML = '';
+      for (const [k] of AIS) {
+        const b = document.createElement('button');
+        b.textContent = AI_NAME[k]; b.className = k === pick.ai ? 'on' : '';
+        b.onclick = () => { pick.ai = k; draw(); };
+        root.querySelector('.t-tabs').append(b);
+      }
+      root.querySelector('.t-steps').innerHTML = STEPS[pick.ai](esc(link)).map(s => `<li>${s}</li>`).join('');
+    };
+    draw();
+  }
+  function mineCard(m, opts = {}) {
+    const root = $('mine-tpl').content.firstElementChild.cloneNode(true);
+    const link = location.origin + m.path, pick = { ai: m.ai && STEPS[m.ai] ? m.ai : 'claude' };
+    root.querySelector('.t-link').value = link;
+    root.querySelector('.t-link-copy').onclick = e => copy(link, e.target);
+    root.querySelector('.t-prompt').value = PROMPT;
+    root.querySelector('.t-prompt-copy').onclick = e => copy(PROMPT, e.target);
+    tabs(root, link, pick);
+    root.update = m2 => {
+      root.querySelector('.t-title').textContent = opts.title ? opts.title(m2)
+        : `${AI_NAME[m2.ai] || 'Ваш ИИ'} · ${m2.name ? 'житель ' + m2.name : 'житель назовёт себя сам'}`;
+      root.querySelector('.t-state').textContent = opts.state ? opts.state(m2) : stateText(m2, phase);
+      const lobby = phase === 'lobby' && !opts.static;
+      root.querySelector('.t-lookrow').hidden = !lobby;
+      root.querySelector('.t-leave').hidden = opts.static || m2.state === 'playing';
+      if (root.look !== m2.look) { root.look = m2.look; drawFace(root.querySelector('canvas'), m2.look); }
+    };
+    root.querySelector('.t-look').onclick = () => {
+      const box = root.querySelector('.t-looks');
+      box.hidden = !box.hidden;
+      if (!box.hidden) lookPicker(box, root.look, k => post('/look', { claim: m.claim, look: k }).then(poll));
+    };
+    root.querySelector('.t-leave').onclick = () => {
+      if (!confirm('Отказаться от места? Его займёт кто-то другой.')) return;
+      post('/leave', { claim: m.claim }).then(() => { setClaims(claims().filter(c => c !== m.claim)); poll(); });
+    };
+    root.update(m);
+    return root;
+  }
 
+  let phase = 'lobby';
+  for (const [k, v] of AIS) $('ai').append(new Option(v, k));
   if (!AIV) return;
   if (AIV.mode === 'seat') {  // the connector link opened in a browser
-    link = location.origin + location.pathname;
-    $('mine').hidden = false;
-    $('mine-title').textContent = `Ссылка-коннектор жителя ${AIV.name}`;
-    $('mine-state').textContent = 'Эту ссылку не нужно открывать в браузере: добавьте её в свой ИИ как коннектор.' +
-      (AIV.player ? ` Место занято игроком ${AIV.player}.` : '');
-    $('link').value = link;
-    drawSteps();
+    $('mine-list').append(mineCard({ path: location.pathname, name: AIV.name, look: AIV.look }, { static: true,
+      title: () => AIV.name ? `Ссылка-коннектор жителя ${AIV.name}` : 'Ссылка-коннектор места в турнире',
+      state: () => 'Эту ссылку не нужно открывать в браузере: добавьте её в свой ИИ как коннектор.' +
+        (AIV.player ? ` Место занято игроком ${AIV.player}.` : '') }));
     return;
   }
 
-  const key = 'aiv-claim-' + AIV.base;
+  const key = 'aiv-claims-' + AIV.base;
+  const claims = () => store.get(key).split(',').filter(Boolean);
+  const setClaims = list => store.set(key, list.join(','));
   const post = (url, body) => fetch(AIV.base + url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body) }).then(r => r.json().then(d => { if (!r.ok) throw new Error(d.detail || r.status); return d; }));
+  let pickLook = null;
+  lookPicker($('looks'), null, k => { pickLook = k; });
   $('player').value = store.get('aiv-player');
-  $('ai').value = store.get('aiv-ai') || 'claude';
   $('take-btn').onclick = () => {
-    $('take-msg').textContent = '';
-    store.set('aiv-player', $('player').value.trim()); store.set('aiv-ai', $('ai').value);
-    post('/take', { player: $('player').value, ai: $('ai').value, claim: store.get(key) }).then(d => {
-      store.set(key, d.claim); ai = $('ai').value; poll();
-    }, e => { $('take-msg').textContent = e.message; });
-  };
-  $('leave').onclick = () => {
-    if (!confirm('Отказаться от жителя? Место займёт кто-то другой.')) return;
-    post('/leave', { claim: store.get(key) }).then(() => { store.set(key, ''); poll(); });
+    $('take-msg').textContent = ''; $('take-btn').disabled = true;
+    store.set('aiv-player', $('player').value.trim());
+    post('/take', { player: $('player').value, ai: $('ai').value, look: pickLook }).then(d => {
+      setClaims([...claims(), d.claim]); pickLook = null; lookPicker($('looks'), null, k => { pickLook = k; }); poll();
+    }, e => { $('take-msg').textContent = e.message; }).finally(() => { $('take-btn').disabled = false; });
   };
 
-  let shownMine = '';
+  // the host on their own computer: invite link, «Начать игру», «Отменить» (local-only /api, the tunnel never reaches it)
+  let host = null;
+  const hostPost = url => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    .then(r => r.json().then(d => { if (!r.ok) throw new Error(d.detail || r.status); return d; }));
+  $('invite-copy').onclick = () => copy($('invite').value, $('invite-copy'));
+  $('retry').onclick = () => fetch('/api/remote/tunnel', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ on: true }) }).then(pollHost);
+  $('begin').onclick = () => {
+    $('host-msg').textContent = ''; $('begin').disabled = true;
+    hostPost('/api/tournament/begin').then(() => { location.href = '/'; },
+      e => { $('host-msg').textContent = e.message; $('begin').disabled = false; });
+  };
+  $('cancel').onclick = () => {
+    if (!confirm('Отменить турнир? Ссылки игроков перестанут работать.')) return;
+    hostPost('/api/tournament/cancel').then(() => { location.href = '/'; });
+  };
+  function pollHost() {
+    return fetch('/api/remote').then(r => r.ok ? r.json() : null).then(d => {
+      host = d && d.seats ? d : null;
+      $('host').hidden = !host;
+      if (!host) return;
+      const t = host.tunnel || {}, local = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+      const base = local ? (t.state === 'on' ? t.url : '') : location.origin;
+      $('invite').value = base ? base + AIV.base : t.state === 'error' ? 'Нет доступа из интернета' : 'Открываю доступ из интернета…';
+      $('retry').hidden = !(local && t.state === 'error');
+      $('host-tunnel').textContent = !local ? `Игра открыта по адресу ${location.origin}.`
+        : t.state === 'on' ? `🌍 Доступ из интернета открыт: ${t.url}` : t.state === 'error'
+        ? `⚠️ Не вышло открыть доступ из интернета: ${t.error}` : '🌍 Открываю доступ из интернета…';
+      $('host-lobby').hidden = host.phase !== 'lobby';
+      $('host-game').hidden = host.phase === 'lobby';
+      $('host-note').textContent = host.phase === 'lobby' ? `Готовы (сказали «да» и назвались): ${host.ready}. ` +
+        'Начните, когда соберутся все; места без готового ИИ уберутся.' : '';
+    }).catch(() => {});
+  }
+
+  const shown = {};  // claim -> its card
   function draw(st) {
-    const mine = st.mine;
-    if (!mine && store.get(key)) store.set(key, '');  // the host freed the seat
-    $('take').hidden = !!mine || !st.open;
-    $('free').textContent = st.open ? (st.free ? `Свободных мест: ${st.free}` : 'Свободных мест нет') : '';
-    $('take-btn').disabled = !st.free;
-    $('mine').hidden = !mine;
-    if (mine) {
-      link = location.origin + mine.path;
-      if (shownMine !== mine.path) { ai = store.get('aiv-ai') || 'claude'; shownMine = mine.path; $('link').value = link; drawSteps(); }
-      $('mine-title').textContent = `Ваш житель: ${mine.name}`;
-      $('mine-state').textContent = STATE[mine.state] || '';
-      $('leave').hidden = mine.state === 'playing';
+    phase = st.phase || 'game';
+    const mine = st.mine || [];
+    if (mine.length !== claims().length) setClaims(mine.map(m => m.claim));  // the host freed a place
+    for (const m of mine) {
+      if (!shown[m.claim]) { shown[m.claim] = mineCard(m); $('mine-list').append(shown[m.claim]); }
+      shown[m.claim].update(m);
     }
+    for (const c of Object.keys(shown)) if (!mine.some(m => m.claim === c)) { shown[c].remove(); delete shown[c]; }
+    $('take').hidden = !st.open || phase !== 'lobby' || mine.length >= st.per_player;
+    $('take-title').textContent = mine.length ? 'Подключить ещё один ИИ' : 'Занять место';
+    if (mine.length && !$('ai').dataset.moved) { $('ai').value = mine[0].ai === 'chatgpt' ? 'claude' : 'chatgpt'; $('ai').dataset.moved = 1; }
+    $('free').textContent = st.free ? `Свободных мест: ${st.free}` : 'Свободных мест нет';
+    $('take-btn').disabled = !st.free;
     const when = st.day ? ` · день ${st.day}${st.days ? ' из ' + st.days : ''}, ${st.time}` : '';
-    $('table-title').textContent = (st.finished ? '🏁 Игра окончена. Итоги' : 'Жители') + when;
+    $('table-title').textContent = phase === 'lobby' ? 'Игроки собираются' : (st.finished ? '🏁 Игра окончена. Итоги' : 'Жители') + when;
     const seats = st.finished ? [...st.seats].sort((a, b) => (b.worth ?? 0) - (a.worth ?? 0)) : st.seats;
-    $('rows').innerHTML = seats.map(s => `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.player) || '<span class="sub">свободно</span>'}</td>` +
-      `<td>${esc(s.client || AI_NAME[s.ai] || '')}</td><td>${s.thinking ? '💭 думает' : STATE[s.state]} ${STATUS[s.status] || ''}</td>` +
+    $('rows').innerHTML = seats.map(s => `<tr><td><canvas class="face" width="24" height="31"></canvas></td>` +
+      `<td><b>${esc(s.name) || '<span class="sub">—</span>'}</b></td><td>${esc(s.player) || '<span class="sub">свободно</span>'}</td>` +
+      `<td>${esc(AI_NAME[s.ai] || s.client || '')}</td><td>${stateText(s, phase)} ${STATUS[s.status] || ''}</td>` +
       `<td>${s.answered}</td><td>${s.worth ?? ''}</td><td>${s.health ?? ''}</td></tr>`).join('');
+    [...$('rows').querySelectorAll('canvas')].forEach((c, i) => drawFace(c, seats[i].look));
     $('table-card').hidden = false;
   }
   function poll() {
-    return fetch(`${AIV.base}/state?claim=${encodeURIComponent(store.get(key))}`).then(r => {
-      if (r.status === 404) { for (const id of ['take', 'mine', 'table-card']) $(id).hidden = true; $('gone').hidden = false; return; }
+    return fetch(`${AIV.base}/state?claim=${encodeURIComponent(claims().join(','))}`).then(r => {
+      if (r.status === 404) { for (const id of ['take', 'mine-list', 'table-card', 'host']) $(id).hidden = true; $('gone').hidden = false; return; }
       return r.json().then(draw);
     }).catch(() => {});
   }
-  poll();
-  setInterval(poll, 3000);
+  poll(); pollHost();
+  setInterval(poll, 3000); setInterval(pollHost, 3000);
 })();
 </script>
 </body>
