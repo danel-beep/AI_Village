@@ -448,6 +448,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if "mcp" in models.values():  # own AIs over MCP (aivillage/remote.py): new links and new consent every time
         remote.HUB.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
                          info={"villagers": len(world.agents)})
+        remote.HUB.world = world  # the lobby's table: who is alive and how rich
     villains = villains_of(models, int(world.config.get("villains") or 0), world.config["seed"])
     out = {}
     for name, m in models.items():
@@ -458,6 +459,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
             client = remote.RemoteClient(remote.HUB.add(name, world.agents[name].profession))
             if remote.HUB.style == "owner":
                 character = remote.OWNER_CHARACTER
+            elif remote.HUB.style == "model":  # the tournament: nothing of the host's, the AI is itself
+                character = remote.MODEL_CHARACTER
         else:
             client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts,

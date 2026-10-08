@@ -81,6 +81,16 @@ def test_knobs_for_features_not_in_config_are_hidden(monkeypatch):
     assert "future" not in {k["key"] for k in knobs.active()}
 
 
+def test_start_screen_bots_feed_themselves_in_the_camp():
+    """The game is always «С нуля»: the default bots must live through the first days. With worker bots as the
+    base (they sell at a market that does not exist yet) the whole village starved within days."""
+    from aivillage import engine, run
+    r = knobs.to_run({"brains": "bots", "bot_mix": "workers", "days": 5})
+    w = engine.new_world({**r["override"], "seed": 3})
+    run.run(w, run.bots_decider(w, r["bots"], 3), days=5, check_every_tick=False)
+    assert all(a.status == "active" and a.hospital_stays == 0 for a in w.agents.values())
+
+
 def test_world_from_start_screen_has_the_settings():
     from aivillage import engine
     r = knobs.to_run({"brains": "bots", "preset": "village", "villagers": 7, "start_coins": 55, "tax_amount": 5,

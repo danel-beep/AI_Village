@@ -83,7 +83,7 @@
     const t = ticks[k], n = s.n, v = t.view.agents[n];
     if (!v) return;
     const d = t.decisions[n], dayKey = t.view.day, add = (kind, text, extra) => s.life.push({ k, kind, text, ...extra });
-    if (k === 0) add('start', `Начинает жизнь в деревне: ${v.profession}, ${v.coins} монет.`, { ic: '🌅', title: 'Начало' });
+    if (k === 0) add('start', `Начинает жизнь в деревне: ${v.profession && v.profession !== 'villager' ? v.profession + ', ' : ''}${v.coins} монет.`, { ic: '🌅', title: 'Начало' });
     if (s.status !== null && v.status !== s.status && v.status !== 'active')
       add('status', `Теперь ${STATUS[v.status] || v.status}.`, { ic: '⚠', title: 'Перемена судьбы', w: 7 });
     s.status = v.status;
@@ -234,7 +234,7 @@
     box.innerHTML = `<div class="wrap">
       <div class="head"><span id="hero-port"></span>
         <div class="who"><div class="nm" style="color:${color[n]}">${esc(n)}</div>
-          <div>${esc(v.profession)} · ${STATUS[v.status] || esc(v.status)} · ${v.asleep ? 'спит' : 'сейчас'} в «${esc(t.view.locations[v.location] || v.location)}»
+          <div>${v.profession && v.profession !== 'villager' ? esc(v.profession) + ' · ' : ''}${STATUS[v.status] || esc(v.status)} · ${v.asleep ? 'спит' : 'сейчас'} в «${esc(t.view.locations[v.location] || v.location)}»
             ${t.view.mayor === n ? ' · 🎖 староста' : ''}${s.spouse ? ` · 💍 ${pname(s.spouse)}` : ''}</div>
           <div class="muted">${brain ? `Мозг: ${esc(brain)} · ` : ''}день ${t.view.day}, ${hhmm(t)}</div>
           ${agentCfg.character ? `<div class="char">«${esc(agentCfg.character)}»</div>` : ''}</div>

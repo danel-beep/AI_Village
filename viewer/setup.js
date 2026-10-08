@@ -300,8 +300,8 @@
         <div class="note" id="su-note-adv" hidden></div>
         <div id="su-adv">
           <h3 class="more">Все остальные настройки</h3>
-          <p class="hint more-hint">Режим уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
-            зелёной точкой ●, «Сбросить к режиму» внизу вернёт всё как было.</p>
+          <p class="hint more-hint">Пресет уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
+            зелёной точкой ●, «Сбросить к пресету» внизу вернёт всё как было.</p>
           <div id="su-groups"></div>
           <details id="su-people"><summary>👥 Настроить каждого жителя: имя, модель, характер</summary>
             <div class="vbar"><label class="tog"><input type="checkbox" id="su-own"><span></span></label>
@@ -318,7 +318,7 @@
         </div>
         <div class="play">
           <button class="go" id="su-go">▶ Играть</button>
-          <button class="small" id="su-reset">Сбросить к режиму</button>
+          <button class="small" id="su-reset">Сбросить к пресету</button>
           <div class="msg" id="su-msg"></div>
         </div>
       </div>
@@ -367,6 +367,8 @@
     const presetDefaults = p => info.preset_defaults[p] || {};
     // config and action knobs (and «Еды в мире», which a preset may set) move with the preset
     const follows = k => !!(k.path || k.action || (info.follow || []).includes(k.key));
+    // `only` (knobs.py): the knob belongs to one kind of village ("llm", "bots", "mcp") or a list of them
+    const notHere = k => !!k.only && ![].concat(k.only).includes(values.brains);
     // Config knobs follow the preset until the user moves them; `touched` keeps what they set by hand.
     let touched = new Set(Object.keys(saved.__touched || {}));
     const values = {};
@@ -446,7 +448,7 @@
       r.about.textContent = [k.about ? k.about[v] : '', hint].filter(Boolean).join(' ');
       // hide_if: hidden while every listed knob holds one of the listed values (knobs.py)
       const hidden = k.hide_if && Object.entries(k.hide_if).every(([c, vs]) => vs.includes(values[c]));
-      const off = (k.only && k.only !== values.brains) || hidden;
+      const off = notHere(k) || hidden;
       r.el.style.display = off || (view === 'simple' && !k.simple) ? 'none' : '';
     }
 
@@ -504,7 +506,7 @@
       : k.key === 'seed' ? values.seed === null || values.seed === undefined || values.seed === ''
       : values[k.key] === info.defaults[k.key];
     function hiddenChanges() {  // how many knobs «Простой» does not show are set away from the preset
-      const off = knobs.filter(k => !k.simple && !(k.only && k.only !== values.brains) && !isDefault(k));
+      const off = knobs.filter(k => !k.simple && !notHere(k) && !isDefault(k));
       return off.length;  // the per-villager editor is on screen in both views
     }
     function note() {
@@ -529,7 +531,7 @@
       root.querySelectorAll('.view button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
       $('su-view-hint').textContent = v === 'simple'
         ? 'Только главное. Остальное выставлено как задумано: так деревня работает лучше всего.'
-        : 'Здесь можно поменять всё: режим экономики, налоги, кражи, беды, скорость, каждого жителя.';
+        : 'Здесь можно поменять всё: еду, налоги, кражи, беды, скорость, каждого жителя.';
       for (const [key, ph] of Object.entries(spot)) {  // simple knobs from the sections join «Главное» in «Простой»
         if (v === 'simple') $('su-main').insertBefore(rows[key].el, model);
         else ph.parentNode.insertBefore(rows[key].el, ph);
@@ -703,7 +705,7 @@
       const go = $('su-go');
       go.disabled = true; $('su-msg').textContent = ''; $('su-msg').className = 'msg';
       const body = {};
-      for (const k of knobs) if (!(k.only && k.only !== values.brains)) body[k.key] = values[k.key];
+      for (const k of knobs) if (!notHere(k)) body[k.key] = values[k.key];
       if (roster) body.roster = roster.slice(0, n());
       goLoading('Строю деревню', 'Рисую карту, расселяю жителей, раскладываю ягоды по кустам…');
       post('/api/start', body).then(() => location.reload(), e => {

@@ -15,7 +15,7 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
   follows the preset, like `path` knobs.
 - `also`: more config paths that get the same value as `path`.
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
-- `only`: "llm" or "bots" shows the knob for that kind of village only.
+- `only`: "llm", "bots" or "mcp" (or a list of them) shows the knob for that kind of village only.
 - `group`: fallback section title. Where a knob shows is set by MAIN (always on top) and SECTIONS (folded
   sections) below KNOBS; add a new knob's key there. `hint` (or HINTS) is the plain-word line under it.
 - `hide_if`: {knob key: [values]}: hidden while every listed knob's value is in its list (tax rates with
@@ -34,12 +34,14 @@ from typing import Any
 from . import modes, seasons
 from .config import DEFAULT_CONFIG, _merge, make_config
 
+# The base bot is `builder`: the game is always «С нуля» and only builders feed themselves there (worker bots
+# sell at a market that does not exist yet, so a village of them starved within 10 days on every preset).
 BOT_MIXES = {
-    "mixed": ["worker", "worker", "thief", "worker", "random"],
-    "workers": ["worker"],
-    "traders": ["trader", "worker"],
-    "thieves": ["thief", "worker"],
-    "homestead": ["homestead", "worker"],
+    "mixed": ["builder", "builder", "thief", "builder", "random"],
+    "workers": ["builder"],
+    "traders": ["trader", "builder"],
+    "thieves": ["thief", "builder"],
+    "homestead": ["homestead", "builder"],
 }
 
 # Models of the AI villagers on the start screen: None = the saved model for everyone; a list is handed out over
@@ -55,9 +57,14 @@ NO_WORLD_TAX = {"polities": [True]}
 KNOBS: list[dict[str, Any]] = [
     # --- village ---
     {"key": "brains", "group": "Деревня", "type": "choice", "label": "Кто живёт в деревне", "default": "llm",
-     "options": [["llm", "🧠 ИИ-жители"], ["bots", "🤖 Боты (бесплатно)"]],
+     "options": [["llm", "🧠 ИИ-жители"], ["bots", "🤖 Боты (бесплатно)"], ["mcp", "🏆 MCP-турнир (ИИ людей)"]],
+     "about": {"mcp": "Каждым жителем играет ИИ одного из игроков: свой Claude, ChatGPT, Gemini, Claude Code или "
+                      "Codex на его подписке, подключённый к деревне как коннектор. Ваши ключи не участвуют, характеров "
+                      "от вас нет: каждый ИИ играет сам собой. После «Играть» кнопка «🔌 Свои ИИ» даст одну "
+                      "ссылку-приглашение для всех игроков (docs/tournament.md)."},
      "hint": "ИИ-жители думают через ключ OpenAI или OpenRouter (кнопка «⚙️ Настройки»), стоят центы. "
-             "Боты: простые программы, бесплатно, для проверки мира."},
+             "Боты: простые программы, бесплатно, для проверки мира. MCP-турнир: жителями играют ИИ людей "
+             "с других устройств, бесплатно для вас."},
     {"key": "models", "group": "Деревня", "type": "choice", "label": "Модели жителей", "only": "llm",
      "default": "one", "options": [["one", "Одна на всех"], ["luna_haiku", "Luna и Haiku поровну"]],
      "about": {"one": "Все ИИ-жители думают через модель из «⚙️ Настройки».",
@@ -67,12 +74,12 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Смесь моделей нужна, чтобы сравнить их в одной деревне; модель каждого жителя записана в журнале."},
     {"key": "villains", "path": "villains", "group": "Деревня", "type": "range", "label": "Злых жителей на каждую модель",
      "min": 0, "max": 5, "step": 1, "default": 0, "only": "llm",
-     "hint": "Злой житель без морали и жаждет власти, как Борис в прогоне со злодеем. Число на каждую модель: при "
+     "hint": "Злой житель: без морали и жаждет власти. Число на каждую модель: при "
              "«Luna и Haiku поровну» 1 значит один злой на Luna и один на Haiku. Кто злой, решает жребий (может "
              "выпасть и Борис); остальные обычные. Кто злой и на какой модели, записано в журнале. 0: злых нет."},
     {"key": "villagers", "group": "Деревня", "type": "range", "label": "Сколько жителей",
      "min": 2, "max": 60, "step": 1, "default": 5,
-     "hint": "Больше пяти: новые жители получают имена и профессии сами, ресурсов в мире больше."},
+     "hint": "Больше пяти: новые жители получают случайные имена, ресурсов в мире больше."},
     {"key": "days", "group": "Деревня", "type": "range", "label": "Сколько игровых дней",
      "min": 1, "max": 60, "step": 1, "default": 3, "unit": " дн."},
     {"key": "daily_budget", "group": "Деревня", "type": "range", "label": "Бюджет в сутки, $", "only": "llm",
@@ -113,14 +120,15 @@ KNOBS: list[dict[str, Any]] = [
              "деревне как коннектор. После «Играть» кнопка «🔌 Свои ИИ» даст ссылку на каждого жителя. Такой житель "
              "получает те же запросы, что и ИИ-жители по ключу. Остальными играет ИИ по ключу. 0: выключено."},
     {"key": "own_ai_wait", "path": "own_ai.wait_minutes", "group": "Свои ИИ", "type": "range",
-     "label": "Сколько ждать ход своего ИИ", "min": 1, "max": 30, "step": 1, "unit": " мин", "only": "llm",
+     "label": "Сколько ждать ход своего ИИ", "min": 1, "max": 30, "step": 1, "unit": " мин", "only": ["llm", "mcp"],
      "hint": "Деревня ждёт ответа каждого подключённого ИИ столько минут, потом его житель пропускает ход. Пока ИИ "
              "не подключился и игрок не сказал «да», деревня ждёт его (или нажмите «Играть без него»)."},
     {"key": "own_ai_style", "path": "own_ai.style", "group": "Свои ИИ", "type": "choice",
      "label": "Как играет свой ИИ", "only": "llm",
-     "options": [["owner", "🪞 Как его владелец"], ["self", "🔬 Сам за себя"]],
+     "options": [["owner", "🪞 Как его владелец"], ["self", "🔬 Сам за себя"], ["model", "🤖 Сам собой, без характера"]],
      "hint": "«Как владелец»: мир описан тем же нейтральным текстом, а характер ИИ берёт из своей памяти о человеке, "
-             "чей он. «Сам за себя»: тот же текст, что у всех жителей. Оба режима не идут в честное сравнение "
+             "чей он. «Сам за себя»: тот же текст, что у всех жителей. «Сам собой»: никакого характера от "
+             "хозяина, ИИ играет со своей личностью (так в MCP-турнире). Все три режима не идут в честное сравнение "
              "моделей: у приложения ИИ своя память и свой скрытый промпт."},
     {"key": "luxury", "path": "luxury.enabled", "group": "Деревня", "type": "toggle", "label": "Праздники и вещи на виду",
      "hint": "Житель может устроить праздник: делит свою еду поровну со всеми, кто рядом и не спит, гостям он становится "
@@ -943,7 +951,13 @@ def to_run(opts: dict) -> dict:
         for k, v in cal.items():
             _set(override, f"seasons.{k}", v)
     override["preset"] = preset
-    return {"override": override, "preset": preset, "llm": val["brains"] == "llm",
+    tournament = val["brains"] == "mcp"
+    if tournament:  # every villager is a player's own AI: nothing of the host's (keys, characters, villains)
+        override["own_ai"] = {**override.get("own_ai", {}), "seats": val["villagers"], "style": "model"}
+        override["villains"] = 0
+        override["characters"] = "off"
+    return {"override": override, "preset": preset, "llm": val["brains"] in ("llm", "mcp"), "tournament": tournament,
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
-            "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"],
+            "seed": val["seed"], "tick_minutes": val["tick_minutes"],
+            "summaries": val["summaries"] and not tournament,  # recaps would spend the host's key
             "daily_budget": val["daily_budget"], "models": MODEL_MIXES[val["models"]], "values": val}
