@@ -24,7 +24,8 @@
     for (let k = now; k >= 0 && dayOf(k) >= day; k--) {
       for (const e of ticks[k].events || []) {
         const sc = Camera.score(e.kind, e.data); if (sc < MIN || (e.day != null && e.day !== day)) continue;
-        const d = e.data || {}, who = e.actor || d.victim || (e.to || [])[0] || '';
+        const d = e.data || {}, who = e.actor || d.victim || (e.to || [])[0] ||
+          (e.kind === 'hospital' ? (e.text || '').split(' collapsed')[0] : '');  // the engine's hospital event names nobody
         const group = GROUP.has(e.kind), id = group ? e.kind : (THEFT.test(e.kind) ? 'theft' : e.kind) + '|' + who;
         const it = seen.get(id);
         if (it && !it.target && !group) it.target = (e.to || []).find(n => n !== who);   // one theft, several events
