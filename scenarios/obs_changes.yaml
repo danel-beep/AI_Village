@@ -10,8 +10,8 @@ config:
   seed: 11
   villagers: 6
   characters: "off"
-  llm_obs: full
   world:
+    llm_obs: full
     map: {procedural: true, unfairness: 0}
 play:
   days: 2
