@@ -128,20 +128,22 @@ MEMORY_MODES = ("day", "fresh")
 DEFAULT_MEMORY = "day"
 DAY_TURNS = 48  # turns kept in the day conversation; past it the older half is dropped (one cache miss)
 # A message carrying this key is the end of a prefix worth caching. OpenAI (GPT-6) caches by itself only the system
-# prompt and the whole last prompt, so the client marks it as an explicit breakpoint; other routes drop the key.
+# prompt and the whole last prompt, so the client marks it as an explicit breakpoint; Claude caches nothing by itself,
+# so it gets `cache_control` here and on the system prompt; other routes drop the key.
 CACHE_POINT = "cache_point"
 DAY_DIARIES = 3  # "day" mode: diary entries of the last days shown (in the cached part of the prompt)
 
 
-def wire(messages: list[dict], breakpoints: bool) -> list[dict]:
-    """Messages as sent: CACHE_POINT becomes OpenAI's `prompt_cache_breakpoint` or is dropped."""
+def wire(messages: list[dict], breakpoints: bool | str) -> list[dict]:
+    """Messages as sent: CACHE_POINT becomes OpenAI's `prompt_cache_breakpoint` (True), Anthropic's `cache_control`
+    ("anthropic", which also marks the system prompt: Claude caches nothing unless asked), or is dropped (False)."""
     out = []
     for m in messages:
-        if CACHE_POINT not in m:
-            out.append(m)
-            continue
+        point = CACHE_POINT in m or (breakpoints == "anthropic" and m.get("role") == "system")
         m = {k: v for k, v in m.items() if k != CACHE_POINT}
-        if breakpoints:
+        if point and breakpoints == "anthropic":
+            m["content"] = [{"type": "text", "text": m["content"], "cache_control": {"type": "ephemeral"}}]
+        elif point and breakpoints:
             m["content"] = [{"type": "text", "text": m["content"], "prompt_cache_breakpoint": {"mode": "explicit"}}]
         out.append(m)
     return out
@@ -378,7 +380,8 @@ class OpenRouterClient(Client):
         return self.api_key or keys.get("openrouter_key")
 
     def _post(self, models: list[str], messages: list[dict]) -> tuple[str, dict]:
-        body = {"model": models[0], "messages": wire(messages, False), "max_tokens": self.max_tokens, "usage": {"include": True},
+        body = {"model": models[0], "messages": wire(messages, models[0].startswith("anthropic/") and "anthropic"),
+                "max_tokens": self.max_tokens, "usage": {"include": True},
                 "response_format": {"type": "json_object"}, "reasoning": self.reasoning}
         if self.temperature is not None:
             body["temperature"] = self.temperature
@@ -488,9 +491,11 @@ def price_of(model: str) -> tuple[float, float, float]:
 
 def token_cost(model: str, usage: dict) -> float:
     price = price_of(model)
-    cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
-    fresh = int(usage.get("prompt_tokens") or 0) - cached
-    return (fresh * price[0] + cached * price[1] + int(usage.get("completion_tokens") or 0) * price[2]) / 1e6
+    details = usage.get("prompt_tokens_details") or {}
+    cached, written = int(details.get("cached_tokens") or 0), int(details.get("cache_write_tokens") or 0)
+    fresh = int(usage.get("prompt_tokens") or 0) - cached  # includes `written`, which Claude bills at 1.25x
+    return (fresh * price[0] + written * price[0] * 0.25 + cached * price[1]
+            + int(usage.get("completion_tokens") or 0) * price[2]) / 1e6
 
 
 class OpenAIClient(Client):
