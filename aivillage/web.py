@@ -376,8 +376,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--data", default=os.environ.get("AIVILLAGE_DATA") or "/data")
     p.add_argument("--max-games", type=int, default=int(os.environ.get("AIVILLAGE_MAX_GAMES") or MAX_GAMES))
     a = p.parse_args(argv)
-    domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
-    public_url = os.environ.get("AIVILLAGE_PUBLIC_URL") or (f"https://{domain}" if domain else "")
+    # the address players use (MCP links); unset = the address the browser opened the site under
+    public_url = os.environ.get("AIVILLAGE_PUBLIC_URL", "")
     site = Site(Path(a.data), os.environ.get("AIVILLAGE_SITE_PASSWORD", ""), os.environ.get("AIVILLAGE_SITE_SECRET"),
                 public_url, max_games=a.max_games)
     import uvicorn

@@ -1,5 +1,5 @@
 name: site-smoke
-# run 2
+# run 3
 on:
   push:
     branches: [claude/project-thread-rb4ev3]
@@ -27,7 +27,7 @@ jobs:
           t = time.time(); r = c.get(B + "/"); print("index", r.status_code, "setup.js" in r.text, round(time.time() - t, 1), "s")
           s = c.get(B + "/api/settings").json(); print("hosted", s["hosted"], "key set", s["openrouter_key"]["set"])
           r = c.post(B + "/api/start", json={"brains": "mcp", "days": 1, "villagers": 3}); print("start", r.status_code)
-          rem = c.get(B + "/api/remote").json(); base = rem["tunnel"]["url"]; print("public base", base)
+          rem = c.get(B + "/api/remote").json(); base = rem["tunnel"]["url"]; print("public base", base); assert base.startswith(B)
           s2 = httpx.Client(timeout=60)
           print("join page", s2.get(base + rem["lobby"], headers={"accept": "text/html"}).status_code)
           take = s2.post(base + rem["lobby"] + "/take", json={"player": "Smoke", "ai": "claude"}).json(); print("take", take.get("name"))

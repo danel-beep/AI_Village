@@ -1,11 +1,14 @@
 name: site-deploy
 
 # The public website (docs/site.md) runs the `site-live` branch on Railway, which redeploys on every push to it.
-# An update restarts every game on the site, so this moves `site-live` to main only when no village plays there
-# (/healthz "playing": 0), or when the update has waited 12 hours (games resume from their last autosave).
+# This moves `site-live` to the `stable` tag (main's latest commit whose tests passed, tests.yml). An update
+# restarts every game on the site, so it happens only when no village plays there (/healthz "playing": 0),
+# or when the update has waited 12 hours (games resume from their last autosave).
 
 on:
-  push:
+  workflow_run:
+    workflows: [tests]
+    types: [completed]
     branches: [main]
   schedule:
     - cron: "*/20 * * * *"
@@ -29,23 +32,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Move site-live to main when the site is idle
+      - name: Move site-live to stable when the site is idle
         run: |
-          git fetch -q origin main site-live || true
+          git fetch -q -f origin 'refs/tags/stable:refs/tags/stable' 'refs/heads/*:refs/remotes/origin/*'
+          target=$(git rev-parse 'stable^{commit}')
           if ! git rev-parse -q --verify origin/site-live >/dev/null; then
-            echo "site-live does not exist yet: creating it"; git push origin origin/main:refs/heads/site-live; exit 0
+            echo "site-live does not exist yet: creating it"; git push origin "$target:refs/heads/site-live"; exit 0
           fi
-          behind=$(git rev-list --count origin/site-live..origin/main)
+          behind=$(git rev-list --count "origin/site-live..$target")
           if [ "$behind" = 0 ]; then echo "site is up to date"; exit 0; fi
-          if ! git merge-base --is-ancestor origin/site-live origin/main; then
-            echo "::warning::site-live is not behind main (someone pushed to it directly); not touching it"; exit 0
+          if ! git merge-base --is-ancestor origin/site-live "$target"; then
+            echo "::warning::site-live is not behind stable (someone pushed to it directly); not touching it"; exit 0
           fi
-          oldest=$(git log --reverse --format=%ct origin/site-live..origin/main | head -1)
+          oldest=$(git log --reverse --format=%ct "origin/site-live..$target" | head -1)
           age=$(( $(date +%s) - oldest ))
           playing=$(curl -fsS --max-time 20 "$SITE_URL/healthz" | jq -r .playing || echo unknown)
           echo "behind by $behind commits, oldest waiting $((age / 60)) min, villages playing: $playing"
           if [ "$playing" = 0 ] || [ "$playing" = unknown ] || [ "$age" -gt $(( MAX_WAIT_HOURS * 3600 )) ]; then
-            git push origin origin/main:refs/heads/site-live
+            git push origin "$target:refs/heads/site-live"
           else
             echo "villages are playing: the update waits for the next check"
           fi
