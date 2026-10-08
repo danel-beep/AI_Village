@@ -14,7 +14,8 @@ Rules, in the order a villager meets them:
 - Laws (polity_propose / polity_vote_law): tax (coins per member every tax day), income_tax (percent of the coins
   a member got from the trader and orders since the polity's last tax day), wealth_tax (percent of a member's coins
   on tax day), tax_every (days between the polity's tax days; the village's `tax_every_days` until a law sets it),
-  fine (a member owes the treasury), grant (treasury coins to a member), payout (the treasury split among the
+  theft_fine (coins per reported theft, attack or arson: charged to the culprit, member or not, when the report
+  is made at the town hall or the victim is a member; governance.report_theft), fine (a member owes the treasury), grant (treasury coins to a member), payout (the treasury split among the
   members), expel (a member leaves and may not join again for `expel_days`). A new polity taxes nothing: whether
   there is a tax, how much and how often is only what its laws say (no world rule taxes anyone).
 - sign_petition(form): when more than half of the members signed for the same form, the polity takes it (open
@@ -58,7 +59,7 @@ HALL = "town_hall"
 FORMS = ("assembly", "council", "ruler")
 TOPICS = ("name", "coin", "form", "leader")
 TAX_LAWS = ("tax", "income_tax", "wealth_tax", "tax_every")
-NUMBER_LAWS = TAX_LAWS + ("wage",)  # numbers kept in p["laws"]
+NUMBER_LAWS = TAX_LAWS + ("wage", "theft_fine")  # numbers kept in p["laws"]
 LAWS = NUMBER_LAWS + ("fine", "grant", "payout", "expel", "title")
 ACTION_NAMES = ("join_polity", "leave_polity", "polity_vote", "polity_propose", "polity_vote_law", "sign_petition",
                 "give_to_polity", "polity_embezzle", "polity_audit")
@@ -472,9 +473,11 @@ def handover(ctx: Ctx, p: dict, old: str) -> None:
 # ---------- laws ----------
 
 class ProposeArgs(BaseModel):
-    law: Literal["tax", "income_tax", "wealth_tax", "tax_every", "wage", "fine", "grant", "payout", "expel", "title"]
+    law: Literal["tax", "income_tax", "wealth_tax", "tax_every", "wage", "theft_fine", "fine", "grant", "payout",
+                 "expel", "title"]
     value: int | None = Field(None, description="tax: coins per member each tax day; income_tax, wealth_tax: "
-                                                "percent; tax_every: days; wage: coins per hour; fine, grant: coins")
+                                                "percent; tax_every: days; wage: coins per hour; theft_fine: coins "
+                                                "per reported theft; fine, grant: coins")
     person: str | None = Field(None, description="a member, for fine/grant/expel/title")
     text: str | None = Field(None, description="for title: the title's words")
 
@@ -488,6 +491,8 @@ def _describe(p: dict, pr: dict) -> str:
             "tax_every": f"tax day every {pr['value']} days",
             "wage": f"wage = {pr['value']} {coin} from the treasury per hour a member works on a common building "
                     "or a village project",
+            "theft_fine": f"theft fine = {pr['value']} {coin} from anyone reported for a theft, attack or arson "
+                          "(at this town hall, or against a member)",
             "fine": f"fine {pr['person']} {pr['value']} {coin}",
             "grant": f"grant {pr['value']} {coin} from the treasury to {pr['person']}",
             "payout": "split the treasury equally among the members",
@@ -498,7 +503,8 @@ def _describe(p: dict, pr: dict) -> str:
 @ACTIONS.action("polity_propose", "Put a law to your polity, the way its form of government says (assembly: any "
                 "member proposes, all members vote; council: a council member proposes, the council votes; ruler: "
                 "the ruler's law passes at once). tax/fine/grant need value (coins), income_tax/wealth_tax value "
-                "(percent), tax_every value (days), wage value (coins per hour); 0 for a tax law or wage means none; "
+                "(percent), tax_every value (days), wage value (coins per hour), theft_fine value (coins per reported "
+                "theft); 0 for a tax law, wage or theft_fine means none; "
                 "fine/grant/expel need person "
                 "(a member); payout splits the treasury among the members; title needs person (a member) and text (a "
                 "title on the honor board, where World facts list it).", ProposeArgs,
@@ -517,7 +523,7 @@ def polity_propose(ctx: Ctx, a: Agent, args: ProposeArgs) -> None:
         raise ActionError(f"at most {c['max_open_proposals']} proposals can be open at once")
     value = person = None
     text = honors.check_title(ctx, args.text) if args.law == "title" else None
-    if args.law in ("tax", "income_tax", "wealth_tax", "tax_every", "wage", "fine", "grant"):
+    if args.law in ("tax", "income_tax", "wealth_tax", "tax_every", "wage", "theft_fine", "fine", "grant"):
         lo, hi = c["limits"][args.law]
         if args.value is None or not lo <= args.value <= hi:
             raise ActionError(f"{args.law} needs value between {lo} and {hi}")
@@ -829,6 +835,8 @@ def observe(world: World, name: str) -> dict:
             row["treasury_books"], row["you_took_unnoticed"] = books(p), p["embezzled"].get(name, 0)
         if wage(p):
             row["wage_per_hour"] = wage(p)
+        if p["laws"].get("theft_fine"):
+            row["theft_fine"] = p["laws"]["theft_fine"]
         if p["form"] and _c(cfg).get("income_per_member_per_day"):
             row["treasury_income_per_member_per_day"] = _c(cfg)["income_per_member_per_day"]
         if name in p["members"]:
@@ -875,7 +883,9 @@ def facts(cfg: dict) -> str:
             "(percent of the coins a member got from the trader and orders since the last tax day), wealth_tax "
             "(percent of a member's coins on tax day), tax_every (days between tax days, "
             f"{cfg['tax_every_days']} until a law sets it), wage (coins from the treasury to a member for each hour "
-            "of their work on a common building or a village project, while it has coins), fine, grant, payout, "
+            "of their work on a common building or a village project, while it has coins), theft_fine (coins from "
+            "anyone reported for a theft, attack or arson, member or not, when the report is made at the polity's "
+            "town hall or, made anywhere else, the victim is a member), fine, grant, payout, "
             f"expel (no rejoining for {c['expel_days']} days)" + (", title" if honors.enabled(cfg) else "")
             + ". A new polity has no tax until a law sets one, and no wage either. On tax day members pay their own polity "
             f"only; {how}. Non-members pay no polity tax, and income from before joining is not taxed."

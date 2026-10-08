@@ -104,6 +104,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "owner_notice_chance": 0.9,
         "victim_notice_chance": 0.8,
         "treasury": True,
+        # A theft nobody noticed gives the robbed person one true clue with this chance: who was at the place
+        # within the last hour, what the thief now carries, or the thief's visible gear. Only a clue that fits
+        # 2 or more living villagers is given (the narrowest such one), so it never names the thief alone.
+        "clue_chance": 0.5,
     },
     "max_text_len": 200,
     "inbox_size": 30,
@@ -392,7 +396,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "limits": {"tax": [0, 60], "theft_fine": [0, 50], "mayor_salary": [0, 20], "grant": [1, 200],
                    "sales_tax": [0, 30], "wealth_tax": [0, 20]},
         "start": {"theft_fine": 0, "mayor_salary": 0},
-        "crime_memory_days": 7,  # a witnessed theft can be reported for this many days
+        "crime_memory_days": 14,  # a witnessed theft can be reported for this many days
+        # report_theft gives what was stolen back to the victim: qty x this, from the thief's pocket, then their
+        # chest; what they no longer hold is dropped (no debt). 0 = nothing is given back.
+        "restitution": 1.0,
     },
     # Polities (aivillage/polity.py), off by default; on in the «С нуля» mode. A finished town_hall founds a polity:
     # its builders are the first members, anyone may join_polity / leave_polity. Members vote for its name, the
@@ -409,7 +416,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "expel_days": 7,  # an expelled villager may not join that polity again for this many days
         # tax laws: income_tax and wealth_tax in percent, tax_every in days (polity.py)
         "limits": {"tax": [0, 50], "income_tax": [0, 50], "wealth_tax": [0, 20], "tax_every": [1, 14],
-                   "grant": [1, 500], "fine": [1, 200], "wage": [0, 10]},
+                   "grant": [1, 500], "fine": [1, 200], "wage": [0, 10], "theft_fine": [0, 50]},
         "max_name_len": 30,
         # The treasury holder (ruler; most voted councillor; an assembly's treasurer) can take coins unnoticed
         # (polity_embezzle) until polity_audit at the town hall or, with audit_on_handover, a change of holder.
@@ -502,6 +509,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "construct": 1,       # worked an hour on someone else's or the village's building site (seen there)
             "site_supplied": 1,   # brought materials to someone else's or the village's building site (seen there)
             "embezzlement_found": -5,  # the books show the mayor took treasury coins (public)
+            "theft_report": -3,   # someone reported a theft, attack or arson by this person (public)
         },
     },
     # Private plots (aivillage/plots.py): each house has a yard of `cells` where its family builds.

@@ -293,6 +293,16 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Казну можно обокрасть",
      "hint": "Любой может унести монеты из казны там, где она хранится. По книгам их не хватятся до ревизии, "
              "а ревизия не скажет, кто взял."},
+    {"key": "restitution", "path": "governance.restitution", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Краденое возвращают при доносе", "min": 0, "max": 200, "step": 50, "unit": "%",
+     "hint": "Сколько украденного вор отдаёт жертве, когда на него донесли: 100% = всё, 0 = ничего. Берётся из "
+             "карманов, потом из сундука вора; чего у него уже нет, то пропадает, долга не остаётся."},
+    {"key": "crime_days", "path": "governance.crime_memory_days", "group": "Кражи", "type": "range",
+     "label": "Сколько дней можно донести", "min": 3, "max": 30, "step": 1, "unit": " дн."},
+    {"key": "theft_clue", "path": "theft.clue_chance", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Подсказка о неизвестном воре", "min": 0, "max": 100, "step": 10, "unit": "%",
+     "hint": "Если кражу никто не видел, жертва с этим шансом получает правдивую подсказку: кто был рядом за "
+             "последний час, что вор теперь несёт или его оружие. Подсказка всегда подходит хотя бы двоим."},
 
     # --- land (aivillage/land.py) ---
     {"key": "land_claim", "path": "land.claim", "group": "Земля", "type": "choice", "label": "Пустые участки",
@@ -583,7 +593,7 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
       "trader_sells_tool", "stock_prices", "price_drop", "price_floor", "stock_keep", "gold_value"]),
     ("🕵️ Кражи", "Насколько легко украсть и попасться.",
      ["theft_rules", "see_stores", "steal_notice_chance", "steal_awake_target_success", "max_steal_qty",
-      "dark_factor", "owner_notice", "victim_notice"]),
+      "dark_factor", "owner_notice", "victim_notice", "restitution", "crime_days", "theft_clue"]),
     ("⚔️ Драки", "Можно ли драться, сколько длится драка и что забирает победитель.",
      ["combat", "combat_rounds", "combat_loot", "combat_loot_coins", "combat_min_health"]),
     ("🗣 Слухи и разговоры", "Как искажаются пересказы и сколько стоит объявление.",
