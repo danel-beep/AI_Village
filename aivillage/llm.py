@@ -66,7 +66,7 @@ Below is what you did, said and noticed today. Answer with ONE JSON object and n
 In "people" include only villagers your opinion of changed today; their old entries are kept otherwise.
 Be honest with yourself: no other villager reads this."""
 
-# Own goals (config `own_goals`, docs/STATUS.md): the villager is asked what it wants, never told. Before its first
+# Own goals (config `own_goals`, docs/changelog/status-archive-2026-10-08.md): the villager is asked what it wants, never told. Before its first
 # turn it writes who it is and what it wants (INTRO), every night it may rewrite that and plans tomorrow
 # (REFLECT_GOALS), and every turn shows its own words first in memory. The questions are the same for every model
 # and name no goal, so the answers are data for the comparison.
