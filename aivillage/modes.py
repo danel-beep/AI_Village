@@ -186,8 +186,11 @@ MODES["survival"] = {
                                               "labor": {"mastery": {"enabled": True}},
                                               "settle": {"enabled": True},
                                               # face-to-face talk: one after another at a place,
-                                              # an answer within the same quarter-hour (talk.py)
-                                              "talk": {"turn_taking": True},
+                                              # an answer within the same quarter-hour, and being spoken
+                                              # to pauses the job (talk.py; live A/B Luna+Haiku 3/3
+                                              # 2026-10-08: replies within a tick 6-17% -> 44%,
+                                              # talks of 3+ lines 2-4% -> 14%)
+                                              "talk": {"turn_taking": True, "interrupt_pause": True},
                                               # pace (progression audit R3, Danel 2026-10-06 «подгоняй
                                               # настройки»): 2 units an hour by hand instead of 1; builder
                                               # bots reach the town on d10-12 instead of d14-18
