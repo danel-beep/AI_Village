@@ -1,4 +1,4 @@
-"""The public download site (site/) ships no keys and points at the real installers."""
+"""The public site (site/) ships no keys and links to the game and its own images."""
 import re
 from pathlib import Path
 
@@ -14,8 +14,6 @@ def test_site_has_no_keys():
 
 def test_site_links_exist():
     html = (SITE / "index.html").read_text(encoding="utf-8")
-    root = SITE.parent
-    for script in ("install.sh", "install.ps1"):
-        assert f"/main/scripts/{script}" in html and (root / "scripts" / script).exists()
+    assert 'href="https://ai-village.up.railway.app"' in html  # the «Играть» button (docs/site.md)
     for src in re.findall(r'(?:src|poster|href)="(img/[^"]+)"', html):
         assert (SITE / src).exists(), src
