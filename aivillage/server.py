@@ -639,7 +639,8 @@ class Host:
             self.runs_dir.mkdir(parents=True, exist_ok=True)
             log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.jsonl"
             sm = None if run_opts["llm"] and run_opts["summaries"] else "off"
-            models = remote.models_for(world.config) if run_opts["llm"] else None  # own AIs get "mcp"
+            # own AIs get "mcp"; a model mix (knobs.MODEL_MIXES) is shared out over the rest
+            models = remote.models_for(world.config, run_opts["models"] or "default") if run_opts["llm"] else None
             self.sim = make_sim(world, models=models, bots=run_opts["bots"],
                                 seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
                                 summary_model=sm, reports_dir=self.reports_dir,
@@ -928,7 +929,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     @app.get("/api/setup")
     def setup_info() -> dict:
         return {**knobs.schema(), "running": host.sim is not None, "can_restart": host.setup,
-                "last": host.last, "has_key": keys.has_any_key(),
+                "last": host.last, "has_key": keys.has_any_key(), "has_openrouter": bool(keys.get("openrouter_key")),
                 "model": keys.get("model") or llm.DEFAULT_MODEL,
                 "finished": bool(host.sim and host.sim.finished)}
 
@@ -953,6 +954,10 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if opts.get("brains", "llm") == "llm" and not keys.has_any_key() and not all_own:
             raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
                                      "Или выберите ботов, они бесплатные.")
+        mix = knobs.MODEL_MIXES.get(opts.get("models") or "one") if opts.get("brains", "llm") == "llm" else None
+        if mix and any(not m.startswith("openai/") for m in mix) and not keys.get("openrouter_key"):
+            raise HTTPException(400, "Для Haiku нужен ключ OpenRouter: «⚙️ Настройки» вверху слева. "
+                                     "Или выберите «Одна на всех».")
         try:
             sim = host.start(opts)
         except (ValueError, TypeError) as e:

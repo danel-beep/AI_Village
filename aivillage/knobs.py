@@ -42,6 +42,13 @@ BOT_MIXES = {
     "homestead": ["homestead", "worker"],
 }
 
+# Models of the AI villagers on the start screen: None = the saved model for everyone; a list is handed out over
+# the villagers in seeded seat order (run.llm_agents), so every model gets an equal share and no fixed seat.
+MODEL_MIXES: dict[str, list[str] | None] = {
+    "one": None,
+    "luna_haiku": ["openai/gpt-6-luna", "anthropic/claude-haiku-5.5"],
+}
+
 # With polities on, whether there is a tax, how much and how often is up to each polity (polity.py): no world rate.
 NO_WORLD_TAX = {"polities": [True]}
 
@@ -51,6 +58,12 @@ KNOBS: list[dict[str, Any]] = [
      "options": [["llm", "🧠 ИИ-жители"], ["bots", "🤖 Боты (бесплатно)"]],
      "hint": "ИИ-жители думают через ключ OpenAI или OpenRouter (кнопка «⚙️ Настройки»), стоят центы. "
              "Боты: простые программы, бесплатно, для проверки мира."},
+    {"key": "models", "group": "Деревня", "type": "choice", "label": "Модели жителей", "only": "llm",
+     "default": "one", "options": [["one", "Одна на всех"], ["luna_haiku", "Luna и Haiku поровну"]],
+     "about": {"one": "Все ИИ-жители думают через модель из «⚙️ Настройки».",
+               "luna_haiku": "Половина жителей на Luna (через OpenAI), половина на Haiku 5.5 (через OpenRouter, "
+                             "нужен его ключ). Кто на какой модели, решает жребий, как в опытах."},
+     "hint": "Смесь моделей нужна, чтобы сравнить их в одной деревне; модель каждого жителя записана в журнале."},
     {"key": "villagers", "group": "Деревня", "type": "range", "label": "Сколько жителей",
      "min": 2, "max": 60, "step": 1, "default": 5,
      "hint": "Больше пяти: новые жители получают имена и профессии сами, ресурсов в мире больше."},
@@ -606,9 +619,9 @@ HINTS = {
 # SIMPLE: all the «Простой» view shows (the default view); «Расширенный» shows MAIN and every section.
 # RETIRED: kept in to_run() and in the config (old saved forms, the lab, scenarios), never on the screen: switches
 # back to an older, dearer or worse way that nobody should pick by hand (Danel 2026-10-08).
-SIMPLE = ["brains", "bot_mix", "preset", "start_stage", "villagers", "days", "daily_budget", "chaos"]
+SIMPLE = ["brains", "models", "bot_mix", "preset", "start_stage", "villagers", "days", "daily_budget", "chaos"]
 RETIRED = {"llm_memory", "llm_obs", "fixed_map"}
-MAIN = ["brains", "bot_mix", "preset", "start_stage", "food", "villagers", "days", "daily_budget"]
+MAIN = ["brains", "models", "bot_mix", "preset", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, свои цели, разговоры и что жители видят друг о друге.",
      ["characters", "own_goals", "craft_hint", "summaries", "luxury", "hungry_seen_below",
@@ -908,4 +921,4 @@ def to_run(opts: dict) -> dict:
     return {"override": override, "preset": preset, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
             "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"],
-            "daily_budget": val["daily_budget"], "values": val}
+            "daily_budget": val["daily_budget"], "models": MODEL_MIXES[val["models"]], "values": val}

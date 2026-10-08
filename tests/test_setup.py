@@ -237,3 +237,42 @@ def test_app_village_always_has_boris_on_a_random_seat():
     assert "Boris" in [a["name"] for a in knobs.roster(5, 4)]
     assert "Boris" not in [a["name"] for a in knobs.roster(2, 4, [{"name": "Вера", "profession": "farmer"},
                                                                   {"name": "Ян", "profession": "smith"}])]
+
+
+def test_luna_and_haiku_half_each_from_the_start_screen(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from aivillage import llm, remote, server
+    from aivillage.run import brains_of, llm_agents
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    mix = knobs.MODEL_MIXES["luna_haiku"]
+    assert knobs.to_run({})["models"] is None and knobs.to_run({"models": "luna_haiku"})["models"] == mix
+    assert "models" in knobs.SIMPLE and "models" in knobs.MAIN
+
+    c = TestClient(create_app(host=Host(None, str(tmp_path / "runs"), setup=True)))
+    r = c.post("/api/start", json={"brains": "llm", "models": "luna_haiku"})
+    assert r.status_code == 400 and "OpenRouter" in r.json()["detail"]  # Haiku only goes through OpenRouter
+    assert not c.get("/api/setup").json()["has_openrouter"]
+
+    got = {}
+    monkeypatch.setattr(server, "make_sim", lambda world, **kw: got.update(world=world, **kw) or MagicMock())
+    monkeypatch.setattr(llm, "check", lambda *a, **k: {"ok": True})
+    Host(None, str(tmp_path / "runs"), setup=True).start({"brains": "llm", "models": "luna_haiku", "villagers": 6})
+    assert got["models"] == mix
+    w = got["world"]
+    # Luna goes straight to OpenAI (normal tier), Haiku to OpenRouter, by the "auto" provider
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    agents = llm_agents(w, got["models"])
+    decide = type("Decide", (), {"agents": agents})()
+    per_villager = brains_of(decide)  # the log header's "brains": each villager's model
+    assert sorted(per_villager.values()) == sorted(mix * 3)
+    luna = next(a.client for a in agents.values() if a.client.model == mix[0])
+    assert isinstance(luna, llm.FallbackClient) and luna.primary.tier() == "default"
+    assert all(isinstance(a.client, llm.OpenRouterClient) for a in agents.values() if a.client.model == mix[1])
+    # own-AI seats keep "mcp", the rest share the mix evenly
+    w.config["own_ai"] = {"seats": 2}
+    own = remote.models_for(w.config, mix)
+    assert list(own.values()).count("mcp") == 2
+    assert sorted(m for m in own.values() if m != "mcp") == sorted(mix * 2)

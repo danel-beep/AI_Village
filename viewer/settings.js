@@ -34,7 +34,7 @@
     <h3>Ключи и модель</h3>
     <label>Через кого думают жители</label>
     <select id="st-provider">
-      <option value="auto">Сам выберу: OpenAI, если есть его ключ, иначе OpenRouter</option>
+      <option value="auto">Сам выберу: модели OpenAI через OpenAI (если есть его ключ), остальные через OpenRouter</option>
       <option value="openai">Только OpenAI напрямую</option>
       <option value="openrouter">Только OpenRouter</option>
     </select>
