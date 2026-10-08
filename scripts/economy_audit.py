@@ -83,7 +83,7 @@ def gini(xs) -> float:
     return sum((2 * i - len(xs) + 1) * x for i, x in enumerate(xs)) / (len(xs) * total) if total else 0.0
 
 
-def play(mode: str, bots: list[str], n: int, days: int, seed: int, extra: dict) -> dict:
+def play(preset: str, bots: list[str], n: int, days: int, seed: int, extra: dict) -> dict:
     FLOW.clear()
     PER.clear()
     over = {"seed": seed, "population": {"size": n}, "map": {"procedural": True}, "tick_minutes": 15}
@@ -93,7 +93,7 @@ def play(mode: str, bots: list[str], n: int, days: int, seed: int, extra: dict) 
         for k in path:
             d = d.setdefault(k, {})
         d[last] = value
-    w = engine.new_world(modes.world_override(mode, over))
+    w = engine.new_world(modes.world_override(preset, over))
     names = sorted(w.agents)
     start = {x: _wealth(w, x) for x in names}
     prof = {a["name"]: a.get("profession") for a in w.config["agents"]}  # at the start (places.py may change it)
@@ -112,7 +112,7 @@ def report(runs: list[dict], args) -> str:
     flow = Counter()
     for r in runs:
         flow.update(r["flow"])
-    out = [f"## {args.mode}, боты {args.bots}, {args.villagers} жителей × {args.days} дней, сиды {args.seeds}", "",
+    out = [f"## {args.preset}, боты {args.bots}, {args.villagers} жителей × {args.days} дней, сиды {args.seeds}", "",
            "Потоки монет за прогон (в среднем):", "", "| монет | что | откуда |", "|---:|---|---|"]
     out += [f"| {v / k:.0f} | {key.split('|')[0]} | `{key.split('|')[1]}` |" for key, v in flow.most_common(12)]
     by = defaultdict(lambda: {"start": [], "end": [], "src": Counter()})
@@ -138,7 +138,7 @@ def report(runs: list[dict], args) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--mode", default="crafts")
+    p.add_argument("--preset", default="village")
     p.add_argument("--bots", default="trader")
     p.add_argument("--villagers", type=int, default=10)
     p.add_argument("--days", type=int, default=14)
@@ -154,7 +154,7 @@ def main(argv=None) -> int:
         except json.JSONDecodeError:
             extra[key] = value
     _install()
-    runs = [play(args.mode, args.bots.split(","), args.villagers, args.days, int(s), extra)
+    runs = [play(args.preset, args.bots.split(","), args.villagers, args.days, int(s), extra)
             for s in args.seeds.split(",")]
     if args.json:
         Path(args.json).write_text(json.dumps(runs, ensure_ascii=False))

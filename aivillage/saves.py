@@ -224,6 +224,6 @@ def listing(runs_dir: str | Path) -> list[dict]:
                     "alive": sum(a.get("status") != "dead" for a in snap["world"]["agents"].values()),
                     "llm": bool(b.get("agents")),
                     "needs_key": any(a.get("model") not in ("stub", "mcp") for a in (b.get("agents") or {}).values()),
-                    "mode": snap["world"]["config"].get("economy_mode"),
+                    "mode": snap["world"]["config"].get("preset") or snap["world"]["config"].get("economy_mode"),
                     "mtime": p.stat().st_mtime})
     return sorted(out, key=lambda s: -s["mtime"])

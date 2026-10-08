@@ -305,7 +305,7 @@ def compute(paths: list[str | Path], judge=None) -> dict:
         vs = villagers(recs, p, lies, dl)
         wants = goals(recs)
         cfg = header["config"]
-        runs.append({"log": str(p), "seed": cfg.get("seed"), "mode": cfg.get("economy_mode"), "villagers": len(vs), "days": max((v["days"] for v in vs.values()),
+        runs.append({"log": str(p), "seed": cfg.get("seed"), "mode": cfg.get("preset") or cfg.get("economy_mode"), "villagers": len(vs), "days": max((v["days"] for v in vs.values()),
                                                                                        default=0),
                      "cost_usd": round(sum(v["cost_usd"] for v in vs.values()), 4),
                      "stages": dl["stages"], "built": dl["built"], "voluntary_laws": dl["voluntary_laws"]})
@@ -376,7 +376,7 @@ def to_markdown(rep: dict) -> str:
                            + "; ".join(f"день {d}: {w or '—'}" for d, w in v["wants"]))
     if not one:
         out += ["", "## Прогоны", ""]
-        out += [f"{i + 1}. `{r['log']}`: seed {r['seed']}, режим {r['mode']}, {r['villagers']} жителей, "
+        out += [f"{i + 1}. `{r['log']}`: seed {r['seed']}, пресет {r['mode']}, {r['villagers']} жителей, "
                 f"{r['days']} дн., ${r['cost_usd']:.4f}" for i, r in enumerate(runs)]
     return "\n".join(out) + "\n"
 

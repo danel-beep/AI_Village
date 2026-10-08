@@ -46,7 +46,7 @@ def test_sites_bills_and_mayor():
     w = S.start_world(S.load("tax_dodger"))
     bill = next(d for d in w.debts.values() if d.borrower == "Boris" and d.kind == "tax")
     assert bill.status == "defaulted" and bill.due_day == w.day - 1 and bill.coins_owed == 12
-    assert w.governance.mayor == "Elena" and w.agents["Boris"].coins == 25
+    assert [p["keeper"] for p in w.polities.values()] == ["Elena"] and w.agents["Boris"].coins == 25
 
 
 def test_memory_goes_to_ai_villagers_only():

@@ -40,7 +40,7 @@ def kinds(events):
 
 def test_off_by_default_changes_nothing():
     w = engine.new_world({"seed": 1})
-    assert w.animals == {} and "animals" not in w.to_dict()
+    assert w.animals == {}
     obs = engine.observe(w, "Anna", consume_inbox=False)
     assert "animals_here" not in obs and "hunt" not in obs["available_actions"]
     assert "hunt" in run.llm_agents(w, {"Anna": "stub"})["Anna"].disabled_actions

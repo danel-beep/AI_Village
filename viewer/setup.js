@@ -354,18 +354,22 @@
     let saved = {};
     try { saved = JSON.parse(store.get(STORE) || '{}') || {}; } catch (e) { /* broken storage */ }
     const start = Object.assign({}, info.defaults, info.last || {}, saved);
-    if (!(start.mode in info.mode_defaults)) start.mode = info.defaults.mode;
-    const modeVals = m => info.mode_defaults[m] || {};
-    const follows = k => !!(k.path || k.action);  // config and action knobs move with the mode
-    // Config knobs follow the mode until the user moves them; `touched` keeps what they set by hand.
+    if (!(start.preset in info.preset_defaults)) start.preset = info.defaults.preset;
+    const presetDefaults = p => info.preset_defaults[p] || {};
+    // config and action knobs (and «Еды в мире», which a preset may set) move with the preset
+    const follows = k => !!(k.path || k.action || (info.follow || []).includes(k.key));
+    // Config knobs follow the preset until the user moves them; `touched` keeps what they set by hand.
     let touched = new Set(Object.keys(saved.__touched || {}));
     const values = {};
-    // A choice with `sets` (random-events preset) moves its sliders like the mode does: mode < preset < hand.
-    const presetVals = () => Object.assign({}, ...knobs.filter(k => k.sets).map(k => k.sets[values[k.key]] || {}));
-    const base = m => Object.assign({}, modeVals(m), presetVals());
+    // A choice with `sets` («Сколько случайностей») moves its sliders like the preset does: preset < sets < hand.
+    const setsVals = () => Object.assign({}, ...knobs.filter(k => k.sets).map(k => k.sets[values[k.key]] || {}));
+    const base = p => Object.assign({}, presetDefaults(p), setsVals());
     for (const k of knobs) if (!follows(k)) values[k.key] = k.key in start ? start[k.key] : k.default;
     for (const k of knobs) if (follows(k))
-      values[k.key] = touched.has(k.key) && k.key in start ? start[k.key] : base(start.mode)[k.key];
+      values[k.key] = touched.has(k.key) && k.key in start ? start[k.key] : base(start.preset)[k.key];
+    for (const k of knobs)  // a remembered answer that is no longer an option (an old mode, old food choice)
+      if (k.type === 'choice' && !k.options.some(o => o[0] === values[k.key]))
+        values[k.key] = follows(k) ? base(start.preset)[k.key] : k.default;
     // «Простой» (default): only knobs.SIMPLE; «Расширенный»: every knob.
     let view = store.get(VIEW) === 'adv' ? 'adv' : 'simple';
 
@@ -426,23 +430,23 @@
       else for (const b of r.control.children) b.classList.toggle('on', b.dataset.v === String(v));
       if (r.val.isConnected) {
         r.val.textContent = fmt(k, v);
-        r.val.classList.toggle('changed', view === 'adv' && follows(k) && v !== base(values.mode)[k.key]);
+        r.val.classList.toggle('changed', view === 'adv' && follows(k) && v !== base(values.preset)[k.key]);
       }
       // In «Простой» a choice explains its picked option only (its general hint talks about sliders not shown there).
       const hint = view === 'simple' && k.about ? '' : (k.hint || '');
       r.about.textContent = [k.about ? k.about[v] : '', hint].filter(Boolean).join(' ');
       // hide_if: hidden while every listed knob holds one of the listed values (knobs.py)
       const hidden = k.hide_if && Object.entries(k.hide_if).every(([c, vs]) => vs.includes(values[c]));
-      const off = (k.only && k.only !== values.brains) || (k.mode && k.mode !== values.mode) || hidden;
+      const off = (k.only && k.only !== values.brains) || hidden;
       r.el.style.display = off || (view === 'simple' && !k.simple) ? 'none' : '';
     }
 
     function set(k, v) {
       values[k.key] = v;
       if (follows(k)) touched.add(k.key);
-      if (k.sets) for (const c of Object.keys(k.sets[v] || {})) touched.delete(c);  // the preset takes them back
-      if (k.key === 'mode' || k.sets) {  // the mode / preset moves every slider the user has not set by hand
-        for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = base(values.mode)[c.key];
+      if (k.sets) for (const c of Object.keys(k.sets[v] || {})) touched.delete(c);  // the choice takes them back
+      if (k.key === 'preset' || k.sets) {  // the preset / choice moves every slider the user has not set by hand
+        for (const c of knobs) if (follows(c) && !touched.has(c.key)) values[c.key] = base(values.preset)[c.key];
       }
       repaint();
       if (k.key === 'villagers') syncRoster();
@@ -474,11 +478,11 @@
       $('su-groups').appendChild(box);
       boxes[sec.title] = { box, cnt, knobs: knobs.filter(k => k.section === sec.title) };
     }
-    // Per section: hide it when none of its knobs applies here, count the knobs set away from the mode.
+    // Per section: hide it when none of its knobs applies here, count the knobs set away from the preset.
     function sections() {
       for (const b of Object.values(boxes)) {
         const shown = b.knobs.filter(k => rows[k.key].el.style.display !== 'none' && b.box.contains(rows[k.key].el));
-        const changed = shown.filter(k => follows(k) && values[k.key] !== base(values.mode)[k.key]).length;
+        const changed = shown.filter(k => follows(k) && values[k.key] !== base(values.preset)[k.key]).length;
         b.box.style.display = shown.length ? '' : 'none';
         b.cnt.textContent = changed ? 'изменено: ' + changed : '';
         b.cnt.hidden = !changed;
@@ -486,21 +490,18 @@
     }
 
     // What «Простой» does not show but will still apply: changes made in «Расширенный».
-    const isDefault = k => follows(k) ? !touched.has(k.key) || values[k.key] === base(values.mode)[k.key]
+    const isDefault = k => follows(k) ? !touched.has(k.key) || values[k.key] === base(values.preset)[k.key]
       : k.key === 'seed' ? values.seed === null || values.seed === undefined || values.seed === ''
       : values[k.key] === info.defaults[k.key];
-    function hiddenChanges() {  // [mode label or '', how many other knobs]
-      const off = knobs.filter(k => !k.simple && k.key !== 'mode' && !(k.only && k.only !== values.brains) && !isDefault(k));
-      const mode = byKey.mode && values.mode !== info.defaults.mode
-        ? (byKey.mode.options.find(o => o[0] === values.mode) || [, values.mode])[1] : '';
-      return [mode, off.length + (roster ? 1 : 0)];
+    function hiddenChanges() {  // how many knobs «Простой» does not show are set away from the preset
+      const off = knobs.filter(k => !k.simple && !(k.only && k.only !== values.brains) && !isDefault(k));
+      return off.length + (roster ? 1 : 0);
     }
     function note() {
-      const [mode, n] = view === 'simple' ? hiddenChanges() : ['', 0], el = $('su-note-adv');
-      el.hidden = !mode && !n;
+      const n = view === 'simple' ? hiddenChanges() : 0, el = $('su-note-adv');
+      el.hidden = !n;
       if (el.hidden) return;
-      const what = [mode ? `режим «${mode}»` : '', n ? `изменённых настроек: ${n}` : ''].filter(Boolean).join(', ');
-      el.textContent = `В «Расширенном» выбрано: ${what}. Это тоже сработает.`;
+      el.textContent = `В «Расширенном» выбрано изменённых настроек: ${n}. Это тоже сработает.`;
       const b = document.createElement('button');
       b.className = 'small'; b.textContent = 'Вернуть как задумано';
       b.onclick = resetAll;
@@ -510,7 +511,7 @@
       touched = new Set();
       for (const k of knobs) if (!follows(k) && !k.simple && k.key in info.defaults) values[k.key] = info.defaults[k.key];
       roster = null; drawRoster();
-      set(byKey.mode, info.defaults.mode);
+      set(byKey.preset, values.preset);
     }
 
     function setView(v) {
@@ -640,7 +641,7 @@
 
     setView(view);
 
-    $('su-reset').onclick = () => { touched = new Set(); set(byKey.mode, values.mode); };
+    $('su-reset').onclick = () => { touched = new Set(); set(byKey.preset, values.preset); };
     $('su-go').onclick = () => {
       const go = $('su-go');
       go.disabled = true; $('su-msg').textContent = ''; $('su-msg').className = 'msg';

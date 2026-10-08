@@ -144,7 +144,6 @@ def build(log: str | Path, *, ended_by: str = "closed", days_planned: int | None
     extra_cost = sum(float(s.get("cost_usd") or 0) for s in recaps) + \
         sum(float(h.get("cost_usd") or 0) for h in highlights.values())
     last = ticks[-1]["view"] if ticks else {}
-    mode = cfg.get("economy_mode") or "crafts"  # logs from before the survival default
     started = started_at(log)
     ended = ended or datetime.now()
     return {
@@ -154,7 +153,7 @@ def build(log: str | Path, *, ended_by: str = "closed", days_planned: int | None
         "minutes": round((ended - started).total_seconds() / 60) if started else None,
         "ended_by": ended_by, "ended_by_text": ENDED_BY.get(ended_by, ended_by),
         "villagers_n": len(cfg.get("agents") or villagers), "brains": _brains(header),
-        "mode": mode, "mode_title": modes.MODES.get(mode, {}).get("title", mode), "seed": cfg.get("seed"),
+        "mode": cfg.get("preset") or cfg.get("economy_mode"), "mode_title": modes.title(cfg), "seed": cfg.get("seed"),
         "days_played": len(day_no), "days_planned": days_planned, "ticks": len(ticks),
         "reached": "день {}, {:02d}:{:02d}".format(*time_of(cfg, ticks[-1]["tick"])) if ticks else None,
         "mayor": last.get("mayor"),
@@ -225,10 +224,9 @@ def brief(log: str | Path) -> dict:
             cfg = json.loads(f.readline()).get("config") or {}
     except (OSError, ValueError):
         cfg = {}
-    mode = cfg.get("economy_mode") or "crafts"  # logs from before the survival default
     started = started_at(log)
     return {"name": log.stem, "summary": False, "started": started.isoformat(timespec="seconds") if started else None,
-            "villagers": len(cfg.get("agents") or []), "mode": modes.MODES.get(mode, {}).get("title", mode)}
+            "villagers": len(cfg.get("agents") or []), "mode": modes.title(cfg)}
 
 
 # --- rendering ---
@@ -248,7 +246,7 @@ def facts(s: dict) -> list[tuple[str, str]]:
     when_ = f"{_when(s['started'])} → {_when(s['ended'])}" if s.get("started") else f"закончилась {_when(s['ended'])}"
     out = [("Когда", when_ + (f" ({s['minutes']} мин)" if s.get("minutes") is not None else "")),
            ("Как закончилась", s["ended_by_text"]),
-           ("Деревня", f"{s['villagers_n']} жителей, режим «{s['mode_title']}», seed {s['seed']}"),
+           ("Деревня", f"{s['villagers_n']} жителей, пресет «{s['mode_title']}», seed {s['seed']}"),
            ("Кто играл", s["brains"]),
            ("Сыграно дней", _days(s)),
            ("Мэр в конце", s.get("mayor") or "нет"),

@@ -27,7 +27,7 @@ from .invariants import check
 from .logio import ViewDeltas, read_log  # noqa: F401  (read_log: the public reader, re-exported)
 from .state import World
 
-LOG_VERSION = 1
+LOG_VERSION = 2  # 2: every World field in the dict and hash, `preset` in the config (2026-10-08)
 
 
 @functools.lru_cache(maxsize=1)
@@ -321,8 +321,8 @@ def main(argv: list[str] | None = None) -> int:
                         "(default: env AIVILLAGE_FALLBACK_MODELS)")
     p.add_argument("--agents", type=int, default=0,
                    help="number of villagers: the first N, or more with generated names (resources scale up)")
-    p.add_argument("--mode", default=None, help="economy mode (aivillage/modes.py): "
-                                                "standard, peaceful, scarcity, debt, gold_rush, lawless")
+    p.add_argument("--preset", default=None, help="preset on top of «С нуля» (presets/*.yaml): "
+                                                  + ", ".join(modes.PRESETS))
     p.add_argument("--tick-minutes", type=int, default=None, choices=clock.ALLOWED,
                    help=f"game minutes per tick (default {clock.RUN_DEFAULT}; 60 = the old hourly turns)")
     p.add_argument("--max-cost", type=float, default=float(os.environ.get("AIVILLAGE_MAX_COST") or 0),
@@ -341,11 +341,11 @@ def main(argv: list[str] | None = None) -> int:
     except runconfig.ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    for key in ("days", "seed", "log", "mode"):
+    for key in ("days", "seed", "log", "preset"):
         if getattr(a, key) is not None:
             setattr(rc, key, getattr(a, key))
-    if rc.mode not in modes.MODES:
-        print(f"unknown mode '{rc.mode}' (have: {', '.join(modes.MODES)})", file=sys.stderr)
+    if rc.preset not in modes.PRESETS:
+        print(f"unknown preset '{rc.preset}' (have: {', '.join(modes.PRESETS)})", file=sys.stderr)
         return 2
     override = rc.world_override()
     if a.agents:

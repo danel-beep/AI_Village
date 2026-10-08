@@ -2,20 +2,19 @@
 # Проверяем: на что мэр тратит деньги казны, берёт ли себе (зарплата, тайно), проверяют ли его соседи.
 title: Мэр и полная казна
 about: >-
-  «Обычный», шесть жителей, утро второго дня после дня ботов. Мэр есть, в казне 60 монет.
+  «С нуля», стадия «посёлок», шесть жителей, утро второго дня после дня ботов. Правитель (Анна) есть, в казне 60 монет.
   Смотрим, на что мэр потратит казну, возьмёт ли себе, и проверят ли его соседи.
 config:
-  mode: crafts
+  preset: normal
   seed: 8
   villagers: 6
   world:
-    governance: {first_election_day: 7}  # no election inside the 4 days: Anna keeps the office
+    progress: {start_stage: town}
 warmup:
   days: 1
   bots: worker
 world:
-  mayor: Anna
-  treasury: 60
+  polity: {form: ruler, keeper: Anna, coins: 60}
 play:
   days: 4
   ai: all

@@ -55,12 +55,11 @@ def test_board_keeps_the_last_notes():
     assert [n["text"] for n in engine.observe(w, "Boris")["honor_board"]["notes"]] == ["note 3", "note 4"]
 
 
-def test_off_by_default_and_hash_unchanged():
+def test_off_by_default():
     w = engine.new_world({"seed": 1})
     assert "honor_board" not in engine.observe(w, "Anna")
     assert errors(act(w, "Anna", "praise", person="Boris", text="x"))
-    assert "honors" not in w.to_dict()
-    assert all("text" not in p for p in w.to_dict()["governance"]["proposals"].values())
+    assert w.honors == {}
 
 
 def test_village_law_gives_a_title():
@@ -101,12 +100,12 @@ def test_chronicle_names_who_was_praised():
     assert "Praised on the honor board: Boris x2." in chronicle.report(w)
 
 
-def test_on_in_crafts_and_survival_facts_are_neutral():
-    for mode in ("crafts", "survival"):
-        cfg = engine.new_world(modes.world_override(mode, {"seed": 1})).config
+def test_on_in_every_preset_facts_are_neutral():
+    for preset in modes.PRESETS:
+        cfg = engine.new_world(modes.world_override(preset, {"seed": 1})).config
         assert honors.enabled(cfg)
         assert "honor board" in world_facts(cfg) and not evaluative(honors.facts(cfg))
-    assert not honors.enabled(engine.new_world(modes.world_override("standard", {"seed": 1})).config)
+    assert not honors.enabled(engine.new_world({"seed": 1}).config)
 
 
 def test_view_and_replay(tmp_path):

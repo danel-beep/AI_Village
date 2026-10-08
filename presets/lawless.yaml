@@ -1,0 +1,13 @@
+# Пресет: без законов. Значения ручек как на экране «Новая деревня» (aivillage/knobs.py).
+title: Без законов
+about: >-
+  «С нуля», но законы не работают: кража удаётся почти всегда, её редко замечают, за раз можно унести
+  10 вещей, замков нет, жаловаться на воров некому, долги никто не взыскивает, налоги и штрафы по желанию.
+order: 4
+knobs:
+  steal_notice_chance: 5          # кражу замечают в 5% случаев
+  steal_awake_target_success: 90  # у того, кто не спит, кража удаётся в 90%
+  max_steal_qty: 10
+  debt_auto_collect: false
+  law_enforcement: voluntary      # налоги и штрафы по желанию
+disabled: [install_lock, report_theft, demand_debt, rule_debt]

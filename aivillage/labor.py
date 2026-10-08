@@ -1,4 +1,4 @@
-"""Division of labour (config block `labor`, off by default; the "crafts" economy mode turns it on).
+"""Division of labour (config block `labor`, off by default; modes.TRADES turns it on).
 
 The final live run showed why villagers never needed each other: anyone could gather anything (a profession
 only made it 3x faster) and the trader bought and sold any amount at any time, so every villager lived alone

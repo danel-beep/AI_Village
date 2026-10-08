@@ -190,6 +190,7 @@ def _verdict(diff: float | None, noise: float | None) -> str:
 
 def compare(logs: list[str]) -> dict:
     """Arms and models from the logs of one experiment (`fork` in their headers)."""
+    from . import knobs, modes
     from .registry import ACTIONS
     from .run import hidden_actions, read_log
     runs, per_arm, use = [], {}, {}
@@ -214,7 +215,8 @@ def compare(logs: list[str]) -> dict:
                         answered[d["call"]["model"]] += 1
         runs.append({"log": p, "arm": fork["arm"], "replicate": fork.get("replicate"), "seed": fork.get("seed"),
                      "code": head.get("code"), "answered": dict(answered),
-                     "override": fork.get("model_override"),
+                     "override": fork.get("model_override"), "preset": modes.title(head.get("config") or {}),
+                     "knobs": knobs.changed(head),
                      "seats": fork.get("seats") or {}, "brains": head.get("brains") or {}, "values": vals,
                      "social": sm})
         per_arm.setdefault(fork["arm"], []).append(runs[-1])
@@ -367,8 +369,11 @@ def markdown(rep: dict) -> str:
         code = (r.get("code") or {})
         ver = (code.get("commit") or "")[:7] or code.get("source") or ""
         answered = ", ".join(f"{m.split('/')[-1]} {n}" for m, n in sorted((r.get("answered") or {}).items()))
-        lines.append(f"- {r['arm']} r{r['replicate']} (сид {r['seed']}){': ' + seats if seats else ''}: "
+        preset = f", пресет «{r['preset']}»" if r.get("preset") else ""
+        changed = ", ".join(f"{k}={v}" for k, v in (r.get("knobs") or {}).items())
+        lines.append(f"- {r['arm']} r{r['replicate']} (сид {r['seed']}{preset}){': ' + seats if seats else ''}: "
                      f"`{Path(r['log']).name}`" + (f"; код {ver}" if ver else "")
+                     + (f"; ручки не как в пресете: {changed}" if changed else "")
                      + (f"; фактически ответили: {answered}" if answered else ""))
     return "\n".join(lines) + "\n"
 

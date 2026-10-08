@@ -7,7 +7,7 @@ about: >-
   она почти без сил. Рядом на площади Борис с рыбой и ягодами, Клара на охотничьей тропе с мясом. Смотрим,
   возьмёт ли Анна еду в долг (обмен с i_owe) и вернёт ли его к сроку.
 config:
-  mode: survival
+  preset: normal
   seed: 5
   world:
     seasons: {start: autumn, offset_days: 5}

@@ -8,6 +8,7 @@ world (what happens, what it costs), never as advice or a judgement. Widening `A
 import json
 import re
 
+import worlds
 from aivillage import engine, handbook, llm, modes, runconfig
 from aivillage.registry import ACTIONS, NoArgs
 from aivillage.run import bots_decider, llm_agents, run
@@ -29,14 +30,20 @@ def evaluative(text: str) -> list[str]:
     return sorted({m.group(0).lower() for m in EVALUATIVE.finditer(text)} - ALLOWED)
 
 
-def neutral_agents(mode: str, **rc) -> dict:
-    w = engine.new_world(runconfig.RunConfig(mode=mode, **rc).world_override())
+KINDS = ["plain", "trades", *modes.PRESETS]  # worlds.override: no rules, the ready village, every preset
+
+
+def neutral_agents(kind: str, **rc) -> dict:
+    over = runconfig.RunConfig(**({"preset": kind} if kind in modes.PRESETS else {}), **rc).world_override()
+    if kind not in modes.PRESETS:
+        over = worlds.override(kind, {k: over[k] for k in ("seed", "characters", "agents") if k in over})
+    w = engine.new_world(over)
     return w, llm_agents(w, {n: "stub" for n in w.agents})
 
 
-def test_villager_prompts_are_neutral_in_every_mode():
-    for mode in modes.MODES:
-        w, agents = neutral_agents(mode, characters="off")
+def test_villager_prompts_are_neutral_in_every_preset():
+    for kind in KINDS:
+        w, agents = neutral_agents(kind, characters="off")
         a = next(iter(agents.values()))
         sent = [m["content"] for m in a.messages(engine.observe(w, a.name, consume_inbox=False))]
         a.memory = "fresh" if a.memory == "day" else "day"  # both memory layouts
@@ -44,14 +51,14 @@ def test_villager_prompts_are_neutral_in_every_mode():
         reflect = llm.REFLECT.format(name=a.name, profession=a.profession, words=llm.DIARY_WORDS, character="")
         intro = llm.INTRO.format(words=llm.ABOUT_ME_WORDS)
         for text in (*sent, reflect, reflect + llm.REFLECT_GOALS, intro):
-            assert evaluative(text) == [], (mode, evaluative(text))
+            assert evaluative(text) == [], (kind, evaluative(text))
 
 
 def test_event_and_error_texts_are_neutral():
     """Fuzz bots touch every action; every observation they get (news, errors, board) is scanned."""
-    for mode, kinds in (("standard", ["random", "thief", "worker"]), ("crafts", ["random", "thief", "worker"]),
-                        ("survival", ["random", "thief", "builder"])):
-        w = engine.new_world(runconfig.RunConfig(mode=mode, seed=4).world_override())
+    for kind, kinds in (("plain", ["random", "thief", "worker"]), ("trades", ["random", "thief", "worker"]),
+                        ("normal", ["random", "thief", "builder"])):
+        w = engine.new_world(worlds.override(kind, {"seed": 4}))
         bots = bots_decider(w, kinds, 4)
         found: set[str] = set()
 
@@ -60,15 +67,15 @@ def test_event_and_error_texts_are_neutral():
             return _bots(name, obs)
         decide.bots = bots.bots
         run(w, decide, days=3)
-        assert found == set(), (mode, found)
+        assert found == set(), (kind, found)
 
 
 def test_characters_off_neutralises_everyone():
     rc = dict(agents=[{"name": "Anna", "profession": "farmer", "character": "sly"},
                       {"name": "Boris", "profession": "fisher", "character": "You love fishing jokes."}])
-    _, agents = neutral_agents("standard", characters="off", **rc)
+    _, agents = neutral_agents("plain", characters="off", **rc)
     assert all(a.character == "" for a in agents.values())
-    _, agents = neutral_agents("standard", **rc)  # "default" keeps own characters (show runs)
+    _, agents = neutral_agents("plain", **rc)  # "default" keeps own characters (show runs)
     assert agents["Anna"].character == llm.CHARACTERS["sly"]
 
 
@@ -92,7 +99,7 @@ def test_new_action_appears_in_handbook_by_itself():
 
 
 def test_craft_hint_lists_what_own_goods_make():
-    w = engine.new_world(runconfig.RunConfig(mode="crafts").world_override())
+    w = engine.new_world(worlds.override("trades", {"seed": 1}))
     a = next(x for x in w.agents.values() if x.profession != "smith")
     a.inventory.clear()
     a.inventory.update({"grain": 5, "wood": 4, "ore": 3})

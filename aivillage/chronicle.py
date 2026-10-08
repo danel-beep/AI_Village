@@ -1,4 +1,4 @@
-"""Visible wealth and the village chronicle (config block `chronicle`; on in the crafts mode).
+"""Visible wealth and the village chronicle (config block `chronicle`; on in modes.TRADES).
 
 The final run showed miners getting ten times richer while nobody noticed: wealth was invisible. Now, the same
 facts for everyone and no advice about what to do with them:

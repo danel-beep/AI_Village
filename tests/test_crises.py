@@ -144,9 +144,9 @@ def test_villagers_are_told():
     assert "crises" not in engine.observe(w, next(iter(w.agents)))
 
 
-def test_every_mode_has_valid_crises():
-    for mode in modes.MODES:
-        w = engine.new_world({"seed": 2, **modes.world_override(mode)})
+def test_every_preset_has_valid_crises():
+    for preset in modes.PRESETS:
+        w = engine.new_world({"seed": 2, **modes.world_override(preset)})
         s = w.config["crises"]
         assert set(s["kinds"]) == set(crises.STARTERS)
         for _ in range(6):
@@ -179,9 +179,9 @@ def test_rats_in_empty_chests_say_nothing_was_eaten():
 
 def test_trader_crises_wait_for_the_trader():
     """«С нуля»: no trader before the market square, so no shortage at his stall and no caravan buying from him."""
-    camp = engine.new_world(modes.world_override("survival", {"seed": 1}))
+    camp = engine.new_world(modes.world_override("normal", {"seed": 1}))
     kinds = camp.config["crises"]["kinds"]
     assert not any(crises._possible(camp, k, kinds[k]) for k in ("shortage", "caravan"))
     assert crises._possible(camp, "rats", kinds["rats"])
-    village = engine.new_world(modes.world_override("survival", {"seed": 1, "progress": {"start_stage": "village"}}))
+    village = engine.new_world(modes.world_override("normal", {"seed": 1, "progress": {"start_stage": "village"}}))
     assert all(crises._possible(village, k, kinds[k]) for k in ("shortage", "caravan"))

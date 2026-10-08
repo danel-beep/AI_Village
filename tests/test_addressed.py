@@ -1,13 +1,14 @@
 """Cooperation audit items: a neighbour's hunger is seen, what was said to a villager stays in view, and a gift
 is carried wherever a trade is."""
 
-from aivillage import engine, ops, runconfig
+import worlds
+from aivillage import engine, ops
 from aivillage.invariants import check
 from aivillage.run import bots_decider, run
 
 
-def world(mode="standard", **over):
-    return engine.new_world(runconfig.RunConfig(mode=mode, seed=3).world_override() | over)
+def world(kind="plain", **over):
+    return engine.new_world(worlds.override(kind, {"seed": 3}) | over)
 
 
 def step(w, decisions):
@@ -83,12 +84,12 @@ def test_off_without_config_key_keeps_the_world_hash():
     a, b = sorted(w.agents)[:2]
     w.agents[b].location = w.agents[a].location
     step(w, {a: {"name": "whisper", "args": {"to": b, "text": "hello"}}})
-    assert w.addressed == {} and "addressed" not in w.to_dict()
+    assert w.addressed == {}
     assert "said_to_you" not in engine.observe(w, b)
 
 
 def test_gift_is_carried_where_trades_are():
-    w = world("crafts")
+    w = world("trades")
     a, b = sorted(w.agents)[:2]
     w.agents[a].location, w.agents[b].location = "square", "river"
     ops.mint(w, w.agents[a].inventory, "fish", 2)
@@ -103,7 +104,7 @@ def test_gift_is_carried_where_trades_are():
 
 
 def test_bots_run_clean_with_the_new_signals():
-    for mode in ("crafts", "survival"):
-        w = world(mode)
+    for kind in ("trades", "normal"):
+        w = world(kind)
         run(w, bots_decider(w, ["random", "worker", "thief"], 4), days=2)
         check(w)

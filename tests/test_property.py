@@ -2,7 +2,7 @@
 
 import pytest
 
-from aivillage import engine, governance, modes, ops
+from aivillage import engine, governance, ops
 from aivillage.invariants import check
 from aivillage.run import bots_decider, replay, run
 
@@ -224,12 +224,6 @@ def test_random_fires_setting():
     for _ in range(3):
         night(w)
     assert not w.fires
-
-
-def test_peaceful_mode_has_no_violence():
-    cfg = engine.new_world(modes.world_override("peaceful")).config
-    assert {"attack", "set_fire"} <= set(modes.disabled("peaceful"))
-    assert cfg["plots"]["buildings"]["garden_bed"]["yield"] == 9
 
 
 def test_generated_map_has_lots_and_replays(tmp_path):

@@ -61,4 +61,4 @@ def test_goods_on_view_and_only_where_enabled(w):
     assert people["Boris"]["carries"] == {"ring": 1}
     off = engine.new_world({"seed": 1})
     assert "host_feast" not in engine.observe(off, "Anna", consume_inbox=False)["available_actions"]
-    assert modes.world_override("crafts")["luxury"]["enabled"] and luxury.facts(w.config)
+    assert modes.trades_override()["luxury"]["enabled"] and luxury.facts(w.config)

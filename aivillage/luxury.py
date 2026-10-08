@@ -6,7 +6,7 @@
 - **Goods on view**: in `here.people`, each person shows the items in `visible_items` they carry
   (a ring, a weapon, a tool), so what others own is seen when meeting them.
 
-Config block `luxury` (off by default; on in the «Обычный» mode). Plain facts only: tests/test_neutrality.py.
+Config block `luxury` (off by default; on in modes.TRADES). Plain facts only: tests/test_neutrality.py.
 """
 
 from __future__ import annotations

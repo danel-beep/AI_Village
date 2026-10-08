@@ -158,16 +158,13 @@ def test_food_owed_and_food_held_is_never_seized():
     assert d.status == "defaulted" and not d.items_owed and d.coins_owed > 0
 
 
-def test_saves_without_debts_in_kind_keep_their_shape_and_hash():
+def test_saves_with_and_without_debts_in_kind_keep_their_hash():
     w = make()
     act(w, "Anna", "lend", to="Boris", coins=2, repay_coins=3, due_day=3)
     act(w, "Boris", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     ops.mint(w, w.agents["Anna"].inventory, "fish", 1)
     act(w, "Anna", "offer", to="Boris", give={"fish": 1}, want={"coins": 1})
-    d = w.to_dict()
-    assert all("items_owed" not in x for x in d["debts"].values())
-    assert all("i_owe" not in o and "due_day" not in o for o in d["offers"].values())
-    assert World.from_dict(d).hash() == w.hash()
+    assert World.from_dict(w.to_dict()).hash() == w.hash()
     borrow_fish(w)
     ops.mint(w, w.agents["Clara"].inventory, "bread", 1)
     act(w, "Clara", "offer", to="Boris", give={"bread": 1}, want={"coins": 1}, i_owe={"fish": 1}, due_day=5)
@@ -176,7 +173,7 @@ def test_saves_without_debts_in_kind_keep_their_shape_and_hash():
 
 
 def test_survival_turns_it_on_and_says_so_neutrally():
-    cfg = engine.new_world({"seed": 1, **modes.world_override("survival")}).config
+    cfg = engine.new_world({"seed": 1, **modes.world_override("normal")}).config
     assert debts.in_kind(cfg)
     assert "i_owe" in world_facts(cfg) and "private" in world_facts(cfg)
     assert not debts.in_kind(engine.new_world({"seed": 1}).config)
@@ -240,14 +237,14 @@ def test_a_loan_offer_falls_through_when_the_lender_no_longer_can_or_the_day_has
     assert errors(ev) and not w.debts
 
 
-def test_loan_offers_survive_a_save_and_plain_offers_keep_their_old_shape():
+def test_loan_offers_survive_a_save():
     w = make()
     ops.mint(w, w.agents["Anna"].inventory, "fish", 1)
     act(w, "Anna", "offer", to="Clara", give={"fish": 1}, want={"coins": 1})
     act(w, "Anna", "lend", to="Boris", coins=2, repay_coins=3, due_day=4)
     plain, loan = w.to_dict()["offers"].values()
-    assert set(plain) == {"id", "sender", "to", "give", "want", "expires_tick"}
-    assert loan["you_owe"] == {"coins": 3} and loan["due_day"] == 4 and "i_owe" not in loan
+    assert not plain["you_owe"] and not plain["i_owe"]
+    assert loan["you_owe"] == {"coins": 3} and loan["due_day"] == 4 and not loan["i_owe"]
     back = World.from_dict(w.to_dict())
     assert back.to_dict() == w.to_dict()
     act(back, "Boris", "accept", offer_id=loan["id"])

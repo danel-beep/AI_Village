@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from aivillage import engine, session
+from aivillage import engine, modes, session
 from aivillage.run import bots_decider, replay, run
 
 pytest.importorskip("fastapi")
@@ -56,7 +56,7 @@ def test_note_survives_rebuilds_and_ensure_rebuilds_a_grown_log(tmp_path):
     assert b["summary"] and b["note"] and b["days"] == 1
     other = bot_log(tmp_path, days=1, name="cli.jsonl")
     assert session.brief(other) == {"name": "cli", "summary": False, "started": None, "villagers": 5,
-                                    "mode": "Обычный"}
+                                    "mode": modes.title({})}
 
 
 def test_end_session_button_and_past_sessions(tmp_path, monkeypatch):

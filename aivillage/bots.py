@@ -24,7 +24,7 @@ FOODS = ["fish_soup", "bread", "fish", "berries"]
 
 def batches(obs: dict, recipe: str, default: dict) -> int:
     """How many times the villager can make `recipe` from what it carries (inputs from the recipe table
-    when the observation has it, else `default`), e.g. bread needs wood too in the crafts mode."""
+    when the observation has it, else `default`), e.g. bread needs wood too in modes.TRADES."""
     inv = obs["you"]["inventory"]
     need = ((obs["board"].get("recipes") or {}).get(recipe) or {}).get("inputs") or default
     return min(inv.get(k, 0) // n for k, n in need.items())
@@ -371,7 +371,7 @@ class WorkerBot(Bot):
                 qty = min(qty, will_buy[k])
             return decision("sell", {"item": k, "qty": qty}) if loc == "market" else go("market", "sell")
 
-        # Work (the crafts mode allows only so many hours of gathering a day)
+        # Work (modes.TRADES allows only so many hours of gathering a day)
         if (obs.get("work_today") or {}).get("hours_left") == 0:
             return decision("wait", None, "done working today") if loc == me["home"] else go(me["home"], "home")
         if me["profession"] == "smith" and "work_today" in obs:  # crafts: a smith gathers nothing, buys ore and wood
@@ -522,14 +522,14 @@ class TraderBot(WorkerBot):
         self.market_day = t["day"]  # nothing to do here today
         return self._tweak(obs, super().decide(obs), tax_reserve)
 
-    # Food points of what the board may offer, and what each trade lists there in the crafts mode.
+    # Food points of what the board may offer, and what each trade lists there in modes.TRADES.
     BOARD_FOOD = {"berries": 10, "fish": 15, "bread": 40, "fish_soup": 45, "stew": 75, "meat": 25}
     BOARD_GOODS = {"farmer": ["bread", "berries", "grain"], "fisher": ["fish_soup", "fish"], "woodcutter": ["wood"],
                    "miner": ["ore", "stone"], "smith": ["tool"]}
     BOARD_KEEP = 6  # units of a good the seller keeps for itself
 
     def _board(self, obs: dict, tax_reserve: int) -> dict | None:
-        """The crafts mode (labor on): only the trade gathers its goods, so food and materials change hands on
+        """Labour on (modes.TRADES): only the trade gathers its goods, so food and materials change hands on
         the market board, from anywhere. Sellers list their surplus at the middle of the trader's prices; a
         hungry villager with nothing to eat buys the cheapest food, the smith buys ore and wood for tools."""
         me, acts = obs["you"], obs["available_actions"]
@@ -549,7 +549,7 @@ class TraderBot(WorkerBot):
         if "buy_sale" in acts and cook and inv.get(cook[0], 0) >= 4 and not inv.get("wood"):
             wood = [(s["price"], s["id"]) for s in listings if set(s["items"]) == {"wood"}
                     and s["price"] <= min(budget, self._price(obs, s["items"]))]
-            if wood:  # bread and soup are cooked on firewood (crafts mode)
+            if wood:  # bread and soup are cooked on firewood (modes.TRADES)
                 return decision("buy_sale", {"sale_id": min(wood)[1]}, f"firewood for {cook[1]}")
         if "buy_sale" in acts and me["profession"] == "smith":
             for s in listings:

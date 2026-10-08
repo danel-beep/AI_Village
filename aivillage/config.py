@@ -89,7 +89,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "lives": 0,
     # Economy
     "start_coins": 20,
-    "start_items": {"tool": 0},  # given to every villager at the start (crafts mode: a tool)
+    "start_items": {"tool": 0},  # given to every villager at the start (modes.TRADES: a tool)
     "tax_every_days": 7,
     "tax_amount": 20,
     "eviction_days": 2,
@@ -141,7 +141,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Items. value = base price; NPC buys at value*npc_buy_ratio, sells at value*npc_sell_ratio.
     "npc_buy_ratio": 0.5,
     "npc_sell_ratio": 1.5,
-    # Trader prices that follow his stock (aivillage/pricing.py). Off here; the crafts mode turns it on.
+    # Trader prices that follow his stock (aivillage/pricing.py). Off here; modes.TRADES turns it on.
     # Every unit he holds (per 5 villagers) lowers both his prices of that good by drop_per_unit, down to
     # floor; each dawn he keeps keep_per_day of his stock.
     # `nearest`: prices are rounded to the nearest coin (off: cut down, so a good worth 3 sells for 1, not 2).
@@ -282,7 +282,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "embezzle": True,
         "audit_on_handover": True,
     },
-    # Taxes (aivillage/taxes.py). Off here; the default "crafts" mode turns them on. On a tax day each
+    # Taxes (aivillage/taxes.py). Off here; modes.TRADES turns them on. On a tax day each
     # villager pays one bill: the flat `tax_amount` (land) + `sales_pct`% of the coins they got from the
     # trader and council orders since the last tax day + `wealth_pct`% of their coins above `wealth_above`.
     # Trades between villagers are not taxed. `burn_pct`% of every bill leaves the game, the rest goes to
@@ -680,7 +680,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
                          "scout_chance": 0.3},
         },
     },
-    # Division of labour (aivillage/labor.py). Off by default; the "crafts" economy mode turns it on.
+    # Division of labour (aivillage/labor.py). Off by default; modes.TRADES turns it on.
     "labor": {
         "enabled": False,
         # Only a villager of the right profession gathers (or sows) the goods in `professions`;
@@ -725,14 +725,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
                                             # yard animals, things made at home or at one's own workshop
         },
     },
-    # Trade places (aivillage/places.py). Off here; the crafts mode turns them on. Each trade has
+    # Trade places (aivillage/places.py). Off here; modes.TRADES turns them on. Each trade has
     # ceil(spare x villagers x its share of population.profession_weights) places; no work at one's trade
     # for `idle_days` days loses the place at dawn (the villager becomes a laborer).
     "places": {"enabled": False, "spare": 1.25, "idle_days": 3, "change_cooldown_days": 2},
-    # Visible wealth and the village chronicle (aivillage/chronicle.py). Off here; on in the crafts mode.
+    # Visible wealth and the village chronicle (aivillage/chronicle.py). Off here; on in modes.TRADES.
     # Wealth levels poor / modest / well-off / rich start at these coins (goods at base value included).
     "chronicle": {"enabled": False, "every_days": 7, "tiers": [50, 150, 400]},
-    # The honor board (aivillage/honors.py). Off here; on in the crafts mode. `praise`: a public note about another
+    # The honor board (aivillage/honors.py). Off here; on in modes.TRADES. `praise`: a public note about another
     # villager, `per_day` a day, `note_len` characters; the board keeps `keep` notes, the observation shows `show`.
     # A title law (village or polity) gives a title of `title_len` characters; a person keeps `max_titles`.
     "honors": {"enabled": False, "per_day": 1, "note_len": 160, "keep": 40, "show": 10, "title_len": 40,

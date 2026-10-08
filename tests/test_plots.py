@@ -171,7 +171,7 @@ def test_homestead_bots_replay(tmp_path):
 
 def test_run_config_sets_unequal_start():
     from aivillage.runconfig import RunConfig
-    rc = RunConfig.model_validate({"mode": "crafts", "agents": [
+    rc = RunConfig.model_validate({"preset": "village", "world": {"labor": {"mastery": {"enabled": False}}}, "agents": [
         {"name": "Anna", "profession": "farmer", "plot_cells": 16, "house_level": 3, "buildings": ["cow_pen"]},
         {"name": "Boris", "profession": "fisher", "plot_cells": 2}]})
     w = engine.new_world(rc.world_override())

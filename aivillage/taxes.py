@@ -1,6 +1,6 @@
 """Taxes, the treasury loop and council orders (config blocks `taxes` and `council_orders`).
 
-Off by default; the default "crafts" mode turns both on. Before, the tax was flat (the same 20 coins from the
+Off by default; modes.TRADES turns both on. Before, the tax was flat (the same 20 coins from the
 poorest and the richest), the treasury filled up and was hardly spent, and a council order paid its whole
 reward to whoever raced to it first. Now, by world rules only:
 

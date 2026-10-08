@@ -6,7 +6,7 @@ from aivillage import engine, labor, ops
 from aivillage.config import make_config
 from aivillage.invariants import check
 from aivillage.llm import world_facts
-from aivillage.modes import world_override
+from aivillage.modes import trades_override
 
 CRAFTS = {"seed": 1, "crises": {"enabled": False}, "labor": {"enabled": True}}
 
@@ -141,7 +141,7 @@ def test_offers_are_accepted_from_anywhere(w):
 
 
 def test_crafts_mode_needs_firewood_and_states_the_rules():
-    cfg = make_config(world_override("crafts"))
+    cfg = make_config(trades_override())
     assert cfg["recipes"]["bread"]["inputs"] == {"grain": 2, "wood": 1}
     assert cfg["professions"]["farmer"] == ["grain", "berries"]
     facts = world_facts(cfg)

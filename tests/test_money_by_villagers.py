@@ -12,7 +12,7 @@ from test_polity import act, errors, found, hall, names, step, until, world
 
 def test_camp_start_has_no_coins_even_when_unfair():
     for unfair in (0.0, 1.0):
-        w = engine.new_world(modes.world_override("survival", {"seed": 3, "start_coins": 80,
+        w = engine.new_world(modes.world_override("normal", {"seed": 3, "start_coins": 80,
                                                                "map": {"unfairness": unfair}}))
         assert all(a.coins == 0 for a in w.agents.values())
 
@@ -70,7 +70,7 @@ def test_god_changes_one_polity_tax_and_villagers_see_the_law():
 
 
 def test_god_changes_the_village_tax_in_ordinary_mode():
-    w = engine.new_world(modes.world_override("crafts", {"seed": 2}))
+    w = engine.new_world(modes.trades_override({"seed": 2}))
     assert not governance.polity_on(w.config)
     engine.step(w, {}, [{"name": "set_tax", "args": {"tax": 3, "income_pct": 25, "wealth_pct": 0}}])
     check(w)
@@ -83,9 +83,8 @@ def test_start_screen_hides_world_tax_rates_when_polities_decide():
     by = {k["key"]: k for k in knobs.active()}
     for key in ("tax_amount", "sales_pct", "wealth_pct", "burn_pct", "tax_every_days"):
         assert by[key]["hide_if"] == {"polities": [True]}
-    assert knobs.mode_defaults("survival")["polities"] is True
-    assert knobs.mode_defaults("crafts")["polities"] is False  # «Обычный» keeps its tax sliders
-    assert by["start_coins"]["hide_if"] == {"mode": ["survival"], "start_stage": ["camp", "hamlet"]}
+    assert all(knobs.preset_defaults(p)["polities"] is True for p in knobs.modes.PRESETS)
+    assert by["start_coins"]["hide_if"] == {"start_stage": ["camp", "hamlet"]}
     for k in knobs.active():
         for key in k.get("hide_if", {}):
             assert key in by

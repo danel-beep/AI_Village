@@ -89,7 +89,7 @@ def test_feelings_carry_no_friend_or_enemy_label(w):
 
 
 def test_record_is_on_in_survival_only_and_off_by_default():
-    assert modes.MODES["survival"]["world"]["reputation"]["record"] is True
+    assert modes.WORLD["reputation"]["record"] is True
     assert engine.new_world({"seed": 1}).config["reputation"]["record"] is False
     assert "record" not in engine.observe(engine.new_world({"seed": 1}), "Anna")
 

@@ -2,19 +2,19 @@
 # Проверяем: что сделают мэр и соседи, когда один житель не заплатил, и заплатит ли он сам.
 title: Неплательщик налога
 about: >-
-  «Обычный», законы добровольные. Мэр Елена, в казне 30 монет. Борис просрочил налог 12 монет на день,
+  «С нуля», стадия «посёлок», законы добровольные. Правитель Елена, в казне 30 монет. Борис просрочил налог 12 монет на день,
   деньги у него есть. Смотрим, заплатит ли он и что сделают мэр и соседи.
 config:
-  mode: crafts
+  preset: normal
   seed: 5
   world:
+    progress: {start_stage: town}
     laws: {enforcement: voluntary}
 warmup:
   days: 1
   bots: worker
 world:
-  mayor: Elena
-  treasury: 30
+  polity: {form: ruler, keeper: Elena, coins: 30}
   bills:
     - {who: Boris, coins: 12, days_late: 1}
 villagers:

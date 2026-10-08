@@ -19,7 +19,7 @@ Everyone who sees a fight or arson thinks worse of the culprit (feelings and rep
 
 `random_fires.per_day`: the chance that some house catches fire by itself at dawn (a setting).
 
-Gear (`combat.gear`, «С нуля» plan task 9; only with crafting on, so «Обычный» is unchanged): more weapon
+Gear (`combat.gear`, «С нуля» plan task 9; only with crafting on): more weapon
 tiers (club -> spear / bow -> sword, made by crafting recipes), `hunt` bonuses against animals (`hunt_weapon`,
 used by animals.py), armor (`soak`: the best one worn takes `block` off each hit, at least 1 still lands, in
 fights, from big game and from threats) and wear (`wear`: one use per fight / hunt / defend for the weapon, one

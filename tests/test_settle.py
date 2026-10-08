@@ -5,7 +5,7 @@ from aivillage.invariants import check
 
 
 def world(stage="camp", procedural=True, **extra):
-    return engine.new_world(modes.world_override("survival", {
+    return engine.new_world(modes.world_override("normal", {
         "seed": 5, "progress": {"start_stage": stage}, "map": {"procedural": procedural}, **extra}))
 
 
@@ -106,14 +106,14 @@ def test_hand_made_map_gets_plain_sites():
     assert settle.active(w.config)
 
 
-def test_ready_village_and_other_modes_untouched():
-    for w in (world("hamlet"), engine.new_world(modes.world_override("crafts", {"seed": 5, "map": {"procedural": True}}))):
-        assert not settle.active(w.config) and not w.settle and "settle" not in w.to_dict()
+def test_ready_village_and_trades_world_untouched():
+    for w in (world("hamlet"), engine.new_world(modes.trades_override({"seed": 5, "map": {"procedural": True}}))):
+        assert not settle.active(w.config) and not w.settle
         assert not w.config["map"].get("camp") and any(p["kind"] == "home" for p in w.config["map"]["layout"]["places"].values())
 
 
 def test_normal_maps_unchanged_by_the_settle_block():
-    cfg = modes.world_override("crafts", {"seed": 9, "map": {"procedural": True}})
+    cfg = modes.trades_override({"seed": 9, "map": {"procedural": True}})
     a = engine.new_world(cfg).config["map"]["layout"]
     b = engine.new_world({**cfg, "settle": {"enabled": True}}).config["map"]["layout"]
     assert a == b  # settling needs a camp start

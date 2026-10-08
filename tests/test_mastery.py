@@ -4,11 +4,11 @@ import pytest
 
 from aivillage import engine, labor, llm, ops
 from aivillage.invariants import check
-from aivillage.modes import world_override
+from aivillage.modes import trades_override, world_override
 
 
 def survival(**extra):
-    return engine.new_world(world_override("survival", {"seed": 3, "crises": {"enabled": False}, **extra}))
+    return engine.new_world(world_override("normal", {"seed": 3, "crises": {"enabled": False}, **extra}))
 
 
 @pytest.fixture
@@ -130,7 +130,7 @@ def test_the_rules_say_so_in_the_prompt(w):
 
 
 def test_crafts_mode_keeps_its_professions():
-    w = engine.new_world(world_override("crafts", {"seed": 3}))
+    w = engine.new_world(trades_override({"seed": 3}))
     assert not labor.no_professions(w.config)
     assert "villager" not in {a.profession for a in w.agents.values()}
     assert "Trades: only a villager of that profession" in llm.world_facts(w.config)

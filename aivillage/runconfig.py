@@ -68,7 +68,7 @@ class RunConfig(Strict):
     bot: str = "worker"
     # Backup OpenRouter models for when the main one is rate-limited or down (empty = env AIVILLAGE_FALLBACK_MODELS).
     fallback_models: list[str] = Field(default_factory=list)
-    mode: str = modes.DEFAULT_MODE  # economy mode, see aivillage/modes.py
+    preset: str = modes.DEFAULT_PRESET  # «С нуля» with a preset on top, see aivillage/modes.py and presets/
     agents: list[AgentSpec] | None = None  # None = the default villagers
     # How many villagers: `agents` (or the default five) first, the rest generated (aivillage/population.py).
     villagers: int | None = Field(default=None, ge=1, le=60)
@@ -82,8 +82,8 @@ class RunConfig(Strict):
     @model_validator(mode="after")
     def check_names(self):
         errs = []
-        if self.mode not in modes.MODES:
-            errs.append(f"mode: unknown economy mode '{self.mode}' (have: {', '.join(modes.MODES)})")
+        if self.preset not in modes.PRESETS:
+            errs.append(f"preset: unknown preset '{self.preset}' (have: {', '.join(modes.PRESETS)})")
         unknown = set(self.world) - set(DEFAULT_CONFIG)
         if unknown:
             errs.append(f"world: unknown settings {sorted(unknown)}")
@@ -126,7 +126,7 @@ class RunConfig(Strict):
 
     def world_override(self) -> dict:
         """Partial world config for `engine.new_world` (brains stripped from agents)."""
-        out = modes.world_override(self.mode, self.world)
+        out = modes.world_override(self.preset, self.world)
         out["seed"] = self.seed
         if self.characters != "default":
             out["characters"] = self.characters
@@ -136,7 +136,7 @@ class RunConfig(Strict):
                              for a in self.agents]
         if self.villagers:
             out["population"] = {**(out.get("population") or {}), "size": self.villagers}
-        off = set(self.mechanics.disabled) | set(modes.disabled(self.mode))
+        off = set(self.mechanics.disabled) | set(out.get("disabled_actions", []))
         if off:
             out["disabled_actions"] = sorted(off)
         return out

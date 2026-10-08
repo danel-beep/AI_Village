@@ -7,7 +7,7 @@ from aivillage.invariants import check
 
 
 def world(stage="camp", **extra):
-    return engine.new_world(modes.world_override("survival", {"seed": 3, "progress": {"start_stage": stage}, **extra}))
+    return engine.new_world(modes.world_override("normal", {"seed": 3, "progress": {"start_stage": stage}, **extra}))
 
 
 def step(w, decisions):
@@ -41,7 +41,7 @@ def test_village_start_has_coins():
 
 
 def test_other_modes_untouched():
-    w = engine.new_world(modes.world_override("crafts", {"seed": 3}))
+    w = engine.new_world(modes.trades_override({"seed": 3}))
     assert not progress.enabled(w.config) and "applied" not in w.config["bare_start"]
     assert all(a.profession != "laborer" for a in w.agents.values())
 
@@ -79,10 +79,10 @@ def test_camp_replays_exactly():
     assert again.hash() == w.hash()
 
 
-def test_start_stage_knob_only_in_survival():
+def test_start_stage_knob():
     k = next(k for k in knobs.active() if k["key"] == "start_stage")
-    assert k["mode"] == "survival" and [o[0] for o in k["options"]] == progress.stage_ids(knobs.DEFAULT_CONFIG)
-    r = knobs.to_run({"mode": "survival", "start_stage": "village"})
+    assert [o[0] for o in k["options"]] == progress.stage_ids(knobs.DEFAULT_CONFIG)
+    r = knobs.to_run({"preset": "normal", "start_stage": "village"})
     assert r["override"]["progress"] == {"enabled": True, "start_stage": "village",
                                           "unlocks": {"feature:raids": {"stage": "hamlet"}}}
     assert progress.stage(engine.new_world(r["override"])) == "village"

@@ -9,7 +9,7 @@ from aivillage.run import bots_decider, read_log, replay, run
 
 
 def _run(tmp_path, days=3):
-    w = engine.new_world(modes.world_override("survival", {"seed": 5, "population": {"size": 6}}))
+    w = engine.new_world(modes.world_override("normal", {"seed": 5, "population": {"size": 6}}))
     log, live = tmp_path / "run.jsonl", []
     run(w, bots_decider(w, ["worker", "random", "thief", "worker", "random", "worker"], 5), days=days,
         log_path=log, on_record=lambda r: live.append(json.loads(json.dumps(r))))

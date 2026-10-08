@@ -110,6 +110,7 @@ tests/test_gestures.py
 tests/test_governance.py
 tests/test_highlights.py
 tests/test_hire.py
+tests/test_honest_metrics.py
 tests/test_honors.py
 tests/test_keys.py
 tests/test_lab.py
@@ -125,7 +126,7 @@ tests/test_market.py
 tests/test_mastery.py
 tests/test_mechanics.py
 tests/test_metrics.py
-tests/test_modes.py
+tests/test_model_replies.py
 tests/test_money_by_villagers.py
 tests/test_money_power.py
 tests/test_neutrality.py
@@ -134,9 +135,11 @@ tests/test_places.py
 tests/test_plots.py
 tests/test_polity.py
 tests/test_population.py
+tests/test_presets.py
 tests/test_pricing.py
 tests/test_private_debts.py
 tests/test_progress.py
+tests/test_prompt_size.py
 tests/test_property.py
 tests/test_quick_fixes.py
 tests/test_record.py

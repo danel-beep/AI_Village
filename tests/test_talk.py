@@ -121,7 +121,7 @@ def test_spoken_to_while_busy_answers_now_and_owes_the_rest():
     # the quick answer plus the four ticks still owed: the job's time is not lost
     assert anna.busy_until == start + engine.clock.action_ticks(w.config, "say") + 4
     check(w)
-    assert "time_debt" not in json.dumps(w.to_dict()["agents"]["Boris"])
+    assert not w.agents["Boris"].time_debt
 
 
 def test_without_the_pause_a_busy_villager_answers_later():

@@ -13,7 +13,7 @@ START_PROMPT_MAX = 24_500
 
 
 def survival(start=None):
-    ov = runconfig.RunConfig(mode="survival", seed=3).world_override()
+    ov = runconfig.RunConfig(preset="normal", seed=3).world_override()
     with_tick_minutes(ov, None)
     if start:
         ov.setdefault("progress", {})["start_stage"] = start

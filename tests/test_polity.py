@@ -1,9 +1,10 @@
 """Polities (survival plan task 16, aivillage/polity.py): a town hall founds a polity, members vote on its name,
 coin name and form of government, laws pass the way the form says, petitions change the form, each polity
-taxes only its own members. «Обычный» is unchanged."""
+taxes only its own members. The ready village without stages (worlds.override "trades") is unchanged."""
 
 import json
 
+import worlds
 from aivillage import construction, engine, governance, handbook, modes, ops, polity
 from aivillage.invariants import check
 from aivillage.llm import world_facts
@@ -15,11 +16,10 @@ QUIET = {"lives": 0, "crises": {"enabled": False}, "illness": {"per_day": 0.0}, 
          "random_fires": {"per_day": 0.0}}
 
 
-def world(mode="survival", **extra):
+def world(kind="normal", **extra):
     # no minted treasury income here: these tests count the treasury coin by coin (test_treasury.py has it)
     extra["polity"] = {"income_per_member_per_day": 0, **extra.get("polity", {})}
-    w = engine.new_world(modes.world_override(mode, {"seed": 5, **QUIET, "progress": {"start_stage": "village"},
-                                                     **extra}))
+    w = engine.new_world(worlds.override(kind, {"seed": 5, **QUIET, "progress": {"start_stage": "village"}, **extra}))
     for a in w.agents.values():
         ops.mint_coins(w, a, 40 - a.coins)
     return w
@@ -196,7 +196,7 @@ def test_a_second_town_hall_is_a_second_polity_and_joining_leaves_the_old_one():
 
 
 def test_town_hall_can_be_started_away_from_the_square_in_survival():
-    w = world("survival", progress={"start_stage": "town"})
+    w = world("normal", progress={"start_stage": "town"})
     a = w.agents[names(w)[0]]
     other = next(loc for loc in w.locations if loc != "square" and not construction._is_private(w, loc))
     a.location = other
@@ -229,11 +229,11 @@ def test_village_wide_government_is_off_with_polities():
     assert "Polities" in world_facts(w.config) and "Government (" not in world_facts(w.config)
 
 
-def test_ordinary_mode_has_no_polities():
-    w = world("crafts")
+def test_ready_village_without_stages_has_no_polities():
+    w = world("trades")
     a = names(w)[0]
     step(w)
-    assert not w.config["polity"]["enabled"] and "polities" not in w.to_dict()
+    assert not w.config["polity"]["enabled"] and w.polities == {}
     obs = engine.observe(w, a, consume_inbox=False)
     assert "polities" not in obs and "next_election_day" in obs["government"]
 
@@ -262,7 +262,7 @@ def scripted(name, obs):
 
 
 def test_polity_run_replays_and_its_texts_are_neutral(tmp_path):
-    w = engine.new_world(modes.world_override("survival", {"seed": 5, **QUIET, "progress": {"start_stage": "town"}}))
+    w = engine.new_world(modes.world_override("normal", {"seed": 5, **QUIET, "progress": {"start_stage": "town"}}))
     found_texts = []
 
     def decide(name, obs):
@@ -278,7 +278,7 @@ def test_polity_run_replays_and_its_texts_are_neutral(tmp_path):
 
 
 def test_random_bots_keep_invariants_and_replay_with_polities(tmp_path):
-    w = engine.new_world(modes.world_override("survival", {"seed": 9, **QUIET, "progress": {"start_stage": "town"}}))
+    w = engine.new_world(modes.world_override("normal", {"seed": 9, **QUIET, "progress": {"start_stage": "town"}}))
     log = tmp_path / "fuzz.jsonl"
     run(w, bots_decider(w, ["random"], 9), days=3, log_path=log)
     assert w.polities and replay(log).hash() == w.hash()

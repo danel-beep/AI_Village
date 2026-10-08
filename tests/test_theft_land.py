@@ -160,10 +160,10 @@ def test_winter_nights_are_hungrier():
     assert "a winter night costs 10 more satiety" in llm.world_facts(world(seasons={"night_hunger": {"winter": 10}}).config)
 
 
-@pytest.mark.parametrize("mode", ["survival", "lawless"])
-def test_bots_with_the_new_rules_replay(mode, tmp_path):
+@pytest.mark.parametrize("preset", ["normal", "lawless"])
+def test_bots_with_the_new_rules_replay(preset, tmp_path):
     from aivillage import runconfig
-    w = engine.new_world(runconfig.RunConfig(mode=mode, seed=3).world_override())
+    w = engine.new_world(runconfig.RunConfig(preset=preset, seed=3).world_override())
     assert theft.enabled(w.config)
     log = tmp_path / "run.jsonl"
     run(w, bots_decider(w, ["thief", "builder", "homestead", "worker"], 3), days=3, log_path=log)
