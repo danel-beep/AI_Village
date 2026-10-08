@@ -149,17 +149,17 @@ def test_one_big_sale_slides_like_small_ones(w):
     small = crafts_world()
     for x in (w, small):
         x.agents["Dmitri"].location = "market"
-        gift(x, "Dmitri", ore=6)
+        gift(x, "Dmitri", ore=4)
     first = price(w, "ore", "sell")
     coins = w.agents["Dmitri"].coins
-    act(w, "Dmitri", "sell", item="ore", qty=6)
+    act(w, "Dmitri", "sell", item="ore", qty=4)
     lot = w.agents["Dmitri"].coins - coins
-    assert lot < 6 * first  # each unit he takes lowers the price of the next, inside one lot too
+    assert lot < 4 * first  # each unit he takes lowers the price of the next, inside one lot too
     coins = small.agents["Dmitri"].coins
-    for _ in range(3):
+    for _ in range(2):
         act(small, "Dmitri", "sell", item="ore", qty=2)
-    assert abs(small.agents["Dmitri"].coins - coins - lot) <= 2  # the same ore in three lots: rounding apart
-    assert w.trader_stock["ore"] == small.trader_stock["ore"] == 6
+    assert small.agents["Dmitri"].coins - coins == lot  # the same ore in two lots pays exactly the same
+    assert w.trader_stock["ore"] == small.trader_stock["ore"] == 4
     # buying a lot back walks the price up again as his stock shrinks
     w.agents["Anna"].location = "market"
     ops.mint_coins(w, w.agents["Anna"], 100)
@@ -167,3 +167,43 @@ def test_one_big_sale_slides_like_small_ones(w):
     coins = w.agents["Anna"].coins
     act(w, "Anna", "buy", item="ore", qty=2)  # the trader sells 2 a day here
     assert coins - w.agents["Anna"].coins >= 2 * unit and price(w, "ore", "buy") > unit
+
+
+def test_buying_a_lot_and_selling_it_back_unit_by_unit_makes_nothing(w):
+    """Audit B-5: with 7 berries in the trader's stock a lot of 2 cost 1 coin and each berry sold back fetched 1."""
+    anna = w.agents["Anna"]
+    anna.location = "market"
+    w.trader_stock["berries"] = 7
+    coins = anna.coins
+    act(w, "Anna", "buy", item="berries", qty=2)
+    act(w, "Anna", "sell", item="berries", qty=1)
+    act(w, "Anna", "sell", item="berries", qty=1)
+    assert w.trader_stock["berries"] == 7 and anna.inventory.get("berries", 0) == 0
+    assert anna.coins <= coins
+
+
+@pytest.mark.parametrize("ratios", [None, (1.5, 2.0)])  # (2.0, 1.5): a bridge or crisis paying above his asking price
+def test_no_split_or_round_trip_of_a_trade_makes_coins(ratios):
+    from aivillage import pricing
+    w = crafts_world()
+    if ratios:
+        w.config["npc_sell_ratio"], w.config["npc_buy_ratio"] = ratios
+    for item, v in w.config["items"].items():
+        if not v.get("tradable", True):
+            continue
+        for held in range(0, 16):
+            for qty in range(1, 6):
+                for side, step in (("sell", 1), ("buy", -1)):
+                    w.trader_stock = {item: held} if held else {}
+                    lot = pricing.total(w, item, side, qty)
+                    one_by_one = 0
+                    for _ in range(qty):
+                        one_by_one += pricing.price(w, item, side)
+                        n = w.trader_stock.get(item, 0) + step
+                        w.trader_stock = {item: n} if n > 0 else {}
+                    assert lot == one_by_one, (item, held, qty, side)
+                w.trader_stock = {item: held} if held else {}
+                paid = pricing.total(w, item, "buy", qty)
+                w.trader_stock = {item: max(0, held - qty)} if held > qty else {}
+                back = pricing.total(w, item, "sell", qty)
+                assert back <= paid, (item, held, qty)
