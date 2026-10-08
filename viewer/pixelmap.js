@@ -763,9 +763,9 @@ const PixelMap = (() => {
       }
       const st = CB && !r.moving && CB.stand(n), c = CB && CB.pose(n);   // a fight puts them face to face (viewer/combat.js)
       if (st) { tx = st.x; ty = st.y; }
-      const p = Actors.place(n, t.tick, { x: tx, y: ty }, r.moving, dt);
-      if (p.sliding && !a.moving) { a.moving = true; a.dir = p.sdir; }
-      if (c && !p.sliding && !r.moving) { a.combat = st || a.dir !== 'left' ? c : { ...c, dx: -c.dx }; a.act = 'fight'; if (st) a.dir = st.dir; }
+      const p = Actors.place(n, t.tick, { x: tx, y: ty }, dt);   // walks after the target at a steady pace
+      a.moving = p.moving; if (p.moving) a.dir = p.dir;
+      if (c && !p.moving && !r.moving) { a.combat = st || a.dir !== 'left' ? c : { ...c, dx: -c.dx }; a.act = 'fight'; if (st) a.dir = st.dir; }
       shown.push(Object.assign(a, { x: p.x, y: p.y }));
     });
     shown.sort((p, q) => p.y - q.y);

@@ -208,7 +208,7 @@ document.getElementById('logbtn').onclick = () => setLog(document.body.classList
 try { setLog(localStorage.getItem('aiv-log') !== '0'); } catch (e) { setLog(true); }
 document.getElementById('stepb').onclick = () => go(i + 1);
 document.getElementById('scrub').oninput = e => go(+e.target.value, true);
-function go(n, jump) { if (!ticks.length) return; i = Math.max(0, Math.min(ticks.length - 1, n)); frac = jump ? 1 : 0; render(); }
+function go(n, jump) { if (!ticks.length) return; i = Math.max(0, Math.min(ticks.length - 1, n)); frac = jump ? 1 : 0; if (jump) Actors.reset(); render(); }
 // Selecting a villager (map click via PixelMap.pick, a card, or Dossier's close button) opens their dossier.
 function select(n) { selected = selected === n ? null : n; lastPanel = -1; if (window.Fog) Fog.pick(selected); }
 // Click a villager on the map to follow them, anything else to inspect it (viewer/inspect.js).

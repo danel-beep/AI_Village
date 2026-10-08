@@ -261,20 +261,51 @@ const Actors = (() => {
     b.restore();
   }
 
-  // ---------- displayed positions: smooth over every jump (new hour, new work spot, end of a walk) ----------
+  // ---------- displayed positions: a villager walks after the spot the log puts them at, never jumps ----------
+  // The target (route walk, work spot, stroll, fight spot) follows game time, which runs unevenly: a walk that the
+  // game does in one quarter-hour tick lasts a fraction of a second on screen, live ticks come late or in bursts,
+  // a new hour moves the work spot. So the drawn villager does not sit on the target: it walks along the target's
+  // trail at a steady pace (WALK px/s, up to VMAX while the trail is long, faster only when far behind CATCH) and stops
+  // where the target stops. Far behind on a long trail they cut straight across; only a scrub or a jump snaps.
+  const WALK = 34, VMAX = 80, LOOK = 1.6, CATCH = 300, LONG = 900, SNAP_TICKS = 12, SNAP_PX = 1400;
   const st = {};
-  function place(name, tickId, target, onRoute, dt) {
+  function place(name, tickId, target, dt) {
     let s = st[name];
-    if (!s) s = st[name] = { x: target.x, y: target.y, ox: 0, oy: 0, tick: tickId, tx: target.x, ty: target.y };
-    const jump = Math.hypot(target.x - s.tx, target.y - s.ty);
-    if (s.tick !== tickId || (!onRoute && jump > 1.5)) { s.ox = s.x - target.x; s.oy = s.y - target.y; s.tick = tickId; }
-    if (Math.hypot(s.ox, s.oy) > 160) { s.ox = s.oy = 0; }   // scrubbed far away: snap
-    const k = Math.exp(-dt * 5); s.ox *= k; s.oy *= k;
-    if (Math.hypot(s.ox, s.oy) < .3) s.ox = s.oy = 0;
-    s.tx = target.x; s.ty = target.y; s.x = target.x + s.ox; s.y = target.y + s.oy;
-    const sliding = Math.hypot(s.ox, s.oy) > 2;
-    const sdir = Math.abs(s.ox) > Math.abs(s.oy) ? (s.ox < 0 ? 'right' : 'left') : s.oy < 0 ? 'down' : 'up';
-    return { x: s.x, y: s.y, sliding, sdir };
+    const snap = () => { s.x = target.x; s.y = target.y; (s.trail = s.trail || []).length = 0; s.len = 0; s.v = WALK; };
+    if (!s) { s = st[name] = { tick: tickId, dir: 'down', moving: false }; snap(); }
+    if (tickId < s.tick || tickId - s.tick > SNAP_TICKS) snap();   // scrubbed or jumped: no walk across the map
+    s.tick = tickId;
+    const tr = s.trail, last = tr[tr.length - 1], from = last || [s.x, s.y], gap = Math.hypot(target.x - from[0], target.y - from[1]);
+    if (gap > .01) {
+      if (last && tr.length > 1 && gap <= 1.5) {   // a tiny step moves the trail's end instead of adding a point
+        const p = tr[tr.length - 2];
+        s.len += Math.hypot(target.x - p[0], target.y - p[1]) - Math.hypot(last[0] - p[0], last[1] - p[1]);
+        tr[tr.length - 1] = [target.x, target.y];
+      } else { tr.push([target.x, target.y]); s.len += gap; }
+    }
+    if (s.len > LONG || tr.length > 2000) {   // far behind on a winding trail: cut straight to where they are now
+      const d = Math.hypot(target.x - s.x, target.y - s.y);
+      if (d > SNAP_PX) snap(); else { tr.length = 0; tr.push([target.x, target.y]); s.len = d; }
+    }
+    // speed: a steady walk, quicker while the trail is long, a little more when far behind; eased (no sudden sprint)
+    const want = Math.max(WALK, Math.min(VMAX, s.len / LOOK)) + Math.max(0, s.len - CATCH) / 5;
+    s.v += (want - s.v) * (1 - Math.exp(-dt * 2.5));
+    let step = Math.min(s.v, 12 + s.len * 6) * dt, mx = 0, my = 0;   // slow down over the last few pixels
+    while (step > 0 && tr.length) {
+      const [px, py] = tr[0], d = Math.hypot(px - s.x, py - s.y);
+      if (d <= step) { mx += px - s.x; my += py - s.y; s.x = px; s.y = py; step -= d; s.len -= d; tr.shift(); continue; }
+      const k = step / d, ax = (px - s.x) * k, ay = (py - s.y) * k;
+      s.x += ax; s.y += ay; mx += ax; my += ay; s.len -= step; step = 0;
+    }
+    s.len = tr.length ? Math.max(0, s.len) : 0;
+    const m = Math.hypot(mx, my);
+    s.moving = s.len > .6 || (dt > 0 && m / dt > 6);
+    if (m > .2) {   // face where they go; a near-diagonal keeps the previous facing (no flicker)
+      const h = Math.abs(mx), v = Math.abs(my), side = mx > 0 ? 'right' : 'left', vert = my > 0 ? 'down' : 'up';
+      if (h > v * 1.3) s.dir = side; else if (v > h * 1.3) s.dir = vert;
+      else if (s.dir !== side && s.dir !== vert) s.dir = h >= v ? side : vert;
+    }
+    return { x: s.x, y: s.y, moving: s.moving, dir: s.dir };
   }
 
   // ---------- bubbles (full-resolution canvas, constant size whatever the zoom) ----------
@@ -408,5 +439,6 @@ const Actors = (() => {
     }
   }
 
-  return { activities, workSpot, wander, paint, place, noteTick, bubbles, badges };
+  const reset = () => { for (const n in st) delete st[n]; };   // a scrub: everyone stands where the log says
+  return { activities, workSpot, wander, paint, place, reset, noteTick, bubbles, badges };
 })();
