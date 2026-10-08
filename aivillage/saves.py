@@ -76,7 +76,8 @@ def _agent_state(ag) -> dict:
            "recent": list(ag.recent), "people": dict(ag.people), "diary": list(ag.diary),
            "day_log": list(ag.day_log), "turns": list(ag.turns), "shown": dict(ag.shown),
            "villagers": sorted(ag.villagers),
-           "goals": {"about_me": ag.about_me, "wants": ag.wants, "plan": ag.plan, "introduced": ag.introduced}}
+           "goals": {"about_me": ag.about_me, "wants": ag.wants, "plan": ag.plan, "introduced": ag.introduced},
+           "kept": list(ag.kept), "record": ag.record, "record_day": ag.record_day}
     if hasattr(ag.client, "bot"):  # StubClient answers with a bot: keep its state too
         out["stub_bot"] = _bot_state(ag.client.bot)
     return out
@@ -105,6 +106,8 @@ def decider(world: World, snap: dict):
         g = a.get("goals") or {}  # saves made before own goals: no intro mid-game, the first night asks instead
         ag.about_me, ag.wants, ag.plan = g.get("about_me", ""), g.get("wants", ""), g.get("plan", "")
         ag.introduced = bool(g.get("introduced", True))
+        # book of deeds (reputation.record): saves before it have none
+        ag.kept, ag.record, ag.record_day = list(a.get("kept") or []), a.get("record"), a.get("record_day")
         if "stub_bot" in a and hasattr(ag.client, "bot"):
             _set_bot_state(ag.client.bot, a["stub_bot"])
     bots = {}

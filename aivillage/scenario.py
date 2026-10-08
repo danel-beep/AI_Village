@@ -68,6 +68,7 @@ class Memory(Strict):
     people: dict[str, str] = Field(default_factory=dict)
     diary: list[str] = Field(default_factory=list)  # oldest first; prompts show the last one (llm.DAY_DIARIES in "day" memory)
     recent: list[str] = Field(default_factory=list)
+    remember: list[str] = Field(default_factory=list)  # what it chose to remember for long (reputation.record), oldest first
 
 
 class Villager(Strict):
@@ -480,6 +481,7 @@ def brains(world: World, scn: Scenario, *, ai: list[str] | None = None, model: s
             ag.recent = list(m.recent)
             first = world.day - len(m.diary)
             ag.diary = [{"day": first + i, "text": t} for i, t in enumerate(m.diary)]
+            ag.kept = [{"day": max(1, world.day - 1), "text": t} for t in m.remember]
 
     def decide(name: str, obs: dict) -> dict:
         return agents[name].decide(obs) if name in agents else bot[name].decide(obs)

@@ -338,8 +338,10 @@ def _settle_all(ctx: Ctx) -> None:
 def observe(world: World, name: str) -> dict:
     m = _marriage(world, name)
     by = ops.name_key(world)
+    # with the book of deeds (reputation.record) the engine names no one a friend or an enemy
+    named = not world.config.get("reputation", {}).get("record")
     return {
-        "feelings": {b: {"score": v, "label": label(world, v)}
+        "feelings": {b: {"score": v, "label": label(world, v)} if named else {"score": v}
                      for b, v in sorted(world.kin.feelings.get(name, {}).items(), key=lambda x: by(x[0]))},
         "spouse": spouse_of(world, name),
         "family_home": m.home if m else None,

@@ -198,6 +198,21 @@ const Actors = (() => {
       return { dy: Math.floor(sec * 3) % 3 === 0 ? 1 : 0, front() { if (a.dir !== 'up') P(b, x + 4, y + (up ? -1 : 1), '#f2c9a0'); } };
     },
     sneak(b, x, y, sec, a) { return { crouch: 2, dy: Math.floor(sec * 2) % 2 }; },
+    // A blow of a fight (viewer/combat.js decides the motion): the weapon swings with c.ang, bare hands jab a fist.
+    fight(b, x, y, sec, a) {
+      const { R, P } = gx(), c = a.combat || {};
+      return { dy: c.dy || 0, front() {
+        if (c.lying) return;
+        if (c.cheer) { const up = Math.round(Math.abs(Math.sin(sec * 7)) * 2); P(b, x - 5, y - 13 - up, '#f2c9a0'); P(b, x + 5, y - 13 - up, '#f2c9a0'); }
+        const id = c.weapon && window.ItemIcons && ItemIcons.MAP[c.weapon], ic = id && weaponPic(id);
+        if (ic && !c.cheer) {
+          b.save(); b.translate(x + 3, y + 1); b.rotate((c.ang || 0) + Math.PI / 4); b.drawImage(ic, -2, -9, 11, 11); b.restore();
+        } else if (!ic) {
+          const fx = c.jab ? x + 8 : x + 5, fy = c.jab ? y - 1 : y;
+          R(b, fx - 1, fy - 1, 4, 4, '#1b1b24'); R(b, fx, fy, 2, 2, '#f2c9a0');
+        }
+      } };
+    },
     pour(b, x, y, sec, a) {
       const { C, blob } = gx(), u = (sec / 1.5) % 1, k = Math.floor(sec / 1.5), [fx, fy] = a.target || [x, y - 30];
       return { front() {
@@ -216,9 +231,12 @@ const Actors = (() => {
     },
   };
 
+  const weapons = {};
+  const weaponPic = id => id in weapons ? weapons[id] : (weapons[id] = window.Icons && Icons.ITEMS[id] ? Icons.canvas(id, 1) : null);
+
   // Paint one villager (shadow, sprite, tool, particles) at its displayed position into the low-res buffer.
   function paint(b, sheet, a, sec, selected) {
-    const { blob, R } = gx(), x = Math.round(a.x), y = Math.round(a.y), dir = a.dir;
+    const c = a.combat, { blob, R } = gx(), x = Math.round(a.x + (c ? c.dx || 0 : 0)), y = Math.round(a.y), dir = a.dir;
     blob(b, x, y + 7, 5, 2, SHADOW, null);
     if (selected) { b.fillStyle = '#f2c14e'; for (const [dx, dy] of [[-7, 7], [6, 7], [-6, 8], [5, 8]]) b.fillRect(x + dx, y + dy, 2, 1); }
     const row = dir === 'up' ? 1 : dir === 'down' ? 0 : 2, frame = a.moving ? 1 + (Math.floor(sec * 7) % 2) : 0;
@@ -231,7 +249,13 @@ const Actors = (() => {
     const crouch = pose.crouch || 0, dy = (pose.dy || 0) + crouch;
     if (pose.back) pose.back();
     const fw = sheet.fw || 12, fh = sheet.fh || 16;   // sprite villagers (viewer/sprites.js) are bigger than code ones
+    if (c && c.lying) {   // knocked down: the side view turned on its back, head away from the winner
+      b.save(); b.translate(x, y + 6); b.rotate(-Math.PI / 2); b.drawImage(sheet, 0, 2 * fh, fw, fh, -fw / 2 - 2, -fh / 2 - 2, fw, fh); b.restore();
+      b.restore(); return;
+    }
+    if (c && c.hurt && Math.floor(sec * 20) % 2) b.globalAlpha = .45;   // blinks while reeling from a hit
     b.drawImage(sheet, frame * fw, row * fh, fw, fh - crouch, x - fw / 2, y + 8 - fh + dy, fw, fh - crouch);
+    b.globalAlpha = 1;
     if (pose.front) pose.front();
     if (a.moving && a.carry) bucket(b, x + 4, y + 3 + (Math.floor(sec * 7) % 2), true);
     b.restore();

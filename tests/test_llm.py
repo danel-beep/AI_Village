@@ -100,7 +100,7 @@ def test_reflect_failure_keeps_memory():
     agent = LLMAgent("Anna", "farmer", Diarist(), people={"Boris": "friend"})
     agent.decide(engine.observe(w, "Anna"))
     agent.client = Boom()
-    assert agent.reflect(1) is None and agent.people == {"Boris": "friend"} and agent.usage.failures == 1
+    assert agent.reflect(1) is None and agent.people == {"Boris": "friend"} and agent.usage.failures == 2  # retried once
 
 
 def test_night_diary_logged_and_replay_ignores_it(tmp_path):
