@@ -183,6 +183,6 @@ Updated: 2026-10-08. Each backlog item is independent and sized for one thread /
 7. ~~Pixel-art viewer~~ — done, see above.
 8. ~~Translation layer for viewers~~ — done (see above).
 10. ~~**Seasons.**~~ Done, see above.
-11. ~~**CI.** GitHub Actions running pytest on PRs.~~ Готово: `.github/workflows/tests.yml` гоняет pytest на каждом PR и push в main.
+11. ~~**CI.** GitHub Actions running pytest on PRs.~~ Готово: `.github/workflows/tests.yml` гоняет pytest на каждом PR и push в main. Честная автопроверка (волна 1 аудита): ставит `.[live,dev]` (fastapi, httpx, pytest-xdist) и node, Python 3.11 и 3.12, `pytest -n 4 -ra`; с `AIV_NO_SKIPS=1` (`tests/conftest.py`) любой пропущенный тест валит проверку. `pyproject.toml`: `[tool.setuptools] packages = ["aivillage"]`, иначе `pip install -e .` падал.
 14. ~~**«Эфир», часть 2: часы судьбы.**~~ Done, see «Эфир», часть 2 above.
 15. **«Эфир», часть 3** (отложено до стрима): задержка живого эфира 25–30 с в реальных секундах, переключатель «Зритель / Бог» с фиолетовым таймером удара бога, перевод мыслей на лету.
