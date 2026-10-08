@@ -303,9 +303,12 @@ def built_line(b: dict) -> str:
 
 
 def owns_line(o: dict) -> str:
-    parts = [f"дом ур. {o['house']}" if o.get("house") else "без дома"]
-    if o.get("buildings"):
-        parts.append(", ".join(f"{k}" + (f" ×{v}" if v > 1 else "") for k, v in o["buildings"].items()))
+    other = {k: v for k, v in (o.get("buildings") or {}).items() if o.get("house") or k != "shelter"}
+    # a camp shelter is a home too: «без дома; shelter» read as homeless
+    parts = [f"дом ур. {o['house']}" if o.get("house") else
+             "живёт в шалаше (shelter)" if (o.get("buildings") or {}).get("shelter") else "без дома"]
+    if other:
+        parts.append(", ".join(f"{k}" + (f" ×{v}" if v > 1 else "") for k, v in other.items()))
     if o.get("lots"):
         parts.append(f"участков: {o['lots']}")
     return "; ".join(parts)
