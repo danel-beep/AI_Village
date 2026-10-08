@@ -446,14 +446,17 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")
     own = world.config.get("own_ai") or {}
-    lobby = remote.HUB.prepared  # the tournament's lobby built this roster: its players are connected already
+    hub = remote.HUBS.get(str(own.get("session") or ""))
+    lobby = hub is not None and hub.prepared  # a tournament's lobby built this roster: its players are connected
+    if not lobby:
+        hub = remote.HUB
     if "mcp" in models.values():  # own AIs over MCP (aivillage/remote.py): new links and new consent every time
         if lobby:
-            remote.HUB.prepared = False
+            hub.prepared = False
         else:
-            remote.HUB.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
-                             info={"villagers": len(world.agents)})
-        remote.HUB.world = world  # the lobby's table: who is alive and how rich
+            hub.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
+                      info={"villagers": len(world.agents)})
+        hub.world = world  # the lobby's table: who is alive and how rich
     villains = villains_of(models, int(world.config.get("villains") or 0), world.config["seed"])
     out = {}
     for name, m in models.items():
@@ -461,14 +464,14 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         if name in villains:
             character = VILLAIN_CHARACTER
         if m == "mcp":
-            seat = remote.HUB.by_name(name) if lobby else None
+            seat = hub.by_name(name) if lobby else None
             if seat is None:
-                seat = remote.HUB.add(name, world.agents[name].profession)
+                seat = hub.add(name, world.agents[name].profession)
             seat.profession = world.agents[name].profession
             client = remote.RemoteClient(seat)
-            if remote.HUB.style == "owner":
+            if hub.style == "owner":
                 character = remote.OWNER_CHARACTER
-            elif remote.HUB.style == "model":  # the tournament: nothing of the host's; the AI's own words if it wrote any
+            elif hub.style == "model":  # the tournament: nothing of the host's; the AI's own words if it wrote any
                 c = chars.get(name) or ""
                 own_words = c if c != "default" and c not in CHARACTERS else ""  # a tournament roster: the AI's text
                 character = seat.character or own_words or remote.MODEL_CHARACTER

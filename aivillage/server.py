@@ -97,6 +97,8 @@ class GodQueue:
 class LiveSim:
     """One running simulation plus its subscribers. Thread-safe toward the asyncio side."""
 
+    tournament = ""  # the «MCP-турнир» session whose lobby built this village (Host.tournaments)
+
     def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0,
                  on_night=None, summarizer: Summarizer | None = None, reports_dir: str | None = None,
                  reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES,
@@ -165,7 +167,12 @@ class LiveSim:
 
     def own_ai(self) -> bool:
         """Some villagers are played by people's own AIs over MCP (aivillage/remote.py)."""
-        return any(isinstance(ag.client, remote.RemoteClient) for ag in (getattr(self.decide, "agents", None) or {}).values())
+        return self.hub() is not None
+
+    def hub(self) -> remote.Hub | None:
+        """The hub of this village's own-AI seats (remote.HUB, or a tournament's), None without own AIs."""
+        return next((ag.client.seat.hub for ag in (getattr(self.decide, "agents", None) or {}).values()
+                     if isinstance(ag.client, remote.RemoteClient)), None)
 
     def _run(self) -> None:
         try:
@@ -173,7 +180,7 @@ class LiveSim:
                 on_night=self.on_night, on_record=self._on_record, checkpoint=self._checkpoint,
                 resume_header=self.resume_header, meta=self.log_meta)
             if self.own_ai():
-                remote.HUB.close(finished=True)  # players' AIs hear the game is over
+                self.hub().close(finished=True)  # players' AIs hear the game is over
             self._save_quietly()  # the last day is done: "continue" later adds more days
         except _Stop:
             pass
@@ -397,7 +404,7 @@ class LiveSim:
         self.stopping = True
         self.running.set()
         if self.own_ai():
-            remote.HUB.close()  # villagers waiting for a player's AI give up at once
+            self.hub().close()  # villagers waiting for a player's AI give up at once
         if wait and self._thread is not None:
             self._thread.join(wait)
         return self._thread is None or not self._thread.is_alive()
@@ -642,71 +649,123 @@ class Host:
         self.reveal_reports = reveal_reports
         self.last: dict | None = None  # start-screen answers of the current run, to prefill the next one
         self.lab: LabJob | None = None  # the experiment playing in the background (start screen, «🔬 Опыт»)
-        self.lobby_opts: dict | None = None  # «MCP-турнир» gathering players: the start-screen answers for later
+        # «MCP-турнир»: any number at once, by session: {"opts": start-screen answers, "sim": its village or None}
+        self.tournaments: dict[str, dict] = {}
         self._lock = threading.Lock()
 
-    def start(self, opts: dict) -> LiveSim:
-        run_opts = knobs.to_run(opts)  # ValueError on bad input, before anything stops
+    def _make(self, opts: dict, session: str = "") -> LiveSim:
+        """A village from start-screen answers, not started yet. `session`: the tournament whose lobby made it."""
+        run_opts = knobs.to_run(opts)  # ValueError on bad input
         seed = run_opts["seed"] or random.SystemRandom().randrange(1, 1_000_000)
-        if not remote.HUB.prepared:  # any other start ends a tournament lobby
-            self.cancel_lobby()
+        override = run_opts["override"]
+        if session:
+            override.setdefault("own_ai", {})["session"] = session  # run.llm_agents keeps that lobby's seats
+        world = engine.new_world(with_tick_minutes({**override, "seed": seed}, run_opts["tick_minutes"]))
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}{'_' + session if session else ''}.jsonl"
+        sm = None if run_opts["llm"] and run_opts["summaries"] else "off"
+        # own AIs get "mcp"; a model mix (knobs.MODEL_MIXES) is shared out over the rest
+        models = remote.models_for(world.config, run_opts["models"] or "default") if run_opts["llm"] else None
+        sim = make_sim(world, models=models, bots=run_opts["bots"],
+                       seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
+                       summary_model=sm, reports_dir=self.reports_dir,
+                       reveal_reports=self.reveal_reports, daily_budget=run_opts["daily_budget"],
+                       meta={"start_knobs": run_opts["values"]})  # every knob's value, for comparisons
+        last = {**run_opts["values"], "seed": None}
+        if opts.get("roster"):
+            last["roster"] = world.config["agents"]
+        sim.run_info = {"days": run_opts["days"], "seed": seed, "last": last, "daily_budget": run_opts["daily_budget"]}
+        sim.tournament = session
+        if sim.hub() is not None:
+            sim.hub().info["days"] = run_opts["days"]
+        return sim
+
+    def start(self, opts: dict) -> LiveSim:
+        knobs.to_run(opts)  # ValueError on bad input, before anything stops
         with self._lock:
             self.stop()
-            world = engine.new_world(with_tick_minutes({**run_opts["override"], "seed": seed}, run_opts["tick_minutes"]))
-            self.runs_dir.mkdir(parents=True, exist_ok=True)
-            log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.jsonl"
-            sm = None if run_opts["llm"] and run_opts["summaries"] else "off"
-            # own AIs get "mcp"; a model mix (knobs.MODEL_MIXES) is shared out over the rest
-            models = remote.models_for(world.config, run_opts["models"] or "default") if run_opts["llm"] else None
-            self.sim = make_sim(world, models=models, bots=run_opts["bots"],
-                                seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
-                                summary_model=sm, reports_dir=self.reports_dir,
-                                reveal_reports=self.reveal_reports, daily_budget=run_opts["daily_budget"],
-                                meta={"start_knobs": run_opts["values"]})  # every knob's value, for comparisons
-            self.last = {**run_opts["values"], "seed": None}
-            if opts.get("roster"):
-                self.last["roster"] = world.config["agents"]
-            self.sim.run_info = {"days": run_opts["days"], "seed": seed, "last": self.last,
-                                 "daily_budget": run_opts["daily_budget"]}
-            remote.HUB.info["days"] = run_opts["days"]
+            self.sim = self._make(opts)
+            self.last = self.sim.run_info["last"]
             self.sim.start()
-            print(f"Village seed {seed}: {log}")
+            print(f"Village seed {self.sim.run_info['seed']}: {self.sim.log_path}")
             return self.sim
 
-    def open_lobby(self, opts: dict) -> str:
-        """«MCP-турнир»: stop the current village and open the lobby with one place per villager; the village is
-        built by `begin_tournament` from the AIs that joined. Returns the invite path."""
-        run_opts = knobs.to_run(opts)  # ValueError on bad input, before anything stops
-        with self._lock:
-            self.stop()
-            remote.HUB.open_lobby(run_opts["values"]["villagers"], wait_minutes=run_opts["override"]["own_ai"].get(
-                "wait_minutes", 5), info={"days": run_opts["days"]})
-            self.lobby_opts = dict(opts)
-        return f"/mcp/join/{remote.HUB.lobby}"
+    # --- «MCP-турнир»: lobbies and their villages, any number at once, next to the host's own village ---
 
-    def begin_tournament(self) -> LiveSim:
-        if self.lobby_opts is None:
-            raise ValueError("Сбор игроков не открыт.")
-        rows = remote.HUB.begin()
-        seed = int(self.lobby_opts.get("seed") or random.SystemRandom().randrange(1, 1_000_000))
+    def open_lobby(self, opts: dict) -> remote.Hub:
+        """A new tournament lobby (its own invite code) with one place per villager; `begin_tournament` builds its
+        village from the AIs that joined. The host's own village and other tournaments go on."""
+        run_opts = knobs.to_run(opts)  # ValueError on bad input
+        hub = remote.new_tournament(run_opts["values"]["villagers"], info={"days": run_opts["days"]},
+                                    wait_minutes=run_opts["override"]["own_ai"].get("wait_minutes", 5))
+        self.tournaments = {k: t for k, t in self.tournaments.items() if k in remote.HUBS}
+        self.tournaments[hub.session] = {"opts": {k: v for k, v in opts.items() if k != "roster"}, "sim": None}
+        return hub
+
+    def tournament(self, session: str) -> tuple[dict, remote.Hub]:
+        t, hub = self.tournaments.get(str(session or "")), remote.HUBS.get(str(session or ""))
+        if t is None or hub is None:
+            raise ValueError("Нет такого турнира.")
+        return t, hub
+
+    def begin_tournament(self, session: str) -> LiveSim:
+        t, hub = self.tournament(session)
+        if t["sim"] is not None:
+            raise ValueError("Этот турнир уже идёт.")
+        rows = hub.begin()
+        seed = int(t["opts"].get("seed") or random.SystemRandom().randrange(1, 1_000_000))
         professions = knobs.roster(len(rows), seed)  # «С нуля» has no trades; the roster still names one
         for row, d in zip(rows, professions):
             row.pop("player", None)
             row["profession"] = d["profession"]
-        opts, self.lobby_opts = {**self.lobby_opts, "villagers": len(rows), "roster": rows, "seed": seed}, None
-        return self.start(opts)
+        sim = self._make({**t["opts"], "villagers": len(rows), "roster": rows, "seed": seed}, session=hub.session)
+        t["sim"] = sim
+        sim.start()
+        print(f"Tournament {hub.session}: {sim.log_path}")
+        return sim
 
-    def cancel_lobby(self) -> None:
-        if self.lobby_opts is not None:
-            self.lobby_opts = None
-            remote.HUB.close()
-            remote.HUB.seats = {}  # the invite and every place's link stop working
+    def cancel_lobby(self, session: str) -> None:
+        t, hub = self.tournament(session)
+        if t["sim"] is not None:
+            if self.sim is t["sim"]:
+                self.sim = None
+            t["sim"].end("button", 5.0)
+        hub.close()
+        hub.seats = {}  # the invite and every place's link stop working
+        remote.HUBS.pop(hub.session, None)
+        self.tournaments.pop(hub.session, None)
+
+    def watch(self, session: str) -> LiveSim:
+        """Show a tournament's village in this app's viewer (the host's own village is stopped and saved first)."""
+        t, _ = self.tournament(session)
+        if t["sim"] is None:
+            raise ValueError("Турнир ещё не начался.")
+        with self._lock:
+            if self.sim is not t["sim"]:
+                self.stop()
+                self.sim = t["sim"]
+        return self.sim
+
+    def tournament_list(self) -> list[dict]:
+        out = []
+        for session, t in self.tournaments.items():
+            hub = remote.HUBS.get(session)
+            if hub is None:
+                continue
+            sim = t["sim"]
+            out.append({"session": session, "lobby": f"/mcp/join/{hub.lobby}", "code": hub.lobby, "phase": hub.phase,
+                        "places": len(hub.seats), "ready": len(hub.ready()),
+                        "players": sorted({s.player for s in hub.seats.values() if s.player}),
+                        "running": sim is not None and not sim.finished, "finished": bool(sim and sim.finished),
+                        "watching": sim is not None and sim is self.sim})
+        return out
 
     def stop(self, wait: float = 5.0, ended_by: str = "new_village") -> LiveSim | None:
         """Stop the current village (it saves itself on the way out, and its session summary is saved like
-        with "Завершить сессию"). Returns it, None if there was none."""
+        with "Завершить сессию"). Returns it, None if there was none. A tournament's village is only no longer
+        shown: its players go on (cancel it in its lobby)."""
         sim, self.sim = self.sim, None
-        if sim is not None:
+        if sim is not None and not getattr(sim, "tournament", ""):
             sim.end(ended_by, wait)
         return sim
 
@@ -752,7 +811,8 @@ class Host:
                           int(info.get("view_lag_minutes") or VIEW_LAG_MINUTES), resume_header=recs[0],
                           daily_budget=float(info.get("daily_budget") or budget.DEFAULT_USD))
             sim.run_info = {**info, "days": info.get("days") or days}
-            remote.HUB.info["days"] = days
+            if sim.hub() is not None:
+                sim.hub().info["days"] = days
             sim.preload(recs)
             for tick, ev in snap.get("god_pending") or []:
                 sim.god.put(ev, tick)
@@ -920,18 +980,25 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     @app.get("/api/remote")
     def remote_status(request: Request) -> dict:
         local_only(request)
-        own = (host.sim is not None and host.sim.own_ai()) or host.lobby_opts is not None
-        st = remote.HUB.status() if own else {"open": False, "seats": []}
+        hub = host.sim.hub() if host.sim is not None else None
+        st = hub.status() if hub is not None else {"open": False, "seats": []}
         base = f"{request.url.scheme}://{request.url.netloc}"
-        return {**st, "local": base, "tunnel": TUNNEL.status()}
+        return {**st, "local": base, "tunnel": TUNNEL.status(), "tournaments": host.tournament_list()}
+
+    def seat_of(body: dict) -> remote.Seat:
+        """A seat of the village on screen, or of the tournament `session` (its lobby page), by villager name."""
+        session = str((body or {}).get("session") or "")
+        hub = remote.HUBS.get(session) if session else (host.sim.hub() if host.sim is not None else None)
+        seat = hub.by_name(str((body or {}).get("name"))) if hub is not None else None
+        if seat is None:
+            raise HTTPException(404, "нет такого места")
+        return seat
 
     @app.post("/api/remote/skip")
     def remote_skip(body: dict, request: Request) -> dict:
         """"Играть без него": the village stops waiting for this seat until its AI joins."""
         local_only(request)
-        seat = remote.HUB.by_name(str((body or {}).get("name")))
-        if seat is None:
-            raise HTTPException(404, "нет такого места")
+        seat = seat_of(body)
         with seat.cond:
             seat.skipped = bool((body or {}).get("skip", True))
             seat.cond.notify_all()
@@ -941,10 +1008,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     def remote_release(body: dict, request: Request) -> dict:
         """Free a seat a player took in the lobby (they left): the next player can take it."""
         local_only(request)
-        seat = remote.HUB.by_name(str((body or {}).get("name")))
-        if seat is None:
-            raise HTTPException(404, "нет такого места")
-        remote.HUB.release(seat)
+        seat = seat_of(body)
+        seat.hub.release(seat)
         return {"ok": True}
 
     @app.post("/api/remote/tunnel")
@@ -990,7 +1055,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         return {**knobs.schema(), "running": host.sim is not None, "can_restart": host.setup,
                 "last": host.last, "has_key": keys.has_any_key(), "has_openrouter": bool(keys.get("openrouter_key")),
                 "model": keys.get("model") or llm.DEFAULT_MODEL,
-                "lobby": f"/mcp/join/{remote.HUB.lobby}" if host.lobby_opts is not None else None,
+                "tournaments": host.tournament_list(),
                 "finished": bool(host.sim and host.sim.finished)}
 
     @app.post("/api/roster")
@@ -1022,33 +1087,54 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
                                      "Или выберите «Одна на всех» и уберите Haiku у жителей.")
         if opts.get("brains") == "mcp":  # the tournament: players gather in the lobby first, the village comes later
             try:
-                lobby = host.open_lobby(opts)
+                hub = host.open_lobby(opts)
             except (ValueError, TypeError) as e:
                 raise HTTPException(400, str(e)) from None
             if (request.url.hostname or "") in ("127.0.0.1", "localhost", "::1"):  # a public server needs no tunnel
                 TUNNEL.start(request.url.port or 8000)  # the players are on other devices
-            return {"ok": True, "lobby": lobby}
+            return {"ok": True, "lobby": f"/mcp/join/{hub.lobby}", "code": hub.lobby, "session": hub.session}
         try:
             sim = host.start(opts)
         except (ValueError, TypeError) as e:
             raise HTTPException(400, str(e)) from None
         return {"ok": True, **sim.status()}
 
-    @app.post("/api/tournament/begin")
-    def tournament_begin(request: Request) -> dict:
-        """«Начать игру» in the lobby: the village of the AIs that said yes and introduced themselves."""
-        local_only(request)
+    # --- «MCP-турнир» (viewer/join.html host controls): several at once, each by its session ---
+
+    def tournament_call(fn, body: dict):
         try:
-            sim = host.begin_tournament()
+            return fn(str((body or {}).get("session") or ""))
         except (ValueError, TypeError) as e:
             raise HTTPException(400, str(e)) from None
+
+    @app.get("/api/tournament/{session}")
+    def tournament_status(session: str, request: Request) -> dict:
+        """The host's view of one lobby: every place (with its link), the tunnel, whether its village runs."""
+        local_only(request)
+        t, hub = tournament_call(host.tournament, {"session": session})
+        info = next((x for x in host.tournament_list() if x["session"] == session), {})
+        return {**hub.status(), **info, "local": f"{request.url.scheme}://{request.url.netloc}",
+                "tunnel": TUNNEL.status()}
+
+    @app.post("/api/tournament/begin")
+    def tournament_begin(body: dict, request: Request) -> dict:
+        """«Начать игру» in a lobby: the village of the AIs that said yes and introduced themselves."""
+        local_only(request)
+        sim = tournament_call(host.begin_tournament, body)
         return {"ok": True, **sim.status()}
 
     @app.post("/api/tournament/cancel")
-    def tournament_cancel(request: Request) -> dict:
+    def tournament_cancel(body: dict, request: Request) -> dict:
         local_only(request)
-        host.cancel_lobby()
+        tournament_call(host.cancel_lobby, body)
         return {"ok": True}
+
+    @app.post("/api/tournament/watch")
+    def tournament_watch(body: dict, request: Request) -> dict:
+        """Show a tournament's village in this app (the viewer at /)."""
+        local_only(request)
+        sim = tournament_call(host.watch, body)
+        return {"ok": True, **sim.status()}
 
     @app.post("/api/stop")
     def stop(request: Request) -> dict:
