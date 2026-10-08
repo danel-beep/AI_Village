@@ -31,7 +31,7 @@ from collections import Counter
 
 from pydantic import BaseModel, Field
 
-from . import clock, ops, plots, progress, spoilage, works
+from . import clock, ops, plots, progress, settle, spoilage, works
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, ActionError
 from .state import Agent, Plot, World
@@ -386,8 +386,12 @@ def start_building(ctx: Ctx, a: Agent, args: StartArgs) -> None:
         spec = catalog(cfg)[kind]
         if spec.get("place") == "home":
             plot = plots.own_plot_here(w, a) if plots.enabled(cfg) else None
-            where = (f"you are not in it: go to {a.home} first" if plot is None
-                     else f"only up to level {len(spec['levels'])}")
+            if plot is not None:
+                where = f"only up to level {len(spec['levels'])}"
+            elif settle.unsettled(w, a.name):  # the camp spot has no yard: the live A/B sent villagers there in vain
+                where = "and you have no yard yet: settle takes a free house site for one"
+            else:
+                where = f"you are not in it: go to {a.home} first"
             raise ActionError(f"a {_name(cfg, kind)} is built in your own yard, {where}; can start here: "
                               f"{', '.join(sorted(opts)) or 'nothing'}")
         if spec.get("at") and a.location not in spec["at"]:
