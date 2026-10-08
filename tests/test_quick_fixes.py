@@ -88,11 +88,14 @@ def test_cooking_hint_counts_the_home_chest(w):
 
 def test_polity_hides_mayor_actions():
     cfg = make_config({"seed": 1, "polity": {"enabled": True}})
-    for name in ("fund_project", "demand_debt", "rule_debt"):
+    for name in ("demand_debt", "rule_debt"):
         assert name in governance.REPLACED
     from aivillage import debts, works
     assert not debts.collection_on(cfg)
-    assert "fund_project" not in works.facts(cfg)
+    # the treasury PR: a polity's treasury holder pays with fund_project (works.holder), never "the mayor"
+    assert "fund_project" not in governance.REPLACED
+    assert "a polity's treasury holder can fund_project" in works.facts(cfg)
+    assert "the mayor can fund_project" not in works.facts(cfg)
     assert "no fine" in governance.facts(cfg)
 
 

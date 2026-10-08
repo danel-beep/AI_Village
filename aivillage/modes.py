@@ -180,7 +180,30 @@ MODES["survival"] = {
              "Инструменты делают сами: каменные руками, железные в кузнице; руду голыми руками не добыть. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
-    "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+    "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True,
+                                                           # bandits find the village from the hamlet stage,
+                                                           # not only the town (villain run: 0 raids in 50 days)
+                                                           "unlocks": {"feature:raids": {"stage": "hamlet"}}},
+                                              "bare_start": {"enabled": True},
+                                              # danger at a random moment: 4 to 10 calm days between, never more in a
+                                              # row (Danel 2026-10-08), mostly announced ahead; bandits also
+                                              # take what lies ready in the yard
+                                              "threats": {"first_day": 4, "warn_chance": 0.8,
+                                                          "hostile": {"max_gap_days": 10, "min_gap_days": 4},
+                                                          # raids and beasts beaten only together
+                                                          # (Danel 2026-10-08): on 6 villagers one
+                                                          # defender never wins, 3 with spear and
+                                                          # leather ~85%, 3 bare-handed ~10%;
+                                                          # stronger as the village arms itself
+                                                          "arms": {"enabled": True},
+                                                          "kinds": {"raid": {"yard_share": 0.5, "hall_share": 0.4,
+                                                                             "hp": 200, "attack": 5,
+                                                                             "damage_die": 10},
+                                                                    "beast": {"hp": 170, "attack": 5,
+                                                                              "damage_die": 10}}},
+                                              # the hospital is no free meal; others see who is wounded
+                                              "hospital_discharge": {"satiety": 30},
+                                              "wounded_seen_below": 40,
                                               # no professions at any start stage (Danel 2026-10-08): mastery
                                               # per kind of work, a bigger house a better household (labor.py)
                                               "labor": {"mastery": {"enabled": True}},
@@ -202,7 +225,11 @@ MODES["survival"] = {
                                               "animals": {"enabled": True},
                                               # each town hall founds a polity (polity.py), so a
                                               # second one may stand at any common place
-                                              "polity": {"enabled": True},
+                                              # treasury: a small minted seed each dawn, and things to spend
+                                              # coins on (Danel 2026-10-08): wages, fund_project, the merchant
+                                              "polity": {"enabled": True, "income_per_member_per_day": 1},
+                                              "merchant": {"enabled": True},
+                                              "illness": {"cure_items": ["honey", "milk", "fish_soup", "medicine"]},
                                               "construction": {"enabled": True,
                                                                "catalog": {"town_hall": {"at": []}}},
                                               "transport": {"enabled": True},
@@ -210,6 +237,13 @@ MODES["survival"] = {
                                               # land goes to whoever comes first, no court (land.py),
                                               # winter nights cost more food (seasons.py)
                                               "theft": {"enabled": True},
+                                              # "I owe you later" in kind: the hungry can borrow food
+                                              # against a promise (debts.py, plan item 5)
+                                              "debts": {"in_kind": True},
+                                              # a book of deeds instead of a reputation score: good deeds never
+                                              # erase bad ones; each night the villager picks what to keep for
+                                              # long (reputation.py, llm.py; Danel 2026-10-08)
+                                              "reputation": {"record": True},
                                               "land": {"claim": "first"},
                                               "seasons": {"night_hunger": {"winter": 10}},
                                               "hire": {"enabled": True},

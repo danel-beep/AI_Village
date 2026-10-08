@@ -24,6 +24,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # as short lines plus its own answers (cached by the provider, reset each night); "fresh" = every turn is a new
     # chat with the last 3 actions and own notes (the old way).
     "llm_memory": "day",
+    # What each turn's observation carries ("day" memory only, llm.OBS_MODES): "changes" = the board, map, land,
+    # wealth and the like only when they change (they stay in the cached day conversation); "full" = everything
+    # every turn (before 2026-10-08). A/B (scenarios/obs_changes.yaml): a turn 14-20% cheaper, failed actions
+    # halved, no other difference beyond the A/A noise.
+    "llm_obs": "changes",
     # Own AIs (aivillage/remote.py): the first `seats` villagers are played by people's own AIs (Claude, ChatGPT,
     # Gemini, Codex...) connected over MCP. The village waits `wait_minutes` for each answer once an AI is
     # connected; `style` "owner" = the AI takes the villager's character from its owner, "self" = like any villager.
@@ -61,6 +66,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "starving_health_loss_night": 20,
     # here.people marks a villager "hungry" below this satiety and "starving" at 0, like "sick" (0 = not shown)
     "hungry_seen_below": 30,
+    "wounded_seen_below": 0,  # others see "wounded" below this health (0 = off; «С нуля»: 40)
     # addressed.py: letters, whispers and words said to a villager by name stay in "said_to_you" until the end of
     # the next day (keep_days) or until the two have since given, lent or traded to each other; at most `max`
     "said_to_you": {"keep_days": 1, "max": 5},
@@ -73,6 +79,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # What happens at health 0: "hospital" (lose half the inventory, back in N days) or "death".
     "death_mode": "hospital",
     "hospital_days": 2,
+    "hospital_discharge": {"health": 60, "satiety": 60},  # where a villager comes back from the hospital
     # With death_mode "hospital": the collapse number `lives` is death (lives 2 = one hospital stay, then death).
     # 0 = never die, the hospital every time. Runs get 2 from modes.RUN_DEFAULTS.
     "lives": 0,
@@ -107,6 +114,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "owner_notice_chance": 0.9,
         "victim_notice_chance": 0.8,
         "treasury": True,
+        # A theft nobody noticed gives the robbed person one true clue with this chance: who was at the place
+        # within the last hour, what the thief now carries, or the thief's visible gear. Only a clue that fits
+        # 2 or more living villagers is given (the narrowest such one), so it never names the thief alone.
+        "clue_chance": 0.5,
     },
     "max_text_len": 200,
     "inbox_size": 30,
@@ -369,6 +380,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # `seize_pct`% of any coins they receive until it is paid.
         "auto_collect": True,
         "seize_pct": 50,
+        # «Долги вещами»: an offer can carry i_owe + due_day ("this now, I owe you that later"); on accept it is a
+        # private debt owed in kind, paid off by giving the items (on in «С нуля»)
+        "in_kind": False,
     },
     # How laws are enforced (aivillage/governance.py `voluntary`): "auto" takes the tax (eviction if short) and the
     # theft fine; "voluntary" writes them as bills owed to the treasury in the debt book, paid with pay_bill or not.
@@ -395,7 +409,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "limits": {"tax": [0, 60], "theft_fine": [0, 50], "mayor_salary": [0, 20], "grant": [1, 200],
                    "sales_tax": [0, 30], "wealth_tax": [0, 20]},
         "start": {"theft_fine": 0, "mayor_salary": 0},
-        "crime_memory_days": 7,  # a witnessed theft can be reported for this many days
+        "crime_memory_days": 14,  # a witnessed theft can be reported for this many days
+        # report_theft gives what was stolen back to the victim: qty x this, from the thief's pocket, then their
+        # chest; what they no longer hold is dropped (no debt). 0 = nothing is given back.
+        "restitution": 1.0,
     },
     # Polities (aivillage/polity.py), off by default; on in the «С нуля» mode. A finished town_hall founds a polity:
     # its builders are the first members, anyone may join_polity / leave_polity. Members vote for its name, the
@@ -412,12 +429,36 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "expel_days": 7,  # an expelled villager may not join that polity again for this many days
         # tax laws: income_tax and wealth_tax in percent, tax_every in days (polity.py)
         "limits": {"tax": [0, 50], "income_tax": [0, 50], "wealth_tax": [0, 20], "tax_every": [1, 14],
-                   "grant": [1, 500], "fine": [1, 200]},
+                   "grant": [1, 500], "fine": [1, 200], "wage": [0, 10], "theft_fine": [0, 50]},
         "max_name_len": 30,
         # The treasury holder (ruler; most voted councillor; an assembly's treasurer) can take coins unnoticed
         # (polity_embezzle) until polity_audit at the town hall or, with audit_on_handover, a change of holder.
         "embezzle": True,
         "audit_on_handover": True,
+        # Treasury income and spending (Danel 2026-10-08: first what money is for, minted coins only a small seed).
+        # Each dawn a polity with a form and at least 2 living members gets this many coins per member into its
+        # treasury (0 = off). Law `wage` (limits below): coins per hour a member works on a common building or a
+        # village project, paid from the treasury while it has coins. The holder can also fund_project and buy
+        # from the merchant (merchant.py) with treasury coins.
+        "income_per_member_per_day": 0,
+        "spent_shown": 6,  # members see this many latest treasury spends
+    },
+    # A merchant passing through (aivillage/merchant.py, off by default; on in «С нуля»): once the trader has
+    # come (progress `feature:trader`) he arrives at `place` every `gap_days` (seeded random) for `stay_days`
+    # and sells goods nobody in the village can make, at fixed prices, `stock` per 5 villagers each visit.
+    # Coins paid to him leave the village. Goods missing from the item table are skipped.
+    "merchant": {
+        "enabled": False,
+        "place": "market",
+        "first_gap_days": [1, 3],
+        "gap_days": [4, 7],
+        "stay_days": 2,
+        "goods": {
+            "fur_cloak": {"price": 30, "stock": 2},
+            "steel_axe": {"price": 45, "stock": 1},
+            "steel_pick": {"price": 48, "stock": 1},
+            "medicine": {"price": 12, "stock": 3},
+        },
     },
     # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
     # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.
@@ -455,6 +496,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "score_cap": 10,
         "notes_per_person": 3,
         "rumors_kept": 6,
+        # Book of deeds instead of the score (modes «С нуля»): bad and good deeds in separate lists of
+        # `record_keep` each, counts per kind; shown for people met in the last `record_days` days or with
+        # a bad deed. Off here so old logs replay unchanged.
+        "record": False,
+        "record_keep": 5,
+        "record_days": 14,
         # Word of mouth: hearers learn who started a rumor for this many tellings, then "someone".
         # Each hearer may mishear: a number in the text changes, or (rarer) the rumor lands on another
         # villager. Whispers and gossip told to one person are overheard by each bystander with "overhear".
@@ -469,7 +516,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "deltas": {
             "witness": -3,        # saw someone steal
             "steal_attempt": -4,  # caught someone stealing from you
-            "default": -3,        # debt not repaid on time (public)
+            "default": -3,        # debt not repaid on time (the lender only: debts are private)
             "repay": 2,           # debt fully repaid on time (public)
             "fire_out": 3,        # put out a fire (public)
             "extinguish": 1,      # helped with a fire (seen there)
@@ -481,6 +528,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "construct": 1,       # worked an hour on someone else's or the village's building site (seen there)
             "site_supplied": 1,   # brought materials to someone else's or the village's building site (seen there)
             "embezzlement_found": -5,  # the books show the mayor took treasury coins (public)
+            "theft_report": -3,   # someone reported a theft, attack or arson by this person (public)
         },
     },
     # Private plots (aivillage/plots.py): each house has a yard of `cells` where its family builds.
@@ -594,15 +642,28 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "warn_chance": 0.5,
         "warn_days": 2,
         "arrive_hour": 11,       # warned threats come around this hour
+        # finished old-style projects (world.projects) that weaken threats, {project id: factor}: a "wall" project
+        # if a config defines one; the built village wall is works.py's (wall_factor_per_level below)
         "defense_projects": {"wall": 0.6},
         "wall_factor_per_level": 0.75,  # each level of the village wall (works.py) x0.75 to strength and loot
+        # Bandits or a beast at a random moment, but never more than `max_gap_days` calm days in a row (0 = off:
+        # only the kinds' own per_day dice, as before); `min_gap_days` calm after each; their own `max_active`
+        # slot, apart from travelers (threats.py).
+        "hostile": {"max_gap_days": 0, "min_gap_days": 2, "max_active": 1},
+        # Raids and beasts grow with the village's arms (off here, on in «С нуля»): their hp x (1 + `hp_per_tier` x
+        # the highest tier of any weapon or armor a villager has, `tiers`). On, `defend` fights one dice round per
+        # `round_minutes` of a villager's turn, so the odds do not depend on the turn length.
+        "arms": {"enabled": False, "hp_per_tier": 0.3, "round_minutes": 15,
+                 "tiers": {"spear": 1, "bow": 1, "leather_armor": 1, "sword": 3, "iron_armor": 3}},
         "kinds": {
             # Bandits: start at the target's house; every hour nobody fights them they carry off `loot_share`
             # of each chest there, and after `stay_hours` such hours move to the next of `houses` (nearest
             # first); after `hours` they leave and set fire to the house they are at if nobody fought them that
             # hour. Driven off, they drop the loot.
             "raid": {"per_day": 0.0, "name": "bandits", "hp": 60, "attack": 2, "damage_die": 6,
-                     "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20},
+                     "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20,
+                     "yard_share": 0.0,  # also this share of what lies ready in the yard (eggs, crops...)
+                     "hall_share": 0.0},  # >0: after the first house they go for the fullest town hall treasury
             # A beast: every hour unopposed it eats `eat_share` of the food in the chests of the house it is at
             # and mauls someone there (d`damage_die` + `maul`); after `stay_hours` it prowls to another house;
             # leaves after `hours`.
@@ -685,7 +746,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             {"id": "village", "requires": {"buildings": {"market_square": 1, "smithy": 1}}},
             {"id": "town", "requires": {"buildings": {"town_hall": 1, "house@2": 3}}},
         ],
-        "unlocks": {},
+        "unlocks": {"feature:raids": {"stage": "town"}},  # = progress.DEFAULT_UNLOCKS; the knob moves it
     },
     # Empty start of the «С нуля» mode (modes.bare_start). On, and with progress starting below `until_stage`:
     # no houses (level 0), no coins, empty pockets, no buildings in the yards, everyone a laborer who may
@@ -776,7 +837,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "smoked_meat": {"value": 9, "food": 35},
             # weapons and armor (combat.gear, conflict.py)
             "bow": {"value": 10}, "sword": {"value": 40}, "leather_armor": {"value": 25}, "iron_armor": {"value": 60},
-            "clothes": {"value": 26},
+            # warmth: a winter night costs this much less satiety to whoever carries it (seasons.night_hunger)
+            "clothes": {"value": 26, "warmth": 5},
+            # only the passing merchant sells these (merchant.py); the trader does not deal in them
+            "fur_cloak": {"value": 30, "warmth": 8, "tradable": False},
+            "steel_axe": {"value": 45, "tradable": False}, "steel_pick": {"value": 48, "tradable": False},
+            "medicine": {"value": 12, "tradable": False},
         },
         # inputs -> output; `building`: a workshop of that kind must stand where the crafter is (None = by hand,
         # anywhere); `more_at` {kind: output}: the same recipe gives more at that workshop; `hours`: per batch (0 = the whole action fits in one hour).
@@ -818,6 +884,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "iron_pick": {"fits": ["stone", "ore", "clay", "gold"], "multiplier": 2.5, "hours": 40},
             "fishing_rod": {"fits": ["fish"], "multiplier": 2, "hours": 20},
             "hoe": {"fits": ["grain"], "multiplier": 1, "hours": 30},
+            # the merchant's (merchant.py): nobody in the village can forge steel
+            "steel_axe": {"fits": ["wood"], "multiplier": 3, "hours": 80},
+            "steel_pick": {"fits": ["stone", "ore", "clay", "gold"], "multiplier": 3, "hours": 80},
         },
         # resources nobody gathers with bare hands
         "needs_tool": ["ore", "gold"],

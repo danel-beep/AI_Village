@@ -351,6 +351,9 @@ def give(ctx: Ctx, a: Agent, args: GiveArgs) -> None:
     what = fmt_items({**args.items, **({"coins": args.coins} if args.coins else {})})
     ctx.emit("give", f"{a.name} gave {what} to {other.name}" + (" (carried)." if carried else "."), actor=a.name,
              location=a.location, visibility="location", to=[other.name], **({"carried": True} if carried else {}))
+    if args.items:
+        from . import debts  # debts imports this module
+        debts.repay_in_kind(ctx, a, other, args.items)
 
 
 class LendArgs(BaseModel):
@@ -360,7 +363,7 @@ class LendArgs(BaseModel):
     due_day: int = Field(description="day by which it must be repaid")
 
 
-@ACTIONS.action("lend", "Lend coins to a person here. The debt is written on the public board at the square.",
+@ACTIONS.action("lend", "Lend coins to a person here. The debt is written in the private debt book.",
                 LendArgs)
 def lend(ctx: Ctx, a: Agent, args: LendArgs) -> None:
     other = _agent_here(ctx, a, args.to)
@@ -393,16 +396,18 @@ def repay(ctx: Ctx, a: Agent, args: RepayArgs) -> None:
     if d.lender not in ctx.world.agents:  # a tax or fine bill owed to the treasury (debts.pay_bill)
         from . import debts
         return debts.settle_bill(ctx, a, d, args.coins)
+    if d.coins_owed <= 0:
+        raise ActionError(f"{d.id} is owed in items ({fmt_items(d.items_owed)}): give them to {d.lender}")
     pay = min(args.coins, d.coins_owed)
     if a.coins < pay:
         raise ActionError(f"you only have {a.coins} coins")
     lender = ctx.world.agents[d.lender]
     ops.move_coins(a, lender, pay)
     d.coins_owed -= pay
-    if d.coins_owed == 0:
+    if d.coins_owed == 0 and not d.items_owed:
         d.status, d.claim = "repaid", None
     ctx.emit("repay", f"{a.name} repaid {pay} coins to {d.lender} ({d.id}, {d.coins_owed} left).",
-             actor=a.name, visibility="public", debt=d.id)
+             actor=a.name, to=[d.lender, a.name], debt=d.id)
     if d.status == "repaid":
         from . import debts
         debts.on_repaid(ctx, d)
@@ -412,6 +417,32 @@ class OfferArgs(BaseModel):
     to: str
     give: ItemMap = Field(default_factory=dict, description="items you give; use 'coins' for money")
     want: ItemMap = Field(default_factory=dict, description="items you want; use 'coins' for money")
+    i_owe: ItemMap = Field(default_factory=dict, description="optional: what you will owe them later, if World "
+                           "facts allow it; use 'coins' for money")
+    due_day: int | None = Field(None, description="with i_owe: day by which you will give it")
+
+
+def offer_view(o: Offer) -> dict:
+    """An offer as agents see it (the i_owe part only when there is one)."""
+    v = dict(vars(o))
+    if not o.i_owe:
+        del v["i_owe"], v["due_day"]
+    return v
+
+
+def _offer_text(o: Offer, own: bool = False) -> str:
+    """The offer in words, for its receiver ("offers you ...") or its sender (own: "offered Anna ...")."""
+    if not o.i_owe:
+        return f"{'offered ' + o.to if own else 'offers you'} {fmt_items(o.give)} for {fmt_items(o.want)}"
+    if own:
+        head = f"offered {o.to} {fmt_items(o.give)}" if o.give else f"asked {o.to} for"
+        owe = f"you will owe {o.to} {fmt_items(o.i_owe)} by day {o.due_day}"
+    else:
+        head = f"offers you {fmt_items(o.give)}" if o.give else "asks you for"
+        owe = f"owes you {fmt_items(o.i_owe)} by day {o.due_day}"
+    if not o.give:
+        return f"{head} {fmt_items(o.want)}; in return {owe}"
+    return f"{head} now for {fmt_items(o.want)}, and {owe}"
 
 
 def _check_bundle(ctx: Ctx, bundle: dict) -> None:
@@ -438,15 +469,28 @@ def offer(ctx: Ctx, a: Agent, args: OfferArgs) -> None:
         raise ActionError("an offer needs give or want")
     _check_bundle(ctx, args.give)
     _check_bundle(ctx, args.want)
+    i_owe = {k: v for k, v in args.i_owe.items() if v}
+    if i_owe or args.due_day is not None:
+        from . import debts  # debts imports this module
+        if not debts.in_kind(ctx.cfg):
+            raise ActionError("offers here cannot carry i_owe; use promise to owe coins")
+        if not i_owe:
+            raise ActionError("due_day goes with i_owe: what you will owe them")
+        if args.due_day is None or args.due_day <= ctx.world.day:
+            raise ActionError(f"i_owe needs a due_day after today (day {ctx.world.day})")
+        if not args.want:
+            raise ActionError("i_owe is paid for something: say what you want now in want (or use promise)")
+        _check_bundle(ctx, i_owe)
+        if i_owe.get("coins", 0) > debts._cfg(ctx.cfg).get("max_promise", 500):
+            raise ActionError(f"at most {debts._cfg(ctx.cfg).get('max_promise', 500)} coins per IOU")
     if not _holds(a, args.give):
         raise ActionError("you do not have what you offer")
     o = Offer(ctx.world.new_id("offer"), a.name, other.name, dict(args.give), dict(args.want),
-              ctx.world.tick + clock.hours(ctx.cfg, ctx.cfg["offer_ttl_ticks"]))
+              ctx.world.tick + clock.hours(ctx.cfg, ctx.cfg["offer_ttl_ticks"]),
+              i_owe=i_owe, due_day=args.due_day if i_owe else 0)
     ctx.world.offers[o.id] = o
-    ctx.emit("offer", f"{a.name} offers you {fmt_items(o.give)} for {fmt_items(o.want)} ({o.id}).",
-             actor=a.name, to=[other.name], offer=o.id)
-    ctx.emit("offer", f"You offered {other.name} {fmt_items(o.give)} for {fmt_items(o.want)} ({o.id}).",
-             actor=a.name, to=[a.name], offer=o.id)
+    ctx.emit("offer", f"{a.name} {_offer_text(o)} ({o.id}).", actor=a.name, to=[other.name], offer=o.id)
+    ctx.emit("offer", f"You {_offer_text(o, own=True)} ({o.id}).", actor=a.name, to=[a.name], offer=o.id)
 
 
 class OfferIdArgs(BaseModel):
@@ -473,6 +517,9 @@ def accept(ctx: Ctx, a: Agent, args: OfferIdArgs) -> None:
         raise ActionError(f"{sender.name} no longer has {fmt_items(o.give)}; offer cancelled")
     if not _holds(a, o.want):
         raise ActionError(f"you do not have {fmt_items(o.want)}")
+    if o.i_owe and o.due_day <= ctx.world.day:
+        del ctx.world.offers[o.id]
+        raise ActionError(f"the repayment day in {o.id} (day {o.due_day}) has come; offer cancelled")
     _transfer_bundle(sender, a, o.give)
     _transfer_bundle(a, sender, o.want)
     from . import places  # places imports the action registry
@@ -481,6 +528,13 @@ def accept(ctx: Ctx, a: Agent, args: OfferIdArgs) -> None:
     del ctx.world.offers[o.id]
     ctx.emit("trade", f"{sender.name} and {a.name} traded: {fmt_items(o.give)} for {fmt_items(o.want)}.",
              actor=a.name, location=a.location, visibility="location", to=[sender.name], offer=o.id, partner=sender.name)
+    if o.i_owe:
+        from . import debts  # debts imports this module
+        d = debts.write(ctx, a.name, sender.name, o.i_owe.get("coins", 0), o.due_day, kind="iou",
+                        note=f"for {fmt_items(o.want)}", items={k: v for k, v in o.i_owe.items() if k != "coins"})
+        ctx.emit("iou", f"{sender.name} now owes {a.name} {debts.owed(d)} by day {d.due_day} for "
+                 f"{fmt_items(o.want)} ({d.id}, written in the private debt book).", actor=sender.name,
+                 to=debts.sides(d), debt=d.id, lender=a.name, borrower=sender.name)
 
 
 @ACTIONS.action("decline", "Decline a trade offer made to you.", OfferIdArgs,
@@ -649,6 +703,7 @@ def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
             raise ActionError("a treasury holds only coins")
         holder, books, victim_name = found
         src, success = None, True
+        books_key = theft.treasury_key(w, a)
     elif args.target.lower() == "chest":
         chest = _chest_here(ctx, a)
         if chest.owner == a.name:
@@ -688,12 +743,14 @@ def steal(ctx: Ctx, a: Agent, args: StealArgs) -> None:
         ops.move_items(src, a.inventory, {args.item: qty})
     ctx.emit("steal", f"You stole {qty} {args.item} from {victim_name}.", actor=a.name, to=[a.name],
              victim=victim_name, success=True, qty=qty, item=args.item, witnesses=witnesses,
-             **({"seen_by": seen_by} if seen_by else {}))
+             **({"seen_by": seen_by} if seen_by else {}), **({"treasury": books_key} if books is not None else {}))
     if books is not None:  # nobody is told; the books still show the coins until an audit
         theft.take_from_treasury(w, books, qty)
         return
     # The victim learns about the loss, but not who did it (unless they were awake and present).
     ctx.emit("robbed", f"Someone stole {qty} {args.item} from you.", to=[victim_name], victim=victim_name)
+    if not seen_by and not witnesses:
+        theft.clue(ctx, a, victim_name, args.item, qty)
 
 
 class PickUpArgs(BaseModel):

@@ -20,9 +20,17 @@ State: `world.threats`, a list of dicts with `state` coming | here | gone | defe
 `arrivals` every tick, `end_of_hour`, `night` and `new_day`; agents see warned and present threats in
 `observe()["threats"]`; the log view carries `threats` for the viewer.
 
-With village stages on (progress.py, the «С нуля» mode) raids come by themselves only once the village is a town
-(`feature:raids`): before that a random raid is not scheduled and a random traveler is never a scout (the dice
-are still rolled, so the other draws stay where they were). The god can send a raid at any stage.
+With village stages on (progress.py, the «С нуля» mode) raids come by themselves only from the stage of
+`feature:raids` (a town by default, a hamlet in «С нуля»): before that a random raid is not scheduled and a random
+traveler is never a scout (the dice are still rolled, so the other draws stay where they were). The god can send a
+raid at any stage.
+
+`threats.hostile.max_gap_days` (0 = off, the old dawn rolls exactly): bandits or a beast come at a random moment,
+but never more than that many calm days in a row. After a hostile threat comes, `min_gap_days` stay calm; from
+then on each dawn, besides the kinds' own `per_day` dice, the chance of one is 1 / (days left to the max gap + 1),
+so the day it comes is spread evenly over the window instead of falling on a fixed date. Which kind is drawn by
+their `per_day` weights (all 0: none, the fair setting). Hostile kinds have their own `max_active` slot there, so a
+traveler at the square never blocks bandits.
 """
 
 from __future__ import annotations
@@ -31,7 +39,7 @@ import random
 
 from pydantic import BaseModel, Field
 
-from . import clock, conflict, governance, ops, progress, works
+from . import clock, conflict, governance, ops, polity, progress, works
 from .actions import _agent
 from .ops import Ctx, fmt_items
 from .registry import ACTIONS, GOD, ActionError
@@ -41,7 +49,7 @@ HOSTILE = ("raid", "beast")
 KINDS = ("raid", "beast", "traveler")
 KEEP_FINISHED = 6  # finished threats kept in the world for the log, oldest dropped
 WHAT = {"raid": "bandits", "beast": "a beast", "traveler": "a traveler"}
-RAIDS = "feature:raids"  # progress.DEFAULT_UNLOCKS: the town stage
+RAIDS = "feature:raids"  # progress.DEFAULT_UNLOCKS: the town stage; «С нуля»: the hamlet
 
 
 def _t(cfg: dict) -> dict:
@@ -79,6 +87,35 @@ def _defense(world: World) -> float:
 
 def _wall_level(world: World) -> int:
     return int(works.defense(world))  # wall level x defense_per_level (works.py), 0 without a wall
+
+
+def _arms_on(cfg: dict) -> bool:
+    return bool((_t(cfg).get("arms") or {}).get("enabled"))
+
+
+def _arms(world: World) -> dict:
+    """How far the village has armed itself, read when a raid or beast comes: the highest `arms.tiers` tier of any
+    weapon or armor an active villager carries or keeps in the home chest, and those best pieces."""
+    cfg = world.config
+    tiers = _t(cfg)["arms"].get("tiers") or {}
+    best = {"tier": 0, "gear": []}
+    for a in sorted(world.agents.values(), key=lambda a: a.name):
+        if a.status != "active":
+            continue
+        chest = world.chests.get(f"chest_{a.name}")
+        for item, tier in sorted(tiers.items()):
+            if ops.count(a.inventory, item) or (chest is not None and ops.count(chest.items, item)):
+                if tier > best["tier"]:
+                    best = {"tier": tier, "gear": [item]}
+                elif tier == best["tier"] and tier and item not in best["gear"]:
+                    best["gear"].append(item)
+    return best
+
+
+def _rich_hall(world: World) -> str | None:
+    """Where the fullest polity treasury is (its town hall's place), if any holds coins."""
+    p = max(sorted(world.polities.values(), key=lambda p: p["id"]), key=lambda p: p["coins"], default=None)
+    return p["location"] if p and p["coins"] > 0 and p["location"] in world.locations else None
 
 
 def _homes(world: World) -> dict[str, str]:
@@ -140,8 +177,24 @@ def schedule(ctx: Ctx, kind: str, arrive_tick: int, warn: bool, target: str | No
     return t
 
 
-def _active_count(world: World) -> int:
-    return sum(1 for t in world.threats if t["state"] in ("coming", "here"))
+def _active_count(world: World, kinds: tuple = KINDS) -> int:
+    return sum(1 for t in world.threats if t["state"] in ("coming", "here") and t["kind"] in kinds)
+
+
+def _hostile(cfg: dict) -> dict:
+    return _t(cfg).get("hostile") or {}
+
+
+def max_gap(cfg: dict) -> int:
+    """`threats.hostile.max_gap_days`: the longest calm stretch without bandits or a beast (0 = no guarantee)."""
+    return int(_hostile(cfg).get("max_gap_days") or 0)
+
+
+def calm_days(world: World) -> int:
+    """Days since the last hostile threat came (or is due); counted from `first_day` before the first one."""
+    last = max((t["arrive_day"] for t in world.threats if t["kind"] in HOSTILE),
+               default=int(_t(world.config).get("first_day", 2)) - 1)
+    return world.day - last
 
 
 def new_day(ctx: Ctx, rng: random.Random) -> None:
@@ -149,25 +202,59 @@ def new_day(ctx: Ctx, rng: random.Random) -> None:
     w, cfg = ctx.world, ctx.cfg
     if not enabled(cfg) or w.day < _t(cfg).get("first_day", 2):
         return
-    start = clock.tick_of(cfg, w.day, cfg["day_start_hour"])
+    if max_gap(cfg):
+        _new_day_gap(ctx, rng)
+        return
     raids = progress.unlocked(w, RAIDS)
     for kind in KINDS:
         p = float(_kind(cfg, kind).get("per_day") or 0)
         roll = rng.random()
         if p <= 0 or roll >= p or _active_count(w) >= _t(cfg).get("max_active", 1) or (kind == "raid" and not raids):
             continue
-        warn = kind != "traveler" and rng.random() < float(_t(cfg).get("warn_chance", 0))
-        if warn:
-            tick = clock.tick_of(cfg, w.day + int(_t(cfg).get("warn_days", 2)), int(_t(cfg).get("arrive_hour", 11)))
-        else:
-            hour = rng.randint(cfg["day_start_hour"] + 2, max(cfg["day_start_hour"] + 2, cfg["day_end_hour"] - 5))
-            tick = max(start + 1, clock.tick_of(cfg, w.day, hour))
-        homes = sorted(_homes(w))
-        target = None
-        if kind != "traveler" and homes:
-            target = w.agents[_homes(w)[rng.choice(homes)]].name
-        scout = kind == "traveler" and rng.random() < float(_kind(cfg, kind).get("scout_chance", 0)) and raids
-        schedule(ctx, kind, tick, warn, target, scout=scout, cause="random")
+        _start(ctx, rng, kind, raids)
+
+
+def _new_day_gap(ctx: Ctx, rng: random.Random) -> None:
+    """Dawn with a max calm gap: travelers by their own dice and slot; bandits or a beast by their dice or, the
+    longer it has been calm, more and more surely (evenly spread over the window, sure on the last day)."""
+    w, cfg = ctx.world, ctx.cfg
+    h = _hostile(cfg)
+    raids = progress.unlocked(w, RAIDS)
+    if (float(_kind(cfg, "traveler").get("per_day") or 0) > rng.random()
+            and _active_count(w, ("traveler",)) < _t(cfg).get("max_active", 1)):
+        _start(ctx, rng, "traveler", raids)
+    allowed = [k for k in HOSTILE if float(_kind(cfg, k).get("per_day") or 0) > 0 and (k != "raid" or raids)]
+    rolls = {k: rng.random() for k in HOSTILE}
+    force = rng.random()
+    if not allowed or _active_count(w, HOSTILE) >= int(h.get("max_active", 1)):
+        return
+    quiet, top = calm_days(w), max_gap(cfg)
+    if quiet < int(h.get("min_gap_days", 0)):
+        return
+    kind = next((k for k in allowed if rolls[k] < float(_kind(cfg, k)["per_day"])), None)
+    if kind is None and force < 1 / max(1, top - quiet + 1):
+        kind = rng.choices(allowed, weights=[float(_kind(cfg, k)["per_day"]) for k in allowed])[0]
+    if kind:
+        _start(ctx, rng, kind, raids)
+
+
+def _start(ctx: Ctx, rng: random.Random, kind: str, raids: bool) -> None:
+    w, cfg = ctx.world, ctx.cfg
+    start = clock.tick_of(cfg, w.day, cfg["day_start_hour"])
+    warn = kind != "traveler" and rng.random() < float(_t(cfg).get("warn_chance", 0))
+    if warn:
+        tick = clock.tick_of(cfg, w.day + int(_t(cfg).get("warn_days", 2)), int(_t(cfg).get("arrive_hour", 11)))
+    else:
+        hour = rng.randint(cfg["day_start_hour"] + 2, max(cfg["day_start_hour"] + 2, cfg["day_end_hour"] - 5))
+        tick = max(start + 1, clock.tick_of(cfg, w.day, hour))
+    homes = sorted(_homes(w))
+    if kind != "traveler" and not homes:  # everyone away (hospital): nobody to raid today
+        return
+    target = None
+    if kind != "traveler" and homes:
+        target = w.agents[_homes(w)[rng.choice(homes)]].name
+    scout = kind == "traveler" and rng.random() < float(_kind(cfg, kind).get("scout_chance", 0)) and raids
+    schedule(ctx, kind, tick, warn, target, scout=scout, cause="random")
 
 
 # ---------- arrival, hours, night ----------
@@ -201,15 +288,24 @@ def _arrive(ctx: Ctx, t: dict) -> None:
     t["location"] = home
     if t["kind"] == "raid":
         t["route"] = [home] + _near(w, home, sorted(homes))[: max(0, int(k["houses"]) - 1)]
+        hall = _rich_hall(w) if float(k.get("hall_share") or 0) > 0 else None
+        if hall and hall not in t["route"]:  # after the first house they go for the treasury
+            t["route"].insert(1, hall)
     defense = _defense(w)
-    t["hp"] = t["max_hp"] = max(1, round(k["hp"] * _scale(w) * defense))
+    arms = _arms(w) if _arms_on(cfg) else {"tier": 0, "gear": []}
+    grow = 1 + float(_t(cfg).get("arms", {}).get("hp_per_tier", 0)) * arms["tier"]
+    t["hp"] = t["max_hp"] = max(1, round(k["hp"] * grow * _scale(w) * defense))
+    if arms["tier"]:
+        t["tier"] = arms["tier"]
     wall = " The village wall slowed them: they are fewer and weaker." if defense < 1 else ""
     who = homes[home]
     if t["kind"] == "raid":
         scout = " Among them is the traveler who visited the village." if t.get("from_scout") else ""
+        armed = (f" They came armed for a village that has {', '.join(arms['gear'])}: the better armed the village, "
+                 "the more of them come." if arms["tier"] else "")
         text = (f"Bandits! Armed robbers burst into {who}'s house ({home}). Each hour nobody fights them "
                 f"they plunder the chests there and move to the next house; in {t['hours_left']} hours they leave and "
-                f"burn the house they are at. Anyone there can defend.{scout}{wall}")
+                f"burn the house they are at. Anyone there can defend.{armed}{scout}{wall}")
     else:
         text = (f"A beast came out of the forest to {who}'s house ({home})! Each hour nobody fights it, "
                 f"it eats the food in the chests there, mauls whoever is around and prowls to another house; it "
@@ -281,6 +377,21 @@ def _plunder(ctx: Ctx, t: dict) -> None:
         if k:
             ops.burn_coins(w, c, k)
             coins += k
+    hall_share = float(_kind(ctx.cfg, "raid").get("hall_share") or 0) * _defense(w)
+    for pid in sorted(w.polities) if hall_share > 0 else []:  # a town hall's treasury here
+        p = w.polities[pid]
+        k = int(p["coins"] * hall_share + 0.5) if p["location"] == home else 0
+        if k:
+            ops.burn_coins(w, polity._Purse(p), k)
+            coins += k
+    plot = w.plots.get(home)
+    yard = float(_kind(ctx.cfg, "raid").get("yard_share") or 0) * _defense(w)
+    for b in (plot.buildings if plot is not None and yard > 0 else []):  # what lies ready in the yard
+        for item, n in sorted(b["items"].items()):
+            k = int(n * yard + 0.5)
+            if k:
+                ops.burn(w, b["items"], item, k)
+                took[item] = took.get(item, 0) + k
     for item, k in took.items():
         t["loot"][item] = t["loot"].get(item, 0) + k
     t["loot_coins"] += coins
@@ -401,6 +512,9 @@ def _defeat(ctx: Ctx, t: dict) -> None:
 
 def _trim(world: World) -> None:
     done = [t for t in world.threats if t["state"] in ("gone", "defeated")]
+    if max_gap(world.config):  # the last hostile one stays: calm_days counts from it
+        last = max((t for t in world.threats if t["kind"] in HOSTILE), key=lambda t: t["arrive_tick"], default=None)
+        done = [t for t in done if t is not last]
     for t in done[: max(0, len(done) - KEEP_FINISHED)]:
         world.threats.remove(t)
 
@@ -424,19 +538,25 @@ def defend(ctx: Ctx, a: Agent, _args) -> None:
     k = _kind(ctx.cfg, t["kind"])
     rng = ctx.rng
     item, atk, dmg = conflict.weapon(ctx.cfg, a)
-    roll = rng.randint(1, c["die"])
-    hit = roll == c["die"] or (roll != 1 and roll + atk >= c["hit_at"])
-    dealt = min(t["hp"], rng.randint(1, c["damage_die"]) + dmg) if hit else 0
-    t["hp"] -= dealt
-    t["fought"] = True
-    t["fighters"][a.name] = t["fighters"].get(a.name, 0) + dealt
-    hurt = 0
-    if t["hp"] > 0:
-        back = rng.randint(1, c["die"])
-        if back == c["die"] or (back != 1 and back + int(k["attack"]) >= c["hit_at"]):
-            hurt = min(a.health, conflict.soak(ctx, a, rng.randint(1, int(k["damage_die"]))))
-            a.health -= hurt
-    conflict.wear(ctx, a, item)
+    roll, hit, dealt, hurt = 0, False, 0, 0
+    for r in range(_rounds(ctx.cfg)):  # a quarter hour each: longer turns fight as long as they last
+        if r and (t["hp"] <= 0 or a.health < c["min_health"]):
+            break
+        roll = rng.randint(1, c["die"])
+        hits = roll == c["die"] or (roll != 1 and roll + atk >= c["hit_at"])
+        hit = hit or hits
+        d = min(t["hp"], rng.randint(1, c["damage_die"]) + dmg) if hits else 0
+        dealt += d
+        t["hp"] -= d
+        t["fought"] = True
+        t["fighters"][a.name] = t["fighters"].get(a.name, 0) + d
+        if t["hp"] > 0:
+            back = rng.randint(1, c["die"])
+            if back == c["die"] or (back != 1 and back + int(k["attack"]) >= c["hit_at"]):
+                h = min(a.health, conflict.soak(ctx, a, rng.randint(1, int(k["damage_die"]))))
+                a.health -= h
+                hurt += h
+        conflict.wear(ctx, a, item)
     what = "the bandits" if t["kind"] == "raid" else "the beast"
     arms = f" with a {item}" if item else " bare-handed"
     text = (f"{a.name} fought {what}{arms}: " + (f"hit for {dealt}" if hit else "missed") +
@@ -586,7 +706,29 @@ def facts(cfg: dict) -> str | None:
     return (f"- Danger can come from outside: bandits{governance.opens_note(cfg, RAIDS)} plunder chests house by house and burn one when they leave; a "
             "beast eats stores and mauls people; a traveler asks for food. Warnings, if any, come in the news; "
             "\"threats\" lists what is expected or here. Anyone at the place can defend (a dice round, they strike "
-            "back); driven-off bandits drop what they took.")
+            "back); driven-off bandits drop what they took." + _gap_fact(cfg) + _arms_fact(cfg))
+
+
+def _rounds(cfg: dict) -> int:
+    """Dice rounds one `defend` fights: one per quarter hour of a villager's turn when `arms` is on (so the
+    odds do not depend on the turn length), else one."""
+    if not _arms_on(cfg):
+        return 1
+    return max(1, -(-int(cfg.get("tick_minutes", 60)) // int(_t(cfg)["arms"].get("round_minutes", 15))))
+
+
+def _arms_fact(cfg: dict) -> str:
+    if not _arms_on(cfg):
+        return ""
+    return (" Bandits and beasts are strong: one defender alone rarely drives them off, several armed and armored "
+            "together can. The better the weapons and armor anyone in the village has, the more of them come.")
+
+
+def _gap_fact(cfg: dict) -> str:
+    top = max_gap(cfg)
+    if not top or not any(float(_kind(cfg, k).get("per_day") or 0) > 0 for k in HOSTILE):
+        return ""
+    return f" Bandits or a beast come at no fixed time, but rarely more than {top} days pass without one."
 
 
 def view(world: World) -> list[dict]:

@@ -2,7 +2,7 @@
 
 All names in the atlas (`viewer/sprites_data.js`, built by `python scripts/build_sprites.py` from the sheets here).
 Draw any of them with `Sprites.draw(g, name, x, y, {s, flip, alpha})` (bottom-centre at x, y, map pixels; 16 px
-tiles, a villager is 22 px tall). Sizes are set in `SIZE` in the build script. All art: SpriteCook, gpt-image-2.
+tiles, a villager is 22 px tall). Sizes are set in `SIZE` in the build script. All art: SpriteCook, gpt-image-2; bandits, beast, combatfx, emotes, festival: GPT Image sheets by Danel (white background keyed by `scripts/key_white.py`).
 
 ## In use
 
@@ -16,6 +16,11 @@ tiles, a villager is 22 px tall). Sizes are set in `SIZE` in the build script. A
 | `yard.png` | `fence_h`, `fence_v` (all fences) (also: `fence_corner`, `fence_gate`, `picket_fence`, `stone_wall`, `for_sale`, `lot_stakes`, `bed_empty`, `bed_sprouts`, `bed_ripe`, `mailbox`, `pigsty`, `small_barn`, `doghouse`, `path_slab`) |
 | `mine.png` | `mine_cart`, `coal_crate`, `rubble` (also: `mine_big`, `rails`, `ore_pile`, `amethyst_rock`, `emerald_rock`; fights: `d20`, `d6`, `fight_dust`, `hit_star`, `heart`, `heart_broken`, `bandage`, `dizzy`, see `Sprites.brawl`) |
 | `chars1..4.png` | villagers `v0..v23` x `down`, `step`, `up`, `side`; `Sprites.villager(k)` builds the walk sheet |
+| `bandits.png` | bandits `b0..b5` x `down`, `step`, `up`, `side` (villager-sheet format; drawn by `ThreatLayer`) |
+| `beast.png` | `beast_stand`, `beast_walk1..3`, `beast_roar`, `beast_bite`, `beast_swipe`, `beast_flinch`, `beast_limp`, ... `beast_flee` (side view facing left; used: walk, roar, bite, swipe, flinch, limp) |
+| `combatfx.png` | `fx_star`, `fx_dust`, `fx_dizzy`, `fx_slash`, `fx_slash_red`, `fx_puff`, `fx_arrow`, `fx_torch` (used in `viewer/combat.js`, `ThreatLayer`) (also: `fx_potion`, `fx_bandage`, `fx_rock` and the rest of the sheet) |
+| `emotes.png` | `em_heart`, `em_hearts`, `em_heart_broken`, `em_ring`, `em_angry`, `em_exclaim`, `em_handshake` (bubbles in `viewer/gestures.js`) (also: the other `em_*`) |
+| `festival.png` | `wedding_arch`, `confetti`, `feast_table`, `bonfire`, `podium`, `ballot_box`, `bunting`, `gravestone`, `grave_mound` (also: `banner`, `lanterns`, `wedding_cake`, `gift_box`, `bouquet`, `wreath`, `bell`) |
 
 ## Ready for later (not drawn yet)
 

@@ -281,7 +281,8 @@ def _pay_debts(ctx: Ctx, a: Agent, own) -> None:
     w = ctx.world
     gone = set(_cfg(w)["estate_statuses"])
     for d in sorted(w.debts.values(), key=lambda d: (d.due_day, d.id)):
-        if (d.borrower != a.name or d.status == "repaid" or d.lender not in w.agents  # treasury bills
+        if (d.borrower != a.name or d.status not in ("open", "defaulted") or d.coins_owed <= 0
+                or d.lender not in w.agents  # treasury bills
                 or w.agents[d.lender].status in gone):
             continue
         paid = 0
@@ -292,7 +293,7 @@ def _pay_debts(ctx: Ctx, a: Agent, own) -> None:
         if not paid:
             continue
         d.coins_owed -= paid
-        if d.coins_owed == 0:
+        if d.coins_owed == 0 and not d.items_owed:
             d.status = "repaid"
         ctx.emit("estate_debt", f"{d.lender} got {paid} coins back from {a.name}'s estate"
                  f"{'' if d.coins_owed == 0 else f' ({d.coins_owed} still unpaid)'}.", to=[d.lender],
@@ -337,8 +338,10 @@ def _settle_all(ctx: Ctx) -> None:
 def observe(world: World, name: str) -> dict:
     m = _marriage(world, name)
     by = ops.name_key(world)
+    # with the book of deeds (reputation.record) the engine names no one a friend or an enemy
+    named = not world.config.get("reputation", {}).get("record")
     return {
-        "feelings": {b: {"score": v, "label": label(world, v)}
+        "feelings": {b: {"score": v, "label": label(world, v)} if named else {"score": v}
                      for b, v in sorted(world.kin.feelings.get(name, {}).items(), key=lambda x: by(x[0]))},
         "spouse": spouse_of(world, name),
         "family_home": m.home if m else None,

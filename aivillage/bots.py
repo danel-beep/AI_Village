@@ -11,6 +11,8 @@ and answer with the same decision format, so they exercise the real interface fo
 
 from __future__ import annotations
 
+import re
+
 from collections import Counter
 
 import random
@@ -26,6 +28,19 @@ def batches(obs: dict, recipe: str, default: dict) -> int:
     inv = obs["you"]["inventory"]
     need = ((obs["board"].get("recipes") or {}).get(recipe) or {}).get("inputs") or default
     return min(inv.get(k, 0) // n for k, n in need.items())
+
+
+def muster(obs: dict) -> dict | None:
+    """A raid or beast to gather at: one here now (it has a strength), or a warned one due at a house within the
+    next three hours, so the defenders are there when it comes."""
+    t = obs["time"]
+    for x in obs.get("threats", []):
+        if x.get("strength") and x.get("where"):
+            return x
+        m = re.match(r"day (\d+) around (\d+):", x.get("expected", ""))
+        if m and x.get("where") and int(m[1]) == t["day"] and int(m[2]) - 3 <= t["hour"] <= int(m[2]):
+            return x
+    return None
 
 
 def decision(name: str, args: dict | None = None, thought: str = "", say: str | None = None) -> dict:
@@ -209,7 +224,7 @@ class RandomBot(Bot):
             args = {"topic": r.choice(["name", "coin", "form", "leader", "bogus"]),
                     "choice": r.choice(people + ["assembly", "council", "ruler", "Dale", ""])}
         elif name == "polity_propose":
-            args = {"law": r.choice(["tax", "fine", "grant", "payout", "expel", "bogus"]),
+            args = {"law": r.choice(["tax", "fine", "grant", "payout", "expel", "wage", "bogus"]),
                     "value": r.randint(-5, 60), "person": r.choice(people)}
         elif name == "polity_vote_law":
             props = [pr["id"] for x in obs.get("polities", []) for pr in x.get("proposals", [])] or ["plaw0"]
@@ -218,6 +233,9 @@ class RandomBot(Bot):
             args = {"coins": r.randint(-2, 20)}
         elif name == "sign_petition":
             args = {"form": r.choice(["assembly", "council", "ruler", "anarchy"])}
+        elif name == "buy_from_merchant":  # merchant.py
+            sells = list((obs.get("merchant") or {}).get("sells") or {}) + ["unicorn"]
+            args = {"item": r.choice(sells), "qty": r.randint(-1, 3), "from_treasury": r.random() < 0.3}
         if r.random() < 0.05:
             args = {"garbage": [1, 2, 3]}
         return decision(name, args, say="hi" if r.random() < 0.05 else None)
@@ -231,8 +249,16 @@ class WorkerBot(Bot):
         def go(dest: str, why: str) -> dict:
             return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
 
-        # Tend the garden bed at home: take the ripe grain, sow again
+        # Bandits or a beast: fight them where they are, together, before chores (a starving bot eats first)
         acts = obs["available_actions"]
+        if me["satiety"] >= 15:
+            if "defend" in acts and me["health"] >= 30:
+                return decision("defend", None, "drive them off")
+            foe = muster(obs)
+            if foe and me["health"] >= 50:
+                return go(foe["where"], "drive off the " + foe["what"])
+
+        # Tend the garden bed at home: take the ripe grain, sow again
         if loc == me["home"] and "collect" in acts:
             return decision("collect", None, "harvest my garden")
         if loc == me["home"] and "plant" in acts and inv.get("grain", 0) >= 1:
@@ -286,7 +312,7 @@ class WorkerBot(Bot):
             return decision("sleep") if loc == me["home"] else go(me["home"], "go home")
 
         # Defend the house we stand in; nurse the sick; feed a traveler from a full pocket
-        if "defend" in acts and me["health"] >= 40:
+        if "defend" in acts and me["health"] >= 30:
             return decision("defend", None, "drive them off")
         if "care" in acts:
             cure = next((c for c in ("honey", "milk", "fish_soup") if inv.get(c)), None)
@@ -297,8 +323,8 @@ class WorkerBot(Bot):
             food = next((f for f in FOODS if inv.get(f, 0) >= 3), None)
             if food:
                 return decision("help_stranger", {"item": food}, "feed the traveler")
-        foe = next((x for x in obs.get("threats", []) if x.get("strength") and x.get("where")), None)
-        if foe and me["health"] >= 60:
+        foe = muster(obs)
+        if foe and me["health"] >= 50:
             return go(foe["where"], "drive off the " + foe["what"])
 
         # Help with fires
@@ -706,6 +732,8 @@ class BuilderBot(WorkerBot):
         self.foraging = False             # on a food trip until the stock is well above the need
         self.home_fire = 0                # wood in my hearth when I last saw it (warmth.py)
         self.clay_given: tuple = ((), 0)  # (brick sites, clay handed to the kiln's owner for them)
+        self.asked: set[tuple] = set()    # (day, person, food) asked for on credit (debts.in_kind)
+        self.credit = True                # «С нуля» has debts in kind; off for good once an offer says no
         self.last: dict | None = None
 
     # ---------- helpers ----------
@@ -736,6 +764,8 @@ class BuilderBot(WorkerBot):
             return super().decide(obs)
         if obs.get("last_error") and self.last:  # what just failed is not tried again today
             self.failed.add((obs["time"]["day"], repr(self.last)))
+            if "i_owe" in self.last["args"] and "cannot carry i_owe" in obs["last_error"]:
+                self.credit = False
         d = self._decide(obs)
         if (obs["time"]["day"], repr(d["action"])) in self.failed:
             d = decision("wait", None, "that did not work")
@@ -765,14 +795,26 @@ class BuilderBot(WorkerBot):
                 dest = place
             return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
 
-        if obs["fires"] or "defend" in acts:
+        if obs["fires"] or "defend" in acts or (muster(obs) and me["health"] >= 50):
             return super().decide(obs)
+        spare = me["satiety"] + self._food_left(inv) - 2 * (end - hour) - 110  # food points beyond my need
         for o in obs["offers_to_you"]:
-            return decision("decline", {"offer_id": o["id"]}, "no thanks")
+            want = sum(self.FOOD.get(k, 0) * n for k, n in o["want"].items())
+            lend = o.get("i_owe") and set(o["want"]) <= set(self.FOOD) and want <= spare \
+                and all(inv.get(k, 0) >= n for k, n in o["want"].items())
+            return decision("accept" if lend else "decline", {"offer_id": o["id"]}, "food on credit" if lend else "no thanks")
         if me["satiety"] < 55 and (food := self._best_food(inv, me["satiety"])):
             return decision("eat", {"item": food}, "hungry")
+        if d := self._credit(obs, spare):
+            return d
         if loc == me["home"] and inv.get("fish", 0) >= 2 and inv.get("wood", 0) >= 1:
             return decision("craft", {"recipe": "fish_soup", "times": min(5, inv["fish"] // 2, inv["wood"])}, "cook")
+        if any(x.get("what") in ("bandits", "a beast") for x in obs.get("threats", [])):
+            self.alarmed = True  # once danger has shown itself, keep a club at hand
+        recipes = obs["board"].get("recipes") or {}
+        if getattr(self, "alarmed", False) and loc == me["home"] and "club" in recipes and inv.get("wood", 0) >= 4 \
+                and not any(inv.get(w) for w in ("club", "spear", "sword", "bow")):
+            return decision("craft", {"recipe": "club"}, "a club against bandits")
         warm = obs.get("warmth") or {}
         burn = warm.get("wood_a_fire_burns_tonight", 0)
         if warm and loc == me["home"]:
@@ -834,6 +876,41 @@ class BuilderBot(WorkerBot):
         self.foraging = False
         return self._build(obs, go, left) or (stock < reserve + 100 and self._get_food(obs, go, left)) \
             or (decision("wait", None, "rest") if loc == me["home"] else go(me["home"], "nothing to do: home"))
+
+    CREDIT_FOOD = ("fish", "berries", "meat", "fish_soup")
+
+    def _credit(self, obs: dict, spare: int) -> dict | None:
+        """Debts in kind (debts.in_kind): give back what I owe to a lender here once I can spare it; hungry with
+        nothing to eat, ask someone here for food against a bit more of it in two days."""
+        me, t = obs["you"], obs["time"]
+        inv = me["inventory"]
+        awake = [p["name"] for p in obs["here"]["people"] if not p["asleep"]]
+        for row in obs["board"]["debts"]:
+            if row["borrower"] != me["name"] or row["lender"] not in awake or not row.get("items_owed"):
+                continue
+            give = {}
+            for k, n in row["items_owed"].items():
+                q = min(n, inv.get(k, 0))
+                if k in self.FOOD:
+                    q = min(q, max(0, spare) // self.FOOD[k])
+                if q > 0:
+                    give[k] = q
+            if give:
+                return decision("give", {"to": row["lender"], "items": give}, "pay back what I owe")
+        if not self.credit or me["satiety"] >= 40 or self._food_left(inv) or "offer" not in obs["available_actions"]:
+            return None
+        if obs["your_offers"]:
+            asked = any(o.get("i_owe") and o["to"] in awake for o in obs["your_offers"])
+            return decision("wait", None, "waiting for an answer") if asked else None
+        for name in awake:
+            for food in self.CREDIT_FOOD:
+                if (t["day"], name, food) not in self.asked:
+                    self.asked.add((t["day"], name, food))
+                    return decision("offer", {"to": name, "want": {food: 1}, "i_owe": {food: 2},
+                                              "due_day": t["day"] + 2}, "food on credit",
+                                    say=f"{name}, could you spare 1 {food}? I will give you 2 back by day "
+                                        f"{t['day'] + 2}.")
+        return None
 
     def _food_score(self, place: str, day: int, left: int | None) -> int:
         """How good a place looks for food: small game (no work hours needed), fish, berries. What was seen

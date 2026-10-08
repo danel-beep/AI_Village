@@ -114,12 +114,23 @@ def fact(cfg: dict) -> str:
             f"can be sown, berries are gone and fish are scarce"
             + (f"; at the first dawn of {frost} any crop still growing freezes" if frost else "")
             + "".join(f"; a {season} night costs {n} more satiety" for season, n in (s.get("night_hunger") or {}).items()
-                      if n) + ".")
+                      if n)
+            + (f" (less for whoever carries something warm: {', '.join(f'{i} -{w}' for i, w in sorted(warm.items()))}; "
+               "the warmest one counts)" if (warm := warm_items(cfg)) and any((s.get("night_hunger") or {}).values())
+               else "") + ".")
 
 
-def night_hunger(cfg: dict, day: int) -> int:
-    """Extra satiety lost tonight in this season (config `seasons.night_hunger`, e.g. {"winter": 10})."""
+def night_hunger(cfg: dict, day: int, inventory: dict | None = None) -> int:
+    """Extra satiety lost tonight in this season (config `seasons.night_hunger`, e.g. {"winter": 10}), less the
+    `warmth` of the warmest item carried in `inventory` (clothes, a fur cloak), never below 0."""
     s = cfg.get("seasons", {})
     if not s.get("enabled") or not s.get("night_hunger"):
         return 0
-    return int(s["night_hunger"].get(season_of(cfg, day), 0))
+    n = int(s["night_hunger"].get(season_of(cfg, day), 0))
+    if n and inventory:
+        n -= max((int(cfg["items"].get(i, {}).get("warmth", 0)) for i, q in inventory.items() if q > 0), default=0)
+    return max(0, n)
+
+
+def warm_items(cfg: dict) -> dict[str, int]:
+    return {i: int(spec["warmth"]) for i, spec in cfg["items"].items() if spec.get("warmth")}

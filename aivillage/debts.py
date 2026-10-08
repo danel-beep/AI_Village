@@ -1,11 +1,17 @@
 """The village debt book: loans, IOUs, pledges, and collecting overdue debts through the mayor.
 
-Every debt lives in `world.debts` (state.Debt) and is shown to everyone on the board (`board.debts`).
+Every debt lives in `world.debts` (state.Debt). A debt between villagers is private (owner decision
+2026-10-06: no public debt list, a villager decides whether to tell anyone): `board.debts` shows each villager
+only the debts where they or their spouse are lender or borrower, and every event about one goes to its two
+sides only. Tax and fine bills owed to the treasury stay on everyone's board.
 Ways a debt is born:
 - `lend` (actions.py): the lender hands over coins now, the borrower owes `repay_coins` by `due_day`.
 - `promise` (here): anyone writes an IOU on themselves: "I owe <to> N coins by day D (for ...)".
   Nothing changes hands, so it backs deals on credit, bribes, bets or plain promises. An optional
   pledge (items from the writer's pocket) is held by the book.
+- `offer` with `i_owe` (actions.py, `debts.in_kind`): "this now, and I owe you that by day D". On accept the
+  immediate legs swap and the sender owes `i_owe` (items in `items_owed`, coins in `coins_owed`). A `give` of
+  owed kinds from the borrower to the lender pays it off, in part or in full (`repay_in_kind`).
 - other modules (tavern dice, ...) call `write()`.
 
 What happens to it:
@@ -17,7 +23,9 @@ What happens to it:
 - `transfer_debt`: the lender hands the right to be paid to someone else (sell it with offer/give).
 - automatic collection (`debts.auto_collect`): every night a defaulted debt without a pledge takes
   coins from the debtor (pocket, then chest), then goods at the trader's buying price, each capped at
-  `seize_pct` of what the debtor has; food is never taken. While it stays unpaid, `seize_pct` of any
+  `seize_pct` of what the debtor has; food is never taken. A debt owed in kind first loses the owed non-food
+  kinds (up to `seize_pct` of what the debtor holds of each), then what is still owed in items turns into coins at
+  the trader's buying price and is collected like a coin debt. While it stays unpaid, `seize_pct` of any
   coins the debtor receives during the day go straight to the lender (`collect_income`). Debts are
   served oldest due day first. Events `debt_seized` / `debt_garnished` go to both sides only.
 - `demand_debt`: the lender of a defaulted debt asks the mayor to collect it. The mayor sees the claim
@@ -64,6 +72,25 @@ def auto_on(cfg: dict) -> bool:
     return bool(_cfg(cfg).get("auto_collect", False))
 
 
+def in_kind(cfg: dict) -> bool:
+    """«Долги вещами»: an offer can carry an "I owe you later" part (`i_owe`)."""
+    return bool(_cfg(cfg).get("in_kind", False))
+
+
+def cleared(d: Debt) -> bool:
+    return d.coins_owed <= 0 and not d.items_owed
+
+
+def owed(d: Debt) -> str:
+    """What is still owed, coins and items: "3 meat, 2 coins"."""
+    return fmt_items({**d.items_owed, **({"coins": d.coins_owed} if d.coins_owed or not d.items_owed else {})})
+
+
+def sides(d: Debt) -> list[str]:
+    """Who hears about a debt: its two sides (a bill's borrower alone)."""
+    return [n for n in (d.lender, d.borrower) if n != TREASURY]
+
+
 def holdings(world: World) -> Counter:
     """Pledges held by the book (counted by invariants)."""
     total: Counter = Counter()
@@ -75,11 +102,11 @@ def holdings(world: World) -> Counter:
 # ---------- API for other modules ----------
 
 def write(ctx: Ctx, lender: str, borrower: str, coins: int, due_day: int, *, kind: str = "loan",
-          note: str = "", pledge: dict | None = None) -> Debt:
+          note: str = "", pledge: dict | None = None, items: dict | None = None) -> Debt:
     """Write a debt into the book (no coins move). Pledge items must already be taken from the
-    borrower by the caller (they are now held by the book)."""
+    borrower by the caller (they are now held by the book). `items`: owed in kind."""
     d = Debt(ctx.world.new_id("debt"), lender, borrower, coins, due_day, kind=kind, note=note,
-             pledge=dict(pledge or {}), day=ctx.world.day)
+             pledge=dict(pledge or {}), day=ctx.world.day, items_owed={k: v for k, v in (items or {}).items() if v})
     ctx.world.debts[d.id] = d
     return d
 
@@ -94,14 +121,19 @@ def write_bill(ctx: Ctx, borrower: str, coins: int, kind: str, note: str = "") -
     return write(ctx, TREASURY, borrower, coins, ctx.world.day + max(1, days) - 1, kind=kind, note=note)
 
 
-def board(world: World) -> list[dict]:
-    """Debts still owed, compact (empty fields left out)."""
+def board(world: World, viewer: str) -> list[dict]:
+    """Debts still owed that `viewer` may see, compact (empty fields left out): their own and their spouse's,
+    and every bill owed to the treasury."""
+    from .family import spouse_of  # family imports the action registry
+    mine = {viewer, spouse_of(world, viewer)} - {None}
     out = []
     for d in world.debts.values():
-        if d.status not in OWED:
+        if d.status not in OWED or not (is_bill(d) or mine & {d.lender, d.borrower}):
             continue
         row = {"id": d.id, "lender": d.lender, "borrower": d.borrower, "coins_owed": d.coins_owed,
                "due_day": d.due_day, "status": d.status}
+        if d.items_owed:
+            row["items_owed"] = dict(d.items_owed)
         if d.kind != "loan":
             row["kind"] = d.kind
         if d.note:
@@ -126,9 +158,13 @@ def observe(world: World, name: str) -> dict:
 
 def fact(cfg: dict) -> str:
     c = _cfg(cfg)
-    s = ("- Debts and IOUs are written in the village book (board.debts); repay works from anywhere. "
-         "A pledge is held by the book: it goes back when the debt is paid in full, to the lender if it is "
-         "not paid by the due day.")
+    s = ("- Debts and IOUs are written in the village book (board.debts). The book is private: only the two "
+         "sides of a debt (and their spouses) see it or hear about it; nobody else learns of it unless someone "
+         "tells them. repay works from anywhere. A pledge is held by the book: it goes back when the debt is paid "
+         "in full, to the lender if it is not paid by the due day.")
+    if in_kind(cfg):
+        s += (" An offer can include i_owe (items or coins) with a due_day: if it is accepted, you owe them by that "
+              "day; giving the owed items to the lender pays it off, a part at a time if you like.")
     if c.get("late_fee_pct"):
         s += f" An overdue debt without a pledge grows by {c['late_fee_pct']}% each night."
     if auto_on(cfg):
@@ -138,6 +174,9 @@ def fact(cfg: dict) -> str:
               f"{pct}% of the debtor's coins (pocket, then chest), then goods up to {pct}% of their value at "
               f"the trader's price; food is never taken. Until it is paid, {pct}% of any coins the debtor "
               f"receives go to the lender.")
+        if in_kind(cfg):
+            s += (f" A debt owed in items first loses the owed kinds (up to {pct}% of each; food never), then the "
+                  f"rest counts as coins at the trader's price.")
     if collection_on(cfg):
         s += (f" The lender of an overdue debt can demand_debt: the mayor decides whether to collect it from the "
               f"debtor's coins (pocket, then chest; {c.get('collect_fee_pct', 0)}% goes to the treasury).")
@@ -183,6 +222,30 @@ def on_repaid(ctx: Ctx, d: Debt) -> None:
         ctx.emit("pledge_returned", f"Your pledge ({what}) came back: {d.id} is paid.", to=[d.borrower])
 
 
+def repay_in_kind(ctx: Ctx, giver: Agent, to: Agent, items: dict) -> None:
+    """`give`: items handed by a borrower to their lender pay off what they owe in kind, oldest due day first."""
+    w = ctx.world
+    left = {k: v for k, v in items.items() if v > 0}
+    for d in sorted((d for d in w.debts.values() if d.borrower == giver.name and d.lender == to.name
+                     and d.status in OWED and d.items_owed), key=lambda d: (d.due_day, d.day, d.id)):
+        paid = {k: min(n, left.get(k, 0)) for k, n in d.items_owed.items() if left.get(k)}
+        if not paid:
+            continue
+        for k, n in paid.items():
+            left[k] -= n
+            d.items_owed[k] -= n
+            if not d.items_owed[k]:
+                del d.items_owed[k]
+        done = cleared(d)
+        if done:
+            d.status, d.claim = "repaid", None
+        ctx.emit("repay", f"{giver.name} paid {to.name} {fmt_items(paid)} of {d.id} ("
+                 + ("the debt is closed)." if done else f"{owed(d)} still owed)."), actor=giver.name, to=sides(d),
+                 debt=d.id, items=paid)
+        if done:
+            on_repaid(ctx, d)
+
+
 def _owes(world: World, name: str) -> bool:
     return any(d.borrower == name and d.status in OWED for d in world.debts.values())
 
@@ -223,7 +286,7 @@ def promise(ctx: Ctx, a: Agent, args: PromiseArgs) -> None:
     d = write(ctx, other.name, a.name, args.coins, args.due_day, kind="iou", note=note, pledge=pledge)
     extra = (f" for \"{note}\"" if note else "") + (f", pledge: {fmt_items(pledge)}" if pledge else "")
     ctx.emit("promise", f"{a.name} wrote an IOU: owes {other.name} {args.coins} coins by day {args.due_day}"
-             f"{extra} ({d.id}).", actor=a.name, visibility="public", debt=d.id, lender=other.name,
+             f"{extra} ({d.id}).", actor=a.name, to=sides(d), debt=d.id, lender=other.name,
              coins=args.coins, due_day=args.due_day)
 
 
@@ -237,8 +300,8 @@ def forgive_debt(ctx: Ctx, a: Agent, args: DebtArgs) -> None:
     d = _own(ctx, a, args.debt_id)
     d.status, d.claim = "forgiven", None
     what = _return_pledge(ctx, d, d.borrower)
-    ctx.emit("debt_forgiven", f"{a.name} forgave {d.borrower} a debt of {d.coins_owed} coins ({d.id})"
-             + (f"; the pledge ({what}) went back." if what else "."), actor=a.name, visibility="public",
+    ctx.emit("debt_forgiven", f"{a.name} forgave {d.borrower} a debt of {owed(d)} ({d.id})"
+             + (f"; the pledge ({what}) went back." if what else "."), actor=a.name, to=sides(d),
              debt=d.id)
 
 
@@ -259,7 +322,7 @@ def transfer_debt(ctx: Ctx, a: Agent, args: TransferArgs) -> None:
         raise ActionError("to cancel it, use forgive_debt")
     d.lender, d.claim = other.name, None
     ctx.emit("debt_transferred", f"{a.name} handed {d.id} to {other.name}: {d.borrower} now owes "
-             f"{other.name} {d.coins_owed} coins.", actor=a.name, visibility="public", debt=d.id)
+             f"{other.name} {owed(d)}.", actor=a.name, to=[a.name, *sides(d)], debt=d.id)
 
 
 @ACTIONS.action("demand_debt", "Ask the mayor to collect an overdue debt owed to you.", DebtArgs,
@@ -279,7 +342,7 @@ def demand_debt(ctx: Ctx, a: Agent, args: DebtArgs) -> None:
         raise ActionError("the village has no mayor to ask")
     d.claim = {"tick": ctx.world.tick, "day": ctx.world.day}
     ctx.emit("debt_claim", f"{a.name} asks mayor {mayor} to make {d.borrower} pay {d.coins_owed} coins ({d.id}).",
-             actor=a.name, visibility="public", debt=d.id)
+             actor=a.name, to=sorted({mayor, *sides(d)}), debt=d.id)
 
 
 class RuleArgs(BaseModel):
@@ -304,7 +367,7 @@ def rule_debt(ctx: Ctx, a: Agent, args: RuleArgs) -> None:
     d.claim, d.claim_day = None, w.day
     if decision == "reject":
         ctx.emit("debt_rejected", f"Mayor {a.name} refused to collect {d.borrower}'s debt to {d.lender} ({d.id}).",
-                 actor=a.name, visibility="public", debt=d.id)
+                 actor=a.name, to=sorted({a.name, *sides(d)}), debt=d.id)
         return
     debtor, lender = w.agents[d.borrower], w.agents[d.lender]
     take = min(d.coins_owed, debtor.coins)
@@ -317,12 +380,12 @@ def rule_debt(ctx: Ctx, a: Agent, args: RuleArgs) -> None:
     fee = take * int(_cfg(ctx.cfg).get("collect_fee_pct", 0)) // 100
     ops.move_coins(lender, w.governance, fee)
     d.coins_owed -= take
-    if d.coins_owed == 0:
+    if cleared(d):
         d.status = "repaid"
         on_repaid(ctx, d)
-    left = f"{d.coins_owed} coins still owed" if d.coins_owed else "the debt is closed"
+    left = f"{owed(d)} still owed" if not cleared(d) else "the debt is closed"
     ctx.emit("debt_collected", f"Mayor {a.name} collected {take} coins from {d.borrower} for {d.lender} "
-             f"({fee} to the treasury; {left}; {d.id}).", actor=a.name, visibility="public", debt=d.id,
+             f"({fee} to the treasury; {left}; {d.id}).", actor=a.name, to=sorted({a.name, *sides(d)}), debt=d.id,
              coins=take, fee=fee)
 
 
@@ -386,11 +449,11 @@ def night(ctx: Ctx) -> None:
             what = _return_pledge(ctx, d, d.lender)
             d.status = "forfeited"
             ctx.emit("pledge_forfeited", f"{d.borrower} did not repay {d.lender} on time ({d.coins_owed} coins, "
-                     f"{d.id}); the pledge ({what}) went to {d.lender}.", visibility="public", debt=d.id)
+                     f"{d.id}); the pledge ({what}) went to {d.lender}.", to=sides(d), debt=d.id)
         else:
             d.status = "defaulted"
-            ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({d.coins_owed} coins, "
-                     f"{d.id}).", visibility="public", debt=d.id)
+            ctx.emit("default", f"{d.borrower} failed to repay {d.lender} on time ({owed(d)}, "
+                     f"{d.id}).", to=sides(d), debt=d.id)
     if auto_on(ctx.cfg):
         seize(ctx)
 
@@ -406,8 +469,8 @@ def _overdue(world: World, name: str) -> list[Debt]:
 
 def _settle(ctx: Ctx, d: Debt, n: int) -> str:
     d.coins_owed -= n
-    if d.coins_owed > 0:
-        return f"{d.coins_owed} coins still owed"
+    if not cleared(d):
+        return f"{owed(d)} still owed"
     d.status = "repaid"
     on_repaid(ctx, d)
     return "the debt is closed"
@@ -432,6 +495,8 @@ def collect_income(ctx: Ctx, before: dict[str, int]) -> None:
         for d in _overdue(w, name):
             if cut <= 0:
                 break
+            if d.coins_owed <= 0:
+                continue
             n = _take_coins(w, a, w.agents[d.lender], min(cut, d.coins_owed))
             if not n:
                 break
@@ -464,6 +529,43 @@ def _seizable(cfg: dict, item: str) -> bool:
     return not spec.get("food") and spec.get("tradable", True) and "value" in spec
 
 
+def _seize_in_kind(ctx: Ctx, d: Debt, debtor: Agent, stores: list[dict], pct: int) -> None:
+    """A debt owed in items: the owed non-food kinds first (up to `pct`% of what the debtor holds of each, at
+    least one), then what is still owed in items becomes coins at the trader's buying price."""
+    lender = ctx.world.agents[d.lender]
+    took: dict[str, int] = {}
+    for item in sorted(d.items_owed):
+        if ctx.cfg["items"].get(item, {}).get("food"):
+            continue
+        held = sum(st.get(item, 0) for st in stores)
+        q = min(d.items_owed[item], ceil(held * pct / 100))
+        for st in stores:
+            n = min(q, st.get(item, 0))
+            if n > 0:
+                ops.move_items(st, lender.inventory, {item: n})
+                took[item] = took.get(item, 0) + n
+                q -= n
+        if took.get(item):
+            d.items_owed[item] -= took[item]
+            if not d.items_owed[item]:
+                del d.items_owed[item]
+    rest = dict(d.items_owed)
+    value = sum(unit_price(ctx.cfg, i) * q if "value" in ctx.cfg["items"].get(i, {}) else q for i, q in rest.items())
+    d.coins_owed += value
+    d.items_owed = {}
+    if not took and not rest:
+        return
+    parts = []
+    if took:
+        parts.append(f"the village took {fmt_items(took)} from {debtor.name} and gave it to {d.lender}")
+    if rest:
+        parts.append(f"the {fmt_items(rest)} still owed now count as {value} coins (the trader's price)")
+    left = _settle(ctx, d, 0)
+    ctx.emit("debt_seized", f"For the overdue debt to {d.lender} ({d.id}) " + "; ".join(parts) + f"; {left}.",
+             to=sides(d), debt=d.id, coins=0, goods=took, goods_value=0, converted=rest, lender=d.lender,
+             borrower=debtor.name)
+
+
 def seize(ctx: Ctx) -> None:
     """Night: each debtor in default loses up to `seize_pct` of their coins, then of their goods' value."""
     w = ctx.world
@@ -473,11 +575,16 @@ def seize(ctx: Ctx) -> None:
         if debtor.status == "dead":
             continue
         chest = w.chests.get(f"chest_{name}")
+        for d in _overdue(w, name):
+            if d.items_owed:
+                _seize_in_kind(ctx, d, debtor, [debtor.inventory] + ([chest.items] if chest else []), pct)
         coin_cap = (debtor.coins + (chest.coins if chest else 0)) * pct // 100
         stores = [debtor.inventory] + ([chest.items] if chest else [])
         goods_cap = sum(unit_price(ctx.cfg, i) * q for st in stores for i, q in st.items()
                         if q > 0 and _seizable(ctx.cfg, i)) * pct // 100
         for d in _overdue(w, name):
+            if d.status != "defaulted":  # paid off in kind just now
+                continue
             lender = w.agents[d.lender]
             coins = _take_coins(w, debtor, lender, min(coin_cap, d.coins_owed))
             coin_cap -= coins

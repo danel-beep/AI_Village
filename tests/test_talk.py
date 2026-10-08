@@ -144,3 +144,15 @@ def test_handbook_line_only_when_on():
     assert talk.facts({"talk": {"turn_taking": True}})
     assert talk.facts({"talk": {"turn_taking": False}}) is None
     assert talk.facts({}) is None
+
+
+def test_just_said_reaches_the_model_in_the_current_observation():
+    from aivillage.llm import LLMAgent
+    from tests.test_llm_memory import Echo
+    w = world()
+    obs = engine.observe(w, "Anna")
+    obs["just_said"] = [{"who": "Boris", "say": "Anna, fish for bread?"}]
+    for mode in ("changes", "full"):
+        c = Echo()
+        LLMAgent("Anna", "farmer", c, memory="day", obs_mode=mode).decide(json.loads(json.dumps(obs)))
+        assert "Anna, fish for bread?" in c.calls[-1][-1]["content"]

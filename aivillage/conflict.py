@@ -323,7 +323,7 @@ def _on_event(ctx: Ctx, ev: Event, names: list[str]) -> None:
 
 def _blame(w, who: str, culprit: str, c: dict, role: str, ev: Event) -> None:
     family.change(w, who, culprit, c["feelings"][role])
-    reputation.note(w, who, culprit, c["reputation"][role], f"day {ev.day}: {ev.text}")
+    reputation.note(w, who, culprit, c["reputation"][role], f"day {ev.day}: {ev.text}", kind=ev.kind)
 
 
 ops.EVENT_HOOKS.append(_on_event)

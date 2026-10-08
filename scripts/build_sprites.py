@@ -55,7 +55,21 @@ SHEETS = {
     "property": (4, 4, ["foundation", "house_frame", "scaffold", "planks_stack", "bricks", "stone_blocks", "sawhorse",
                         "ladder", "sold_sign", "deed", "key", "padlock", "treasure_chest", "strongbox", "wanted_poster",
                         "stocks"]),
+    # sheets Danel made in GPT Image (white background keyed out with scripts/key_white.py)
+    "bandits": (6, 4, [f"b{i}_{p}" for i in range(6) for p in ("down", "step", "up", "side")]),
+    "beast": (4, 4, ["beast_stand", "beast_walk1", "beast_walk2", "beast_walk3", "beast_crouch", "beast_leap", "beast_land",
+                     "beast_swipe", "beast_bite", "beast_roar", "beast_flinch", "beast_limp", "beast_down", "beast_ko",
+                     "beast_sit", "beast_flee"]),
+    "combatfx": (4, 4, ["fx_star", "fx_flash", "fx_slash", "fx_slash_red", "fx_dust", "fx_dust_big", "fx_spark", "fx_block",
+                        "fx_rock", "fx_arrow", "fx_torch", "fx_club_broken", "fx_bandage", "fx_potion", "fx_dizzy", "fx_puff"]),
+    "emotes": (4, 4, ["em_heart", "em_heart_broken", "em_hearts", "em_ring", "em_angry", "em_sweat", "em_tear", "em_dots",
+                      "em_question", "em_exclaim", "em_idea", "em_zzz", "em_music", "em_coin", "em_dizzy", "em_handshake"]),
+    "festival": (4, 4, ["wedding_arch", "bunting", "ballot_box", "podium", "banner", "lanterns", "bonfire", "feast_table",
+                        "wedding_cake", "gift_box", "bouquet", "gravestone", "grave_mound", "wreath", "bell", "confetti"]),
 }
+# Sheets drawn at one scale for all their frames (so a creature keeps its size between poses): sheet -> (frame, axis, px)
+GROUP = {"beast": ("beast_stand", "w", 54)}
+SPLIT = {"bandits"}   # sheets whose neighbours touch top to bottom: a blob taller than a row is cut along the grid
 # Ground textures: a 4x4 sheet of square swatches (viewer/art/terrain.png), each made seamless and TEX px square.
 TEXTURES = ["grass", "grass2", "flowers", "dirt", "cobble", "soil", "soil_wet", "sand", "water", "deep", "planks", "gravel",
             "wheat", "crops", "moss", "slabs"]
@@ -104,6 +118,15 @@ SIZE = {
     "stone_blocks": ("w", 16), "sawhorse": ("w", 16), "ladder": ("h", 20), "sold_sign": ("h", 20), "deed": ("w", 12),
     "key": ("w", 10), "padlock": ("w", 9), "treasure_chest": ("w", 16), "strongbox": ("w", 14), "wanted_poster": ("w", 16),
     "stocks": ("w", 22),
+    "fx_star": ("w", 13), "fx_flash": ("w", 18), "fx_slash": ("w", 16), "fx_slash_red": ("w", 16), "fx_dust": ("w", 12),
+    "fx_dust_big": ("w", 22), "fx_spark": ("w", 15), "fx_block": ("w", 13), "fx_rock": ("w", 7), "fx_arrow": ("w", 13),
+    "fx_torch": ("h", 12), "fx_club_broken": ("w", 12), "fx_bandage": ("w", 11), "fx_potion": ("h", 11), "fx_dizzy": ("w", 15),
+    "fx_puff": ("w", 12),
+    **{n: ("w", 30) for n in SHEETS["emotes"][2]},   # drawn at screen resolution over heads (viewer/gestures.js)
+    "wedding_arch": ("w", 34), "bunting": ("w", 34), "ballot_box": ("w", 14), "podium": ("w", 14), "banner": ("h", 26),
+    "lanterns": ("w", 34), "bonfire": ("w", 24), "feast_table": ("w", 34), "wedding_cake": ("w", 14), "gift_box": ("w", 11),
+    "bouquet": ("w", 10), "gravestone": ("w", 14), "grave_mound": ("w", 18), "wreath": ("w", 12), "bell": ("h", 22),
+    "confetti": ("w", 24),
 }
 CHAR_H = 22                      # villager height in map pixels (the code-drawn ones are 16)
 ROOF_HUE = {"house1": 8, "house2": 222, "house3": 115,   # roof hue of each house as generated
@@ -141,11 +164,15 @@ def cut(sheet, rows, cols):
     ys = [p[1] for c in comps for p in c]
     x0, x1, y0, y1 = min(xs), max(xs) + 1, min(ys), max(ys) + 1
     cells = {}
+    cell = lambda x, y: (min(rows - 1, int((y - y0) / (y1 - y0) * rows)), min(cols - 1, int((x - x0) / (x1 - x0) * cols)))
     for c in comps:
         cx = sum(p[0] for p in c) / len(c)
         cy = sum(p[1] for p in c) / len(c)
-        key = (min(rows - 1, int((cy - y0) / (y1 - y0) * rows)), min(cols - 1, int((cx - x0) / (x1 - x0) * cols)))
-        cells.setdefault(key, []).extend(c)
+        if sheet in SPLIT and (max(p[1] for p in c) - min(p[1] for p in c)) * rows > 1.2 * (y1 - y0):
+            for px, py in c:   # two neighbours touch (a boot on a hood): split the blob along the grid
+                cells.setdefault(cell(px, py), []).append((px, py))
+            continue
+        cells.setdefault(cell(cx, cy), []).extend(c)
     src = im.load()
     out = []
     for r in range(rows):
@@ -282,7 +309,7 @@ def build():
     sprites = textures()
     for sheet, (rows, cols, names) in SHEETS.items():
         parts = cut(sheet, rows, cols)
-        if sheet.startswith("chars"):
+        if sheet.startswith("chars") or sheet == "bandits":
             for n, spr in zip(names, parts):
                 if spr is not None:
                     sprites[n] = spr
@@ -291,6 +318,12 @@ def build():
                 f = CHAR_H / sprites[f"{i}_down"].height
                 for p in ("down", "step", "up", "side"):
                     sprites[f"{i}_{p}"] = shrink(sprites[f"{i}_{p}"], f)
+            continue
+        if sheet in GROUP:
+            ref, axis, size = GROUP[sheet]
+            r = parts[names.index(ref)]
+            f = size / (r.width if axis == "w" else r.height)
+            sprites.update({n: shrink(spr, f) for n, spr in zip(names, parts) if spr is not None})
             continue
         for n, spr in zip(names, parts):
             if spr is None or n is None:

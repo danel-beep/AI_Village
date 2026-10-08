@@ -38,8 +38,9 @@ TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enab
 LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant", "title")
 ELECTIONS = "feature:elections"  # progress.DEFAULT_UNLOCKS: a town_hall
 # The village-wide government's actions; with polities on each polity governs itself instead (polity.py).
+# fund_project stays: a polity's treasury holder pays with it (works.holder).
 REPLACED = ("run_for_mayor", "vote", "propose_law", "vote_law", "embezzle", "audit_treasury", "treasury_order",
-            "fund_project", "demand_debt", "rule_debt")
+            "demand_debt", "rule_debt")
 
 
 def opens_when(cfg: dict, key: str) -> str:
@@ -203,13 +204,16 @@ def facts(cfg: dict) -> str:
     if polity_on(cfg):
         from . import polity  # polity imports this module
         return (polity.facts(cfg) + "\n- Witnesses and victims of a theft, attack or arson can report_theft"
-                + opens_note(cfg, ELECTIONS) + ": everyone learns who did it. There is no fine for it and nothing is given back.")
+                + opens_note(cfg, ELECTIONS) + f" within {g['crime_memory_days']} days: everyone learns who did it."
+                + _restitution_fact(cfg) + " The culprit pays a polity's theft_fine where that polity's law sets "
+                "one (reported at its town hall, or the victim is its member); with no such law there is no fine.")
     return (f"- Government{opens_note(cfg, ELECTIONS)}: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
             + "exile, " + ("revoke_place, " if (cfg.get("places") or {}).get("enabled") else "") + "payout, grant" + (", title" if honors.enabled(cfg) else "") + "); everyone votes with vote_law; a law passes when "
             "more than half of all villagers vote yes. Tax goes to the village treasury. Witnesses and victims of a "
-            "theft, attack or arson can report_theft: the culprit "
+            f"theft, attack or arson can report_theft within {g['crime_memory_days']} days: everyone learns who did it."
+            + _restitution_fact(cfg) + " The culprit "
             + ("gets a bill for the theft_fine in the debt book (paid with pay_bill or left unpaid)."
                if voluntary(cfg) else "pays the theft_fine.")
             + (" The mayor holds the treasury and can embezzle from it; anyone can audit_treasury at the square, "
@@ -217,6 +221,15 @@ def facts(cfg: dict) -> str:
                + ("culprit's bill then also holds what they took." if voluntary(cfg)
                   else "culprit returns what they took and pays the fine.")
                if treasury_cfg(cfg).get("embezzle") else ""))
+
+
+def _restitution_fact(cfg: dict) -> str:
+    m = float(_g(cfg).get("restitution", 0))
+    if m <= 0:
+        return " Nothing stolen is given back."
+    much = "what they took" if m == 1 else f"{m:g} times what they took"
+    return (f" A reported thief gives {much} back to the victim (to the treasury, for coins taken from one), from "
+            "their pocket, then their chest; what they no longer hold is not owed.")
 
 
 # ---------- guards ----------
@@ -358,8 +371,8 @@ class ReportArgs(BaseModel):
 
 
 @ACTIONS.action("report_theft", "Report a theft, attack or arson you witnessed or suffered awake; everyone learns who did it. "
-                "With a village mayor the culprit also owes the theft_fine to the treasury; in a village of "
-                "polities there is no fine (World facts say which applies).", ReportArgs,
+                "What a thief took goes back to the victim, as much as the thief still holds; a fine follows "
+                "only where a law sets one (World facts say which applies).", ReportArgs,
                 available=lambda c, a: enabled(c.cfg) and any(a.name in x["known_by"] for x in c.world.governance.crimes))
 def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
     _require(ctx)
@@ -370,8 +383,11 @@ def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
         raise ActionError(f"you did not see {thief.name} steal, attack or set fire (in the last "
                           f"{_g(ctx.cfg)['crime_memory_days']} days, unreported)")
     w.governance.crimes.remove(crime)
+    returned, back_text = _restitute(ctx, thief, crime)
     bill = None
-    if voluntary(ctx.cfg):  # nothing is taken: what is owed becomes a bill in the debt book
+    if polity_on(ctx.cfg):
+        fine, penalty = _polity_fine(ctx, a, thief, crime)
+    elif voluntary(ctx.cfg):  # nothing is taken: what is owed becomes a bill in the debt book
         from . import debts
         back = crime.get("amount", 0) if crime.get("crime") == "embezzlement" else 0
         fine = law(w, "theft_fine")
@@ -395,37 +411,111 @@ def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
     did = {"assault": "attacked", "arson": "set fire to the house of",
            "embezzlement": "embezzled from"}.get(crime.get("crime"), "stole from")
     ctx.emit("theft_report", f"{a.name} reports that {thief.name} {did} {crime['victim']} on day "
-             f"{crime['day']}. {penalty}", actor=a.name, visibility="public", thief=thief.name,
-             victim=crime["victim"], fine=fine, **({"bill": bill} if bill else {}))
+             f"{crime['day']}.{back_text} {penalty}", actor=a.name, visibility="public", thief=thief.name,
+             victim=crime["victim"], fine=fine, **({"bill": bill} if bill else {}),
+             **({"returned": returned, "item": crime["item"]} if returned else {}))
+
+
+def _restitute(ctx: Ctx, thief: Agent, crime: dict) -> tuple[int, str]:
+    """Give back what a reported theft took (config `restitution` x qty): from the thief's pocket, then their
+    chests. What the thief no longer holds is dropped; no debt is written. Returns (units given back, text)."""
+    mult = float(_g(ctx.cfg).get("restitution", 0))
+    item, qty = crime.get("item"), int(crime.get("qty", 0))
+    if mult <= 0 or not item or qty <= 0:
+        return 0, ""
+    w, want = ctx.world, max(1, round(qty * mult))
+    if crime.get("treasury"):
+        found = theft.treasury_by_key(w, crime["treasury"])
+        if found is None:
+            return 0, ""
+        dst, books = found
+        to = crime["victim"]
+    else:
+        victim = w.agents.get(crime["victim"])
+        if victim is None or victim.status == "dead":
+            return 0, ""
+        dst, books, to = victim, None, victim.name
+    chests = sorted((c for c in w.chests.values() if c.owner == thief.name), key=lambda c: c.id)
+    left = want
+    for src in [thief, *chests]:
+        if item == "coins":
+            n = min(left, src.coins)
+            if n:
+                ops.move_coins(src, dst, n)
+        else:
+            store = src.inventory if src is thief else src.items
+            n = min(left, ops.count(store, item))
+            if n:
+                ops.move_items(store, dst.inventory, {item: n})
+        left -= n
+        if not left:
+            break
+    got = want - left
+    if books is not None and got:
+        theft.return_to_treasury(books, got)
+    if not got:
+        return 0, f" {thief.name} holds no {item} to give back."
+    short = f" ({left} more are gone)" if left else ""
+    return got, f" {thief.name} gave back {got} {item} to {to}{short}."
+
+
+def _polity_fine(ctx: Ctx, reporter: Agent, thief: Agent, crime: dict) -> tuple[int, str]:
+    """With polities on: the theft_fine law of the polity whose town hall the report is made at, or, made
+    anywhere else, of the victim's polity. Charged whether or not the culprit is a member."""
+    from . import polity  # polity imports this module
+    w = ctx.world
+    p = polity._here(w, reporter) or polity.of(w, crime["victim"])
+    n = int(p["laws"].get("theft_fine", 0)) if p else 0
+    if not n:
+        return 0, (f"{polity.title(p)} has no theft_fine law." if p else "No polity's theft_fine applies.")
+    text = polity._charge(ctx, p, thief, n, "fine")
+    return n, f"Theft fine of {polity.title(p)}: {text}"
 
 
 # ---------- engine hooks ----------
 
-def _record_crimes(ctx: Ctx) -> None:
-    w = ctx.world
-    for ev in ctx.events:
-        crime_kind = "theft"
-        if ev.kind == "witness":
-            thief, victim, seen = ev.data.get("thief"), ev.data.get("victim"), ev.to
-        elif ev.kind == "steal_attempt":
-            thief, victim, seen = ev.actor, (ev.to or [None])[0], ev.to
-        elif ev.kind == "fight":  # conflict.py: the victim and everyone who saw it
-            thief, victim = ev.actor, ev.data.get("defender")
-            seen, crime_kind = [victim, *ev.data.get("witnesses", [])], "assault"
-        elif ev.kind == "arson_seen":
-            thief, victim, seen, crime_kind = ev.actor, ev.data.get("victim"), ev.to, "arson"
-        else:
-            continue
-        if not thief or not victim:
-            continue
-        crime = next((c for c in w.governance.crimes if c["tick"] == ev.tick and c["thief"] == thief
-                      and c["victim"] == victim), None)
-        if crime is None:
-            crime = {"thief": thief, "victim": victim, "day": ev.day, "tick": ev.tick, "known_by": []}
-            if crime_kind != "theft":
-                crime["crime"] = crime_kind
-            w.governance.crimes.append(crime)
-        crime["known_by"] += [n for n in seen if n not in crime["known_by"] and n != thief]
+def _record(world: World, ev) -> None:
+    """Keep a crime the victim or a witness saw, so they can report it. Runs on every event as it happens
+    (ops.EVENT_HOOKS), so a theft in any tick of the hour is kept, not only in the hour's last tick."""
+    w = world
+    if ev.kind == "steal" and ev.data.get("success"):  # what was taken, for restitution on a report
+        crime = next((c for c in w.governance.crimes if c["tick"] == ev.tick and c["thief"] == ev.actor
+                      and "crime" not in c and "item" not in c), None)
+        if crime is not None:
+            crime["item"], crime["qty"] = ev.data["item"], ev.data["qty"]
+            if ev.data.get("treasury"):
+                crime["treasury"] = ev.data["treasury"]
+        return
+    crime_kind = "theft"
+    if ev.kind == "witness":
+        thief, victim, seen = ev.data.get("thief"), ev.data.get("victim"), ev.to
+    elif ev.kind == "steal_attempt":
+        thief, victim, seen = ev.actor, (ev.to or [None])[0], ev.to
+    elif ev.kind == "fight":  # conflict.py: the victim and everyone who saw it
+        thief, victim = ev.actor, ev.data.get("defender")
+        seen, crime_kind = [victim, *ev.data.get("witnesses", [])], "assault"
+    elif ev.kind == "arson_seen":
+        thief, victim, seen, crime_kind = ev.actor, ev.data.get("victim"), ev.to, "arson"
+    else:
+        return
+    if not thief or not victim:
+        return
+    crime = next((c for c in w.governance.crimes if c["tick"] == ev.tick and c["thief"] == thief
+                  and c["victim"] == victim), None)
+    if crime is None:
+        crime = {"thief": thief, "victim": victim, "day": ev.day, "tick": ev.tick, "known_by": []}
+        if crime_kind != "theft":
+            crime["crime"] = crime_kind
+        w.governance.crimes.append(crime)
+    crime["known_by"] += [n for n in seen if n not in crime["known_by"] and n != thief]
+
+
+def _on_event(ctx: Ctx, ev, names: list[str]) -> None:
+    if enabled(ctx.cfg):
+        _record(ctx.world, ev)
+
+
+ops.EVENT_HOOKS.append(_on_event)
 
 
 def _maybe_resolve(ctx: Ctx, p: LawProposal, closing: bool = False) -> None:
@@ -486,7 +576,6 @@ def _apply_law(ctx: Ctx, p: LawProposal) -> str:
 def end_of_hour(ctx: Ctx) -> None:
     if not enabled(ctx.cfg):
         return
-    _record_crimes(ctx)
     w = ctx.world
     for p in sorted(w.governance.proposals.values(), key=lambda p: p.id):
         _maybe_resolve(ctx, p, closing=w.tick + 1 >= p.closes_tick)

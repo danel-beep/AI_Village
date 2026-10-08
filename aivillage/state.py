@@ -97,6 +97,10 @@ class Offer:
     give: dict[str, int]
     want: dict[str, int]
     expires_tick: int
+    # "I owe you later" part (debts.py, «Долги вещами»): on accept the sender owes these by due_day.
+    # Left out of the dict when empty, so old saves, logs and hashes stay the same.
+    i_owe: dict[str, int] = field(default_factory=dict)
+    due_day: int = 0
 
 
 @dataclass
@@ -113,6 +117,7 @@ class Debt:
     claim: dict | None = None  # the lender asked the mayor to collect: {"tick", "day"}
     claim_day: int = 0  # day the mayor last ruled on it
     day: int = 0  # day it was written
+    items_owed: dict[str, int] = field(default_factory=dict)  # owed in kind (an offer's i_owe); dropped when empty
 
 
 @dataclass
@@ -316,6 +321,7 @@ class World:
     # "trails": {"a|b": times walked}}
     settle: dict[str, Any] = field(default_factory=dict)
     addressed: dict[str, list] = field(default_factory=dict)  # addressed.py: name -> messages said to them
+    merchant: dict[str, Any] = field(default_factory=dict)  # merchant.py: the passing merchant's visits
     next_id: int = 1
     # Net amount of each item (and "coins") ever created minus destroyed.
     # Invariant: everything held in the world sums exactly to this.
@@ -346,6 +352,14 @@ class World:
             del d["settle"]
         if not d["addressed"]:  # nothing said to anyone yet: same dict and hash as before the field existed
             del d["addressed"]
+        if not d["merchant"]:  # merchant off or not come yet: same dict and hash as before the field existed
+            del d["merchant"]
+        for o in d["offers"].values():  # plain offers and coin debts: same dict and hash as before
+            if not o["i_owe"]:
+                del o["i_owe"], o["due_day"]
+        for x in d["debts"].values():
+            if not x["items_owed"]:
+                del x["items_owed"]
         for ag in d["agents"].values():  # no time owed: same dict and hash as before the field existed
             if not ag["time_debt"]:
                 del ag["time_debt"]
@@ -390,6 +404,7 @@ class World:
             settle=d.get("settle", {}),
             honors=d.get("honors", {}),
             addressed=d.get("addressed", {}),
+            merchant=d.get("merchant", {}),
             next_id=d["next_id"],
             ledger=d["ledger"],
         )

@@ -81,6 +81,12 @@ KNOBS: list[dict[str, Any]] = [
              "поэтому помнит просьбы и свои планы до вечера. Ночью беседа заканчивается, день переходит в дневник. "
              "Стоит столько же: повторяющееся начало беседы провайдер берёт в 10 раз дешевле. «Каждый ход заново»: "
              "житель видит только последние 3 действия и свои заметки."},
+    {"key": "llm_obs", "path": "llm_obs", "group": "Деревня", "type": "choice", "label": "Что житель видит каждый ход",
+     "only": "llm", "options": [["changes", "✂️ Только то, что изменилось"], ["full", "📋 Всё описание каждый ход (старый способ)"]],
+     "hint": "«Только то, что изменилось»: доска, карта, земля, богатство и власть приходят жителю, только когда "
+             "меняются, и остаются в его беседе за день. Где он, что вокруг, что ему сказали и новости он видит "
+             "каждый ход. Ход дешевле на 14–20%, а ошибочных ходов в опыте стало вдвое меньше. Работает при памяти "
+             "«Весь день одной беседой»."},
     {"key": "own_ai_seats", "path": "own_ai.seats", "group": "Свои ИИ", "type": "range",
      "label": "Жителей играют свои ИИ (MCP)", "min": 0, "max": 10, "step": 1, "only": "llm",
      "hint": "Первыми жителями играют ИИ людей: свой Claude, ChatGPT, Gemini или Codex по подписке, подключённый к "
@@ -185,6 +191,9 @@ KNOBS: list[dict[str, Any]] = [
              "Жители знают правило с начала и видят свой счёт."},
     {"key": "hospital_days", "path": "hospital_days", "group": "Правила", "type": "range",
      "label": "Дней в больнице", "min": 1, "max": 7, "step": 1, "unit": " дн."},
+    {"key": "discharge_satiety", "path": "hospital_discharge.satiety", "group": "Правила", "type": "range",
+     "label": "Сытость после больницы", "min": 10, "max": 100, "step": 5,
+     "hint": "С какой сытостью житель выходит из больницы. Рекомендуем 30 в «С нуля» (больница не бесплатный обед), 60 в «Обычном»."},
     {"key": "seasons", "path": "seasons.enabled", "group": "Правила", "type": "toggle", "label": "Времена года",
      "hint": "Зимой грядки не засеять, что не дозрело, замерзает, ягод нет, рыбы меньше."},
     {"key": "season_days", "group": "Правила", "type": "choice", "label": "Длина сезона", "default": 0,
@@ -302,6 +311,16 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Казну можно обокрасть",
      "hint": "Любой может унести монеты из казны там, где она хранится. По книгам их не хватятся до ревизии, "
              "а ревизия не скажет, кто взял."},
+    {"key": "restitution", "path": "governance.restitution", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Краденое возвращают при доносе", "min": 0, "max": 200, "step": 50, "unit": "%",
+     "hint": "Сколько украденного вор отдаёт жертве, когда на него донесли: 100% = всё, 0 = ничего. Берётся из "
+             "карманов, потом из сундука вора; чего у него уже нет, то пропадает, долга не остаётся."},
+    {"key": "crime_days", "path": "governance.crime_memory_days", "group": "Кражи", "type": "range",
+     "label": "Сколько дней можно донести", "min": 3, "max": 30, "step": 1, "unit": " дн."},
+    {"key": "theft_clue", "path": "theft.clue_chance", "group": "Кражи", "type": "range", "scale": 0.01,
+     "label": "Подсказка о неизвестном воре", "min": 0, "max": 100, "step": 10, "unit": "%",
+     "hint": "Если кражу никто не видел, жертва с этим шансом получает правдивую подсказку: кто был рядом за "
+             "последний час, что вор теперь несёт или его оружие. Подсказка всегда подходит хотя бы двоим."},
 
     # --- land (aivillage/land.py) ---
     {"key": "land_claim", "path": "land.claim", "group": "Земля", "type": "choice", "label": "Пустые участки",
@@ -324,11 +343,19 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Доля монет и вещей должника за ночь и доля каждого его дохода. 50% не оставляет его ни с чем."},
     {"key": "debt_collect_fee", "path": "debts.collect_fee_pct", "group": "Долги", "type": "range",
      "label": "Доля мэра (в казну) со взысканного", "min": 0, "max": 50, "step": 5, "unit": "%"},
+    {"key": "debt_in_kind", "path": "debts.in_kind", "group": "Долги", "type": "toggle",
+     "label": "Долги вещами",
+     "hint": "В обмен можно добавить «верну потом»: например, 3 мяса сейчас за обещание отдать 4 мяса к 5-му дню. "
+             "Долг виден только двоим, отдать долг можно просто подарком нужных вещей."},
     {"key": "debt_late_fee", "path": "debts.late_fee_pct", "group": "Долги", "type": "range",
      "label": "Пеня за просрочку в ночь", "min": 0, "max": 30, "step": 5, "unit": "%",
      "hint": "0: долг не растёт. Рекомендуем 0 для честного прогона, 10 для жёсткого."},
 
     # --- word of mouth (aivillage/reputation.py) ---
+    {"key": "record", "path": "reputation.record", "group": "Слухи", "type": "toggle", "label": "Книга дел",
+     "hint": "Вместо оценки ±10 каждый житель помнит факты: что человек сделал плохого и хорошего, отдельно, и "
+             "сколько раз. Добрые дела не стирают плохие. Долги в книге видят только двое. Каждую ночь житель сам "
+             "выбирает 1–2 вещи, которые запомнит надолго."},
     {"key": "mishear_number", "path": "reputation.mishear_number", "group": "Слухи", "type": "range", "scale": 0.01,
      "label": "Слух искажает числа", "min": 0, "max": 100, "step": 5, "unit": "%",
      "hint": "Шанс, что слушатель запомнит другое число («украл 3 монеты» → «украл 6»). 0: слухи передаются точно."},
@@ -414,7 +441,7 @@ KNOBS: list[dict[str, Any]] = [
                "chaos": "Беды почти каждый день: пожары, болезни, набеги, звери, кризисы."},
      "hint": "Кнопка выставляет ползунки ниже; любой можно потом подвинуть вручную.",
      "sets": {"fair": {"random_fire": 0, "sickness_chance": 0, "raid_chance": 0, "beast_chance": 0,
-                       "traveler_chance": 0, "crises": False},
+                       "traveler_chance": 0, "hostile_max_gap": 0, "crises": False},
               "normal": {"random_fire": 3, "sickness_chance": 5, "raid_chance": 5, "beast_chance": 4,
                          "traveler_chance": 15},
               "chaos": {"random_fire": 20, "sickness_chance": 20, "raid_chance": 25, "beast_chance": 20,
@@ -436,10 +463,20 @@ KNOBS: list[dict[str, Any]] = [
      "unit": "% в день", "hint": "Рекомендуем 15%. Просит еды; добрый благодарит, а разведчик наводит бандитов."},
     {"key": "scout_chance", "path": "threats.kinds.traveler.scout_chance", "group": "Случайные события",
      "type": "range", "scale": 0.01, "label": "Путник оказывается разведчиком", "min": 0, "max": 100, "step": 5,
-     "unit": "%", "hint": "Рекомендуем 30%. Если его не прогнать, через день-два без предупреждения придут бандиты."},
+     "unit": "%", "hint": "Рекомендуем 30%. Если его не прогнать, через день-два без предупреждения придут бандиты. "
+                          "В «С нуля» разведчики приходят только когда бандиты уже могут прийти (см. этап ниже)."},
+    {"key": "raids_from_stage", "path": "progress.unlocks.feature:raids.stage", "group": "Случайные события",
+     "type": "choice", "label": "Бандиты приходят с этапа",
+     "options": [["camp", "Сразу (лагерь)"], ["hamlet", "Хутор"], ["village", "Деревня"], ["town", "Посёлок"]],
+     "hint": "Только для «С нуля»: до этого этапа набегов сами по себе нет. Рекомендуем хутор. Бог может "
+             "прислать набег когда угодно."},
+    {"key": "hostile_max_gap", "path": "threats.hostile.max_gap_days", "group": "Случайные события",
+     "type": "range", "label": "Бандиты или зверь не реже чем раз в", "min": 0, "max": 30, "step": 1,
+     "unit": " дн.", "hint": "Когда придут, заранее не известно, но спокойных дней подряд не больше этого. "
+                             "0: только шансы выше. Рекомендуем 10."},
     {"key": "threat_warn", "path": "threats.warn_chance", "group": "Случайные события", "type": "range",
      "scale": 0.01, "label": "Набег или зверь объявлены заранее", "min": 0, "max": 100, "step": 10, "unit": "%",
-     "hint": "Рекомендуем 50%. Остальные приходят внезапно."},
+     "hint": "Рекомендуем 50% (в «С нуля» 80%). Остальные приходят внезапно."},
     {"key": "threat_warn_days", "path": "threats.warn_days", "group": "Случайные события", "type": "range",
      "label": "За сколько дней предупреждают", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "illness_spread", "path": "illness.spread_chance", "group": "Случайные события", "type": "range",
@@ -457,6 +494,16 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Казна у мэра. Пропажу видно при проверке казны на площади или при смене мэра."},
     {"key": "audit_on_handover", "path": "treasury.audit_on_handover", "group": "Стройки и казна", "type": "toggle",
      "label": "Пересчёт казны при смене мэра"},
+    {"key": "treasury_seed", "path": "polity.income_per_member_per_day", "group": "Стройки и казна", "type": "range",
+     "label": "Затравка казны государства", "min": 0, "max": 3, "step": 1, "unit": " мон. в день на жителя",
+     "hint": "Каждое утро в казну государства, у которого уже выбрана форма правления и есть хотя бы двое, "
+             "появляются новые монеты: столько на каждого жителя. 0: казна пополняется только налогами и подарками. "
+             "Рекомендуем 1.", "hide_if": {"polities": [False]}},
+    {"key": "merchant", "path": "merchant.enabled", "group": "Стройки и казна", "type": "toggle",
+     "label": "Проезжий купец",
+     "hint": "После появления рынка время от времени (в случайный день) на пару дней приезжает купец. Он продаёт то, "
+             "что в деревне не сделать: шубу (зимняя ночь меньше морит голодом), стальные топор и кирку, лекарство. "
+             "Деньги уезжают вместе с ним. Тот, у кого казна, может купить на деньги казны, все это увидят."},
 
     # --- fires ---
     {"key": "allow_arson", "action": "set_fire", "group": "Пожары и заказы", "type": "toggle",
@@ -560,17 +607,17 @@ HINTS = {
 MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, память, свои цели и что жители видят друг о друге.",
-     ["characters", "own_goals", "llm_memory", "craft_hint", "summaries", "luxury", "hungry_seen_below",
+     ["characters", "own_goals", "llm_memory", "llm_obs", "craft_hint", "summaries", "luxury", "hungry_seen_below",
       "said_to_you_days", "turn_taking", "interrupt_pause"]),
     ("💰 Деньги и налоги", "Монеты на старте, налоги, казна, государства и неравенство.",
      ["unfairness", "start_coins", "law_enforcement", "tax_amount", "tax_every_days", "sales_pct", "wealth_pct",
       "burn_pct", "tax_board", "eviction_days", "polities"]),
-    ("🏛 Общие стройки и казна", "Стройки всей деревней и может ли мэр запустить руку в казну.",
-     ["works", "works_council", "embezzle", "audit_on_handover", "steal_treasury"]),
-    ("🤝 Долги", "Можно ли взыскивать долги силой и пени за просрочку.",
-     ["debt_collection", "debt_auto_collect", "debt_seize_pct", "debt_collect_fee", "debt_late_fee"]),
+    ("🏛 Общие стройки и казна", "Стройки всей деревней, на что тратится казна и может ли её хранитель запустить в неё руку.",
+     ["works", "works_council", "embezzle", "audit_on_handover", "steal_treasury", "treasury_seed", "merchant"]),
+    ("🤝 Долги", "Долги видны только двоим. Долги вещами, взыскание силой и пени за просрочку.",
+     ["debt_in_kind", "debt_collection", "debt_auto_collect", "debt_seize_pct", "debt_collect_fee", "debt_late_fee"]),
     ("❤️ Голод, здоровье и смерть", "Как быстро хочется есть и что бывает с обессилевшим.",
-     ["satiety_loss_per_hour", "death_mode", "lives", "hospital_days"]),
+     ["satiety_loss_per_hour", "death_mode", "lives", "hospital_days", "discharge_satiety"]),
     ("❄️ Времена года", "Длина сезонов и насколько сурова зима.",
      ["seasons", "season_days", "season_start", "winter_hunger", "winter_fish"]),
     ("🔨 Работа и ремёсла", "Кто что добывает, крафт, инструменты, мастерство, заказы.",
@@ -582,14 +629,14 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
       "trader_sells_tool", "stock_prices", "price_drop", "price_floor", "stock_keep", "gold_value"]),
     ("🕵️ Кражи", "Насколько легко украсть и попасться.",
      ["theft_rules", "see_stores", "steal_notice_chance", "steal_awake_target_success", "max_steal_qty",
-      "dark_factor", "owner_notice", "victim_notice"]),
+      "dark_factor", "owner_notice", "victim_notice", "restitution", "crime_days", "theft_clue"]),
     ("⚔️ Драки", "Можно ли драться, сколько длится драка и что забирает победитель.",
      ["combat", "combat_rounds", "combat_loot", "combat_loot_coins", "combat_min_health"]),
     ("🗣 Слухи и разговоры", "Как искажаются пересказы и сколько стоит объявление.",
      ["mishear_number", "mishear_name", "overhear", "origin_hops", "announce_cost"]),
     ("⚡ Беды и случайности", "Пожары, болезни, набеги, звери и кризисы. Наверху один общий переключатель.",
      ["chaos", "random_fire", "sickness_chance", "illness_spread", "raid_chance", "beast_chance", "threat_warn",
-      "threat_warn_days", "traveler_chance", "scout_chance", "fire_ticks", "fire_water_needed", "fire_spread_hours",
+      "threat_warn_days", "raids_from_stage", "hostile_max_gap", "traveler_chance", "scout_chance", "fire_ticks", "fire_water_needed", "fire_spread_hours",
       "allow_arson", "arson_wood", "crises", "crisis_chance", "crisis_first_day", "crisis_max_quiet", "crisis_gap", "crisis_w_crop_failure",
       "crisis_w_drought", "crisis_w_rats", "crisis_w_shortage", "crisis_w_caravan"]),
     ("🐗 Звери, транспорт и азарт", "Охота, лошади и телеги, кости на деньги.",

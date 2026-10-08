@@ -12,10 +12,10 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (addressed, animals, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
+from . import (addressed, animals, merchant, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, settle, spoilage,
                talk, taxes, theft, threats, tiles, transport, works)
-from .actions import step_move, work_hour
+from .actions import offer_view, step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
 from .registry import ACTIONS, GOD, ActionError
@@ -136,10 +136,10 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
         "fires": [{"house": f.location, "water_needed": f.water_needed, "hours_left": f.ticks_left}
                   for f in world.fires.values()],
         "news": list(a.inbox),
-        "offers_to_you": [vars(o) for o in world.offers.values() if o.to == name],
-        "your_offers": [vars(o) for o in world.offers.values() if o.sender == name],
+        "offers_to_you": [offer_view(o) for o in world.offers.values() if o.to == name],
+        "your_offers": [offer_view(o) for o in world.offers.values() if o.sender == name],
         "board": {
-            "debts": debts.board(world),
+            "debts": debts.board(world, name),
             "orders": [vars(o) for o in world.orders.values() if o.status == "open"],
             "projects": works.board(world),
             "trader_prices": pricing.prices(world) if labor.trader_here(world) else {},
@@ -183,6 +183,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(explore.observe(world, name))
     obs.update(settle.observe(world, name))
     obs.update(addressed.observe(world, name))
+    obs.update(merchant.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -192,13 +193,15 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
 
 
 def seen_hunger(cfg: dict, o) -> dict:
-    """What others see of `o`'s hunger: {"starving": True} at 0 satiety, {"hungry": True} below the line."""
+    """What others see of `o`'s hunger: {"starving": True} at 0 satiety, {"hungry": True} below the line; and
+    {"wounded": True} below `wounded_seen_below` health (0 = never shown)."""
     below = cfg.get("hungry_seen_below", 0)
+    hurt = {"wounded": True} if o.health < int(cfg.get("wounded_seen_below", 0)) else {}
     if not below:
-        return {}
+        return hurt
     if o.satiety <= 0:
-        return {"starving": True}
-    return {"hungry": True} if o.satiety < below else {}
+        return {"starving": True, **hurt}
+    return {"hungry": True, **hurt} if o.satiety < below else hurt
 
 
 def plant_info(world: World, loc) -> dict:
@@ -489,7 +492,7 @@ def night(ctx: Ctx) -> None:
     for a in w.agents.values():
         if a.status != "active":
             continue
-        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"] - seasons.night_hunger(cfg, w.day))
+        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"] - seasons.night_hunger(cfg, w.day, a.inventory))
         if a.satiety == 0:
             a.health = max(0, a.health - cfg["starving_health_loss_night"])
         elif (a.location == a.home and w.day >= a.evicted_until_day
@@ -505,6 +508,7 @@ def night(ctx: Ctx) -> None:
     governance.new_day(ctx)
     crises.new_day(ctx, rng_for(w, "crises"))
     threats.new_day(ctx, rng_for(w, "threats"))
+    merchant.new_day(ctx, rng_for(w, "merchant"))
     illness.new_day(ctx, rng_for(w, "illness"))
     for loc in w.locations.values():
         spec = cfg["locations"].get(loc.id, {}).get("resources", {})
@@ -528,8 +532,12 @@ def night(ctx: Ctx) -> None:
         a.busy_until = w.tick + wake_offset(w, a.name)
         if a.status == "hospital" and w.day >= a.status_until_day:
             a.status, a.location = "active", a.home
-            a.health, a.satiety = 60, 60
-            ctx.emit("discharged", f"{a.name} is back from the hospital.", visibility="public")
+            back = cfg.get("hospital_discharge") or {}
+            a.health, a.satiety = int(back.get("health", 60)), int(back.get("satiety", 60))
+            last = graves.lives_left(cfg, a).get("hospital_stays_left") == 0
+            ctx.emit("discharged", f"{a.name} is back from the hospital" + (
+                ", with no hospital stays left: the next collapse is death." if last else "."), visibility="public",
+                **({"no_stays_left": True} if last else {}))
 
     # Weekly tax
     if (w.day - 1) % cfg["tax_every_days"] == 0:
