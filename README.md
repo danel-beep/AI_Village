@@ -2,6 +2,8 @@
 
 Деревня, где каждый житель — отдельная LLM. Готовы шаги 1–2 из [спецификации](https://claude.ai/code/artifact/df507acc-4173-430d-9dfe-760898a4e089): детерминированный движок мира, скриптовые боты, LLM-агенты через OpenRouter и 2D-вьюер.
 
+**Скачать игру:** [danel-beep.github.io/AI_Village](https://danel-beep.github.io/AI_Village/) (сайт: `site/`, публикуется `.github/workflows/pages.yml` в ветку `gh-pages`).
+
 ## Как запустить у себя (один раз настроить, дальше значок)
 
 **Mac:** нажмите Cmd+Пробел, наберите `Терминал` (или `Terminal`), нажмите Enter. Вставьте строку (Cmd+V) и нажмите Enter:
