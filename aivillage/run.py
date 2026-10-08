@@ -18,7 +18,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crafting, crises, engine, explore, graves, hire, honors, labor, land, mapgen, merchant, modes, plots, pricing, remote, settle, threats, tiles, transport, works
+from . import animals, clock, construction, crafting, crises, engine, explore, graves, hire, honors, labor, land, mapgen, merchant, modes, plots, pricing, remote, settle, talk, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -85,21 +85,20 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
             if checkpoint:
                 checkpoint(world)
             asked = engine.waiting_agents(world)
-            observations = [(name, engine.observe(world, name)) for name in asked]
-            # All agents think at the same time: a slow model does not slow the others down.
-            with ThreadPoolExecutor(max_workers=max(1, len(asked))) as pool:
-                results = list(pool.map(lambda pair: decide(*pair), observations))
-            decisions = dict(zip(asked, results))
+            observations = {name: engine.observe(world, name) for name in asked}
+            turns = talk.groups(world, asked)
+            decisions = decide_all(world, decide, asked, observations, turns)
             god = (god_script or {}).get(world.tick, [])
             tick, day = world.tick, world.day
-            events = engine.step(world, decisions, god)
+            events = engine.step(world, decisions, god, turns)
             if check_every_tick:
                 check(world)
             for ev in events:
                 stats[ev.kind] += 1
             stats["llm_calls"] += len(asked)
             emit({"type": "tick", "tick": tick, "asked": asked, "decisions": decisions, "god": god,
-                       "events": [asdict(e) for e in events], "hash": world.hash(), "view": view(world)})
+                  **({"talk": turns} if turns else {}),
+                  "events": [asdict(e) for e in events], "hash": world.hash(), "view": view(world)})
             if on_tick:
                 on_tick(world, events)
             if on_night and world.day != day:
@@ -117,6 +116,36 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
             emit(usage_record(llm, world.tick))
         log.close()
     return dict(stats)
+
+
+def decide_all(world: World, decide: DecideFn, asked: list[str], observations: dict[str, dict],
+               turns: list[list[str]]) -> dict[str, dict]:
+    """Ask every waiting villager. Different places think at the same time, so a slow model does not slow
+    the others down; at one place villagers take turns when talk.turn_taking is on (`turns`, talk.py), each
+    hearing the earlier ones (`just_said`)."""
+    taking_turns = {n for g in turns for n in g}
+    jobs = [[[n]] for n in asked if n not in taking_turns] + [talk.waves(world, g) for g in turns]
+
+    def take_turns(waves: list[list[str]]) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for wave in waves:
+            earlier = list(out.items())
+            for n in wave:
+                heard = talk.just_said(n, earlier)
+                if heard:
+                    observations[n]["just_said"] = heard
+            if len(wave) == 1:
+                out[wave[0]] = decide(wave[0], observations[wave[0]])
+            else:
+                with ThreadPoolExecutor(max_workers=len(wave)) as pool:
+                    out.update(zip(wave, pool.map(lambda n: decide(n, observations[n]), wave)))
+        return out
+
+    results: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
+        for part in pool.map(take_turns, jobs):
+            results.update(part)
+    return {n: results[n] for n in asked}
 
 
 def brains_of(decide: DecideFn) -> dict[str, str]:
@@ -208,7 +237,7 @@ def replay(path: str | Path) -> World:
             continue
         for name in rec["asked"]:
             engine.observe(world, name)
-        engine.step(world, rec["decisions"], rec["god"])
+        engine.step(world, rec["decisions"], rec["god"], rec.get("talk"))
         if world.hash() != rec["hash"]:
             raise AssertionError(f"replay diverged at tick {rec['tick']}")
     return world

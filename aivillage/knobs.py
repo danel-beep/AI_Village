@@ -112,6 +112,15 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Сколько помнить сказанное тебе", "min": 0, "max": 3, "step": 1, "unit": " дн.",
      "hint": "Письма, шёпот и слова с именем жителя видны ему до конца следующего дня (или дольше), пока эти двое "
              "не передадут друг другу вещи, заём или не обменяются. 0: видно только один ход, как раньше."},
+    {"key": "turn_taking", "path": "talk.turn_taking", "group": "Деревня", "type": "toggle",
+     "label": "Говорят по очереди",
+     "hint": "Жители в одном месте думают не разом, а по очереди (порядок случайный) и слышат, что сказали до "
+             "них в этот же ход. Так можно ответить сразу, а не через час. Модель не зовут чаще, только ждут дольше."},
+    {"key": "interrupt_pause", "path": "talk.interrupt_pause", "group": "Деревня", "type": "toggle",
+     "label": "Разговор прерывает дело",
+     "hint": "Если к занятому жителю обратились рядом (шёпот, предложение, его имя вслух), он отвечает в следующий "
+             "ход, а недоделанное время дела доделывает после ответа. Выкл.: отвечает, когда закончит дело. "
+             "В «С нуля» включено."},
     {"key": "summaries", "group": "Деревня", "type": "toggle", "label": "Сводки «Что произошло?» и хайлайты от ИИ",
      "only": "llm", "default": True, "hint": "Пересказ каждого дня, около $0.0003 за день."},
 
@@ -603,9 +612,9 @@ SIMPLE = ["brains", "bot_mix", "start_stage", "villagers", "days", "daily_budget
 RETIRED = {"llm_memory", "llm_obs", "fixed_map"}
 MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
-    ("🧠 Жители и их ИИ", "Характеры, свои цели и что жители видят друг о друге.",
+    ("🧠 Жители и их ИИ", "Характеры, свои цели, разговоры и что жители видят друг о друге.",
      ["characters", "own_goals", "craft_hint", "summaries", "luxury", "hungry_seen_below",
-      "said_to_you_days"]),
+      "said_to_you_days", "turn_taking", "interrupt_pause"]),
     ("💰 Деньги и налоги", "Монеты на старте, налоги, казна, государства и неравенство.",
      ["unfairness", "start_coins", "law_enforcement", "tax_amount", "tax_every_days", "sales_pct", "wealth_pct",
       "burn_pct", "tax_board", "eviction_days", "polities"]),

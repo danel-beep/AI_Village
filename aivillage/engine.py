@@ -14,7 +14,7 @@ from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
 from . import (addressed, animals, merchant, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, settle, spoilage,
-               taxes, theft, threats, tiles, transport, works)
+               talk, taxes, theft, threats, tiles, transport, works)
 from .actions import offer_view, step_move, work_hour
 from .config import make_config
 from .ops import Ctx, Event, fmt_items
@@ -218,12 +218,14 @@ def plant_info(world: World, loc) -> dict:
 
 # ---------- step ----------
 
-def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent] | None = None) -> list[Event]:
+def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent] | None = None,
+         talk_order: list[list[str]] | None = None) -> list[Event]:
     """Advance the world by one tick (`tick_minutes`). Mutates `world` in place and returns the events.
 
     Each action keeps its agent busy for `action_minutes` (clock.action_ticks); a running task makes one
     step (a walk hop, an hour of work) whenever the agent is free again. Hourly upkeep (hunger, fire,
-    offers, laws, estates) runs in the last tick of every hour, the night in the last tick of the day."""
+    offers, laws, estates) runs in the last tick of every hour, the night in the last tick of the day.
+    `talk_order`: villagers at one place who took turns this tick (talk.py), in their turn order."""
     ctx = Ctx(world, rng_for(world))
     for g in god_events or []:
         try:
@@ -239,6 +241,7 @@ def step(world: World, decisions: dict[str, Decision], god_events: list[GodEvent
 
     order = sorted(world.agents)
     ctx.rng.shuffle(order)
+    order = talk.in_turn_order(order, talk_order)
     for name in order:
         a = world.agents[name]
         if not ops.can_act(a):
@@ -290,7 +293,9 @@ def run_decision(ctx: Ctx, a: Agent, dec: Decision) -> None:
                  action=act, invalid=True)
     if name == "wait" and say:  # only talking: as quick as `say`, so the answer can come soon
         name = "say"
-    a.busy_until = ctx.world.tick + clock.action_ticks(ctx.cfg, name)
+    # time owed for a job left to answer someone (talk.pause_for) is served after this action
+    a.busy_until = ctx.world.tick + clock.action_ticks(ctx.cfg, name) + a.time_debt
+    a.time_debt = 0
 
 
 def continue_task(ctx: Ctx, a: Agent) -> None:
@@ -364,7 +369,9 @@ def wake_targets(world: World, ev: Event, rules: dict[str, str] | None = None) -
 
 def wake_busy_agents(ctx: Ctx) -> None:
     for ev in ctx.events:
+        mode = WAKE_RULES.get(ev.kind)
         for n in wake_targets(ctx.world, ev):
+            talk.pause_for(ctx.world, ev, n, mode)
             interrupt(ctx.world, n)
 
 
