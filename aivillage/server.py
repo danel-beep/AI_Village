@@ -513,6 +513,10 @@ class LiveSim:
             for t in ticks:
                 backlog.append(t)
                 backlog += after_tick.get(t["tick"], [])
+            if self.error:  # a page opened after the end gets the ending too, not «● LIVE» forever
+                backlog.append({"type": "error", "text": self.error})
+            elif self.finished:
+                backlog.append({"type": "end", "tick": self.world.tick})
             self._subs.add((asyncio.get_running_loop(), q))
         deltas = ViewDeltas()
         return q, [json.dumps(deltas.compact(r), ensure_ascii=False) for r in backlog]
