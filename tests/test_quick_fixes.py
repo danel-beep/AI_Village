@@ -104,7 +104,7 @@ def test_granary_says_it_does_nothing_without_spoilage():
     cfg = make_config({"seed": 1})
     rows = [k for k in ("granary", "smokehouse") if construction._row(cfg, k, 1).get("food_keeps_x")]
     for kind in rows:
-        assert "changes nothing" in construction.effect_text(cfg, kind, 1)
+        assert "no effect here" in construction.effect_text(cfg, kind, 1)
 
 
 def test_zero_regrowth_stays_zero():
@@ -178,3 +178,43 @@ def test_daily_budget_pauses_until_the_next_day(tmp_path, monkeypatch):
     assert [r["type"] for r in published] == ["budget_pause", "budget_resume"]
     assert json.loads((tmp_path / "spend.json").read_text())["2026-10-08"] == pytest.approx(5.5)
     assert budget.spent_today() == 0.0 and not sim.budget_paused
+
+
+def test_budget_pace_spreads_money_over_the_day(tmp_path, monkeypatch):
+    """Wave 3 item 10: before the cap, a tick that cost X waits X * seconds_left / money_left."""
+    assert budget.pace_seconds(0.01, 5.0, 4.0, 1000.0) == pytest.approx(10.0)
+    assert budget.pace_seconds(0.0, 5.0, 1.0, 1000.0) == 0.0  # bots / a quiet hour cost nothing
+    assert budget.pace_seconds(0.01, 0.0, 1.0, 1000.0) == 0.0  # no cap
+    assert budget.pace_seconds(0.01, 5.0, 5.0, 1000.0) == 0.0  # cap reached: the hard pause takes over
+    assert 1.0 <= budget.seconds_left_today() <= 86400.0
+    pytest.importorskip("fastapi")
+    from aivillage.server import LiveSim
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    monkeypatch.setattr(budget, "today", lambda: "2026-10-08")
+    monkeypatch.setattr(budget, "seconds_left_today", lambda: 3600.0)
+
+    class Usage:
+        cost_usd = 0.0
+
+    class Ag:
+        usage = Usage()
+
+    decide = lambda name, obs: {"action": {"name": "wait"}}
+    decide.agents = {"Anna": Ag()}
+    sim = LiveSim(engine.new_world({"seed": 1}), decide, 1, daily_budget=5.0, pace=0.0)
+    published = []
+    monkeypatch.setattr(sim, "_publish", published.append)
+    sim._check_budget()
+    assert sim.budget_pace == 0.0 and not published
+    Ag.usage.cost_usd = 0.5  # $4.5 left for an hour: this $0.5 tick must take 400 s
+    sim._check_budget()
+    assert sim.budget_pace == pytest.approx(400.0)
+    assert [(r["type"], r["slow"]) for r in published] == [("budget_pace", True)]
+    sim._check_budget()  # nothing spent since: full speed again
+    assert sim.budget_pace == 0.0 and published[-1]["slow"] is False
+    clock_ = {"t": 100.0}
+    monkeypatch.setattr("aivillage.server.time.monotonic", lambda: clock_["t"])
+    monkeypatch.setattr("aivillage.server.time.sleep", lambda s: clock_.update(t=clock_["t"] + s))
+    sim.budget_pace, sim._last_checkpoint = 30.0, 90.0  # the tick's thinking already took 10 s of it
+    sim._wait()
+    assert clock_["t"] == pytest.approx(120.0) and sim._last_checkpoint == pytest.approx(120.0)

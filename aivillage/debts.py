@@ -5,7 +5,8 @@ Every debt lives in `world.debts` (state.Debt). A debt between villagers is priv
 only the debts where they or their spouse are lender or borrower, and every event about one goes to its two
 sides only. Tax and fine bills owed to the treasury stay on everyone's board.
 Ways a debt is born:
-- `lend` (actions.py): the lender hands over coins now, the borrower owes `repay_coins` by `due_day`.
+- `lend` (actions.py): a loan offer; when the borrower accepts it the coins move and they owe `repay_coins`
+  by `due_day`.
 - `promise` (here): anyone writes an IOU on themselves: "I owe <to> N coins by day D (for ...)".
   Nothing changes hands, so it backs deals on credit, bribes, bets or plain promises. An optional
   pledge (items from the writer's pocket) is held by the book.

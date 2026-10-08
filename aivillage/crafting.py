@@ -437,10 +437,14 @@ def observe(world: World, name: str) -> dict:
     return out
 
 
-def facts(cfg: dict) -> list[str]:
-    """Prompt cheat-sheet lines (llm.world_facts) with crafting on: recipes, workshops, tools."""
+def facts(cfg: dict, shown=None) -> list[str]:
+    """Prompt cheat-sheet lines (llm.world_facts) with crafting on: recipes, workshops, tools. `shown(key)` False
+    (village stages): recipes of a workshop that cannot be built yet are left out."""
     hand, shop = [], []
     for rid, r in cfg["recipes"].items():
+        if shown is not None and not (shown(f"recipe:{rid}") and (not r.get("building")
+                                                                  or shown(f"building:{r['building']}"))):
+            continue
         who = f", only a {r['profession']}" if r["profession"] and not r.get("building") else ""
         more = "".join(f", {n} at a {k}" for k, n in r.get("more_at", {}).items())
         hrs = f", {r['hours']} h each" if (r.get("hours") or 0) > 1 else ""
@@ -452,9 +456,8 @@ def facts(cfg: dict) -> list[str]:
     c = _c(cfg)
     lines = [f"- Craft by hand: {'; '.join(hand)}."]
     if shop:
-        lines.append(f"- Craft at a workshop (a workshop in a private yard serves its owner's household; its "
-                     "owner may open it to others for a fee per item, or for free, with set_workshop_fee; anyone allowed "
-                     f"in makes its recipes, whatever their trade): {'; '.join(shop)}.")
+        lines.append(f"- Craft at a workshop (one in a private yard serves its owner's household and whoever the "
+                     f"owner opens it to with set_workshop_fee): {'; '.join(shop)}.")
     if c.get("home_also_at"):
         lines.append(f"- Recipes made at home can also be made by a {' or a '.join(c['home_also_at'])}.")
     trades = ", ".join(f"{k} -> {p}" for k, p in c.get("workshops", {}).items() if p)
