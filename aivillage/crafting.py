@@ -269,6 +269,8 @@ def craft(ctx: Ctx, a: Agent, rid: str, times: int) -> None:
         raise ActionError(why)
     if not profession_ok(w, a, r):
         raise ActionError(f"only a {r['profession']} can make {rid}")
+    if why := labor.mastery_gate(cfg, a, rid, r):
+        raise ActionError(why)
     need = {k: v * times for k, v in r["inputs"].items()}
     missing = {k: v - ops.count(a.inventory, k) for k, v in need.items() if ops.count(a.inventory, k) < v}
     if missing:

@@ -643,6 +643,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
                       "workbench": "carpentry", "kiln": "pottery", "mill": "milling", "tannery": "tanning",
                       "weaving_shed": "weaving"},
             "levels": [6, 18, 36, 60, 90],  # hours of one kind of work to reach level 1..5
+            # fine things need practice first: recipe -> mastery level of its kind of work (simpler recipes of
+            # the same kind teach it: iron at the smithy, spears and hoes at the workbench)
+            "requires": {"tool": 1, "bow": 1, "lock": 2, "iron_axe": 2, "iron_pick": 2, "leather_armor": 2,
+                         "cart": 2, "sword": 3, "iron_armor": 3, "ring": 3},
             "gather_bonus": 1,              # extra units per hour of gathering for each level
             "craft_bonus_pct": 25,          # % more items made per level (fractions carry over to the next batch)
             "bed_bonus": 1,                 # farming: extra grain per garden bed harvest per level

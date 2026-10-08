@@ -213,6 +213,16 @@ def practice(ctx: Ctx, a: Agent, act: str, hours: int = 1) -> None:
                  level=now, activity=act)
 
 
+def mastery_gate(cfg: dict, a: Agent, rid: str, r: dict) -> str | None:
+    """Why `a` cannot make `rid` yet: its kind of work is below the level it needs (`mastery.requires`)."""
+    need = _m(cfg).get("requires", {}).get(rid, 0) if no_professions(cfg) else 0
+    act = craft_activity(cfg, r) if need else ""
+    if need and (lv := mastery_level(cfg, a, act)) < need:
+        return (f"{rid} needs {act} mastery level {need} (yours: {lv}); simpler {act} work teaches it "
+                f"({_m(cfg)['levels'][need - 1]} hours)")
+    return None
+
+
 def extra(a: Agent, key: str, base: int, pct: int) -> int:
     """Bonus items for `base` items at +`pct`%: whole items now, the fraction kept in `a.carry[key]` for the
     next time (so +25% on single loaves is one more loaf every fourth batch)."""
@@ -440,6 +450,10 @@ def mastery_facts(cfg: dict) -> list[str]:
              f"+{m['hunt_bonus']} to every strike (hunting). A kind of work left alone for more than "
              f"{m['forget_after_days']} days loses {m['forget_per_day']} hours of mastery a day. \"work_today\" "
              f"shows yours; \"villagers\" shows what each person is best at."]
+    if req := m.get("requires"):
+        lines.append("- Fine things need mastery first: " + ", ".join(
+            f"{rid} ({craft_activity(cfg, cfg['recipes'][rid])} {n})" for rid, n in req.items()
+            if rid in cfg["recipes"]) + ".")
     if m.get("house_bonus_pct"):
         lines.append(f"- Household: each level of your house gives +{m['house_bonus_pct']}% to what your own yard "
                      "makes (garden beds, animals) and to what you make at home or at your own workshop.")

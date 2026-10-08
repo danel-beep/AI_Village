@@ -134,3 +134,14 @@ def test_crafts_mode_keeps_its_professions():
     assert not labor.no_professions(w.config)
     assert "villager" not in {a.profession for a in w.agents.values()}
     assert "Trades: only a villager of that profession" in llm.world_facts(w.config)
+
+
+def test_fine_things_need_mastery_of_their_kind_first(w):
+    a = w.agents["Anna"]
+    r = w.config["recipes"]["sword"]
+    assert labor.craft_activity(w.config, r) == "smithing"
+    assert "smithing mastery level 3" in labor.mastery_gate(w.config, a, "sword", r)
+    a.mastery["smithing"] = 36
+    assert labor.mastery_gate(w.config, a, "sword", r) is None
+    assert labor.mastery_gate(w.config, a, "plank", w.config["recipes"]["plank"]) is None
+    assert "sword (smithing 3)" in llm.world_facts(w.config)
