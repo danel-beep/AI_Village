@@ -16,7 +16,7 @@ NAMES = ["tex_grass", "tex_planks", "tex_dirt", "tex_water", "oak", "pine", "bus
          "house2a_r2", "house2b_r4", "house3a_r0", "market", "well", "town_hall", "windmill", "tavern",
          "coin_pouch", "em_heart", "em_handshake", "em_angry", "fire2", "notice_board", "ballot_box",
          "treasure_chest", "signpost", "beast_roar", "fence_h", "campfire", "bread", "sword", "key",
-         "lanterns", "bunting", "scarecrow", "hen2", "cow2", "berry_bush", "gift_box", "deed"]
+         "lanterns", "bunting", "podium", "banner", "scarecrow", "hen2", "cow2", "berry_bush", "gift_box", "deed"]
 WALKERS = ["v0", "v3", "v7", "v11", "v15", "v20"]
 
 
