@@ -699,6 +699,10 @@ def parse_decision(text: str) -> dict:
     """Pull the first JSON object out of a model reply. Never raises: bad replies become `wait`."""
     d = parse_json_object(text, "action")
     if d is not None:
+        if isinstance(d["action"], str):  # {"action": "eat"} (Haiku 5.5 does this): the name alone
+            d["action"] = {"name": d["action"]}
+        elif not isinstance(d["action"], dict):
+            d["action"] = {"name": "wait"}
         return d
     return {"thought": "(unparseable reply)", "action": {"name": "wait"}, "parse_error": text[:200]}
 

@@ -18,6 +18,11 @@ def test_parse_garbage_becomes_wait():
         assert parse_decision(text)["action"]["name"] == "wait"
 
 
+def test_parse_action_given_as_a_bare_name():
+    assert parse_decision('{"thought": "t", "action": "eat"}')["action"] == {"name": "eat"}
+    assert parse_decision('{"action": null}')["action"] == {"name": "wait"}
+
+
 class Boom:
     model = "boom"
 
