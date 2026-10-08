@@ -15,7 +15,6 @@
 Волна 1 плана после аудита (`/mnt/project-files/reports/audit-prompt/sravnenie-i-plan.md`), зоны не пересекаются:
 - Дыры в правилах (займ с согласия, цена партии): `actions.py` (lend), `debts.py`, `pricing.py`.
 - Ответы и речь моделей (парсер JSON, речь как JSON): `llm.py` (`parse_json_object`, `turn_line`, `remember_turn`).
-- Сохранность данных и денег: `saves.py`, `server.py` (load, budget), `run.py` (`view`), `budget.py`.
 - Честные измерения: `social_metrics.py`, `metrics.py`, `lab.py`, заголовок лога в `run.py`.
 
 Другие треды:
