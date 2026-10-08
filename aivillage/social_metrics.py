@@ -140,6 +140,15 @@ def compute(records: list[dict]) -> dict:
     seen_days: set[int] = set()
     embezzled = 0
     for rec in ticks:
+        # A day counts once someone decided in it, with who was alive then: the view after the last tick is
+        # already the next morning, which nobody played (counting it made 3 days into 4, rates 25% too low).
+        if day not in seen_days:
+            seen_days.add(day)
+            for n in names:
+                if (before.get(n) or {}).get("status") != "dead":
+                    alive_days[n] += 1
+        if (rec.get("view") or {}).get("mayor"):
+            mayor_days.add(day)
         decisions = rec.get("decisions") or {}
         for ev in rec["events"]:
             sp = _speech(ev, before, names)
@@ -187,13 +196,6 @@ def compute(records: list[dict]) -> dict:
         view = rec.get("view") or {}
         if view:
             before, day = _state(view), view["day"]
-            if day not in seen_days:
-                seen_days.add(day)
-                for n, st in before.items():
-                    if st.get("status") != "dead" and n in alive_days:
-                        alive_days[n] += 1
-                if view.get("mayor"):
-                    mayor_days.add(day)
     m = metrics.compute(records)
     last_day = max(seen_days, default=1)
     for t in m["thefts"]["list"]:

@@ -603,6 +603,8 @@ class OpenAIClient(Client):
         usage = dict(data.get("usage") or {})
         usage["cost"] = token_cost(self.name, usage) * (FLEX_PRICE_SHARE if data.get("service_tier") == "flex" else 1)
         usage["model"] = self.model
+        usage["answered"] = data.get("model")  # the exact snapshot behind the alias, for the log (llm.LLMAgent)
+        usage["tier"] = data.get("service_tier")
         return data["choices"][0]["message"]["content"] or "", usage
 
     @staticmethod
@@ -1052,20 +1054,28 @@ class LLMAgent:
         return dec
 
     def _decide(self, obs: dict) -> dict:
+        t0 = time.monotonic()
         try:
             text, usage = self.client.complete(self.messages(obs))
         except Exception as e:  # a dead provider must never stop the village
             self.usage.failures += 1
-            return {"thought": f"(model error: {e})"[:200], "action": {"name": "wait"}}
+            return {"thought": f"(model error: {e})"[:200], "action": {"name": "wait"},
+                    "call": {"model": None, "ms": round((time.monotonic() - t0) * 1000), "tries": 1}}
         self.usage.add(usage)
         dec = parse_decision(text)
+        tries = 1
         if "parse_error" in dec:  # one retry: cheap models sometimes cut a reply short
             try:
+                tries = 2
                 text, usage = self.client.complete(self.messages(obs))
                 self.usage.add(usage)
                 dec = parse_decision(text)
             except Exception:
                 pass
+        # Who actually answered (a fallback shows here, not only in the per-run totals) and how long it took.
+        dec["call"] = {"model": usage.get("answered") or usage.get("model") or getattr(self.client, "model", None),
+                       "ms": round((time.monotonic() - t0) * 1000), "tries": tries,
+                       **({"tier": usage["tier"]} if usage.get("tier") else {})}
         act = dec.get("action") if isinstance(dec.get("action"), dict) else {}
         t = obs.get("time", {})
         self.recent = (self.recent + [f"{t.get('hour', '?')}:{t.get('minute', 0):02d} {act.get('name')} {json.dumps(act.get('args') or {})}"])[-3:]
