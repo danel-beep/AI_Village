@@ -539,25 +539,8 @@ const PixelMap = (() => {
   }
 
   // ---------- characters ----------
-  // Sprite villagers: a look of the villager's sex (guessed from the name) that fits the profession (straw hat for
-  // the farmer, apron for the smith...), each look once while there are enough of them, then recoloured repeats.
-  // A look set in the start screen (config agents[].look) wins.
-  const PROF_LOOK = { farmer: [0, 5, 23, 1], smith: [4, 10, 13], fisher: [9, 6, 11], woodcutter: [16, 6, 2, 13],
-                      miner: [12, 10, 3], trader: [18, 19], merchant: [18, 19] };
-  function pickLooks(agents) {
-    const S = window.Sprites, n = (S && S.LOOKS) || 12, count = {}, out = {};
-    const take = (name, look) => { out[name] = [look, count[look] || 0]; count[look] = (count[look] || 0) + 1; };
-    agents.forEach(a => { if (Number.isInteger(a.look) && a.look >= 0 && a.look < n) take(a.name, a.look); });
-    agents.forEach((a, k) => {
-      if (out[a.name]) return;
-      const fits = i => !S || !S.lookIsFemale || S.lookIsFemale(i) === S.femaleName(a.name);
-      const all = Array.from({ length: n }, (_, i) => (k + i) % n).filter(fits);
-      const pref = [...(PROF_LOOK[a.profession] || []).filter(fits), ...all];
-      const look = pref.find(i => !count[i]) ?? pref.reduce((m, i) => (count[i] < count[m] ? i : m), pref[0] ?? k % n);
-      take(a.name, look);
-    });
-    return out;
-  }
+  // Sprite villagers: Sprites.pickLooks (viewer/sprites.js), shared with the start screen's skin preview.
+  const pickLooks = agents => (window.Sprites ? Sprites.pickLooks(agents) : {});
   function sheetFor(name, k) {
     const [look, variant] = looks[name] || [k, 0], art = window.Sprites && Sprites.ok && Sprites.villager(look, variant);
     if (art) return art;

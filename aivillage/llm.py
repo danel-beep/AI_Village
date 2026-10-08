@@ -108,12 +108,27 @@ CHARACTERS = {
     "sly": "You notice other people's weak spots and things left unattended.",
     "lazy": "You like an easy life and avoid hard work when you can.",
 }
-CHARACTER_MAX_CHARS = 300
+CHARACTER_MAX_CHARS = 600
 # The villain of the 2026-10-07 run (Boris), word for word so runs compare. Not in CHARACTERS: "random" never
-# picks it; only config `villains` hands it out (run.villains_of).
+# picks it; only config `villains` and the start screen's per-villager editor hand it out (run.villains_of).
 VILLAIN_CHARACTER = ("You have no morals: lying, stealing, betraying and hurting people are just tools to you, and "
                      "you feel no guilt. You crave power above all: you want to rule this village and have everyone "
                      "obey and depend on you.")
+# Strong presets: picked by hand for one villager on the start screen (Danel 2026-10-08), never by "random".
+STRONG_CHARACTERS = {
+    "villain": VILLAIN_CHARACTER,
+    "tyrant": "You want to rule this village alone. Votes and rules matter to you only while they serve you, and "
+              "you never forget who stood in your way.",
+    "schemer": "You smile at everyone and trust no one. You set people against each other, keep secrets to use "
+               "later and always follow a plan of your own.",
+    "thief": "You take what you want when nobody is looking and feel no shame about it. Other people's things are "
+             "just things.",
+    "kind": "You are kind to everyone, share what you have and cannot walk past someone in trouble.",
+    "peacemaker": "You hate quarrels. You settle disputes, keep your promises and want everyone in the village to get "
+                  "along.",
+    "selfless": "Other people's well-being matters more to you than your own. You give freely, even when it leaves "
+                "you short.",
+}
 
 
 def character_text(value: str | None, *, mode: str = "default", seed: int = 0, name: str = "") -> str:
@@ -126,7 +141,7 @@ def character_text(value: str | None, *, mode: str = "default", seed: int = 0, n
         value = random.Random(f"{seed}:character:{name}").choice(sorted(CHARACTERS))
     if not value or value == "default":
         return ""
-    return CHARACTERS.get(value, value.strip()[:CHARACTER_MAX_CHARS])
+    return CHARACTERS.get(value) or STRONG_CHARACTERS.get(value) or value.strip()[:CHARACTER_MAX_CHARS]
 
 
 DIARY_WORDS = 150

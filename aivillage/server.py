@@ -968,10 +968,12 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if opts.get("brains", "llm") == "llm" and not keys.has_any_key() and not all_own:
             raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху справа. "
                                      "Или выберите ботов, они бесплатные.")
-        mix = knobs.MODEL_MIXES.get(opts.get("models") or "one") if opts.get("brains", "llm") == "llm" else None
-        if mix and any(not m.startswith("openai/") for m in mix) and not keys.get("openrouter_key"):
+        llm_on = opts.get("brains", "llm") == "llm"
+        mix = (knobs.MODEL_MIXES.get(opts.get("models") or "one") or []) if llm_on else []
+        mix += [r.get("model") for r in (opts.get("roster") or []) if llm_on and isinstance(r, dict) and r.get("model")]
+        if any(not m.startswith("openai/") for m in mix) and not keys.get("openrouter_key"):
             raise HTTPException(400, "Для Haiku нужен ключ OpenRouter: «⚙️ Настройки» вверху справа. "
-                                     "Или выберите «Одна на всех».")
+                                     "Или выберите «Одна на всех» и уберите Haiku у жителей.")
         try:
             sim = host.start(opts)
         except (ValueError, TypeError) as e:

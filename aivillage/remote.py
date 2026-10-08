@@ -54,15 +54,18 @@ def seat_names(config: dict) -> list[str]:
 
 
 def models_for(config: dict, model: str | list[str] = "default") -> list[str] | dict[str, str]:
-    """`run.llm_agents` models for a village: own-AI seats get "mcp", everyone else `model` (a list: handed out in
-    seeded seat order, an equal share each)."""
+    """`run.llm_agents` models for a village: own-AI seats get "mcp", a villager with its own `model` (start
+    screen, «Жители по одному») gets that one, everyone else `model` (a list: handed out in seeded seat order, an
+    equal share each)."""
     models = [model] if isinstance(model, str) else list(model)
     seats = set(seat_names(config))
-    if not seats:
+    picked = {a["name"]: a["model"] for a in config.get("agents", []) if a.get("model") and a["name"] not in seats}
+    if not seats and not picked:
         return models
     from .run import seat_order
-    others = seat_order([a["name"] for a in config["agents"] if a["name"] not in seats], config["seed"])
-    return {**{n: "mcp" for n in seats}, **{n: models[i % len(models)] for i, n in enumerate(others)}}
+    others = seat_order([a["name"] for a in config["agents"] if a["name"] not in seats and a["name"] not in picked],
+                        config["seed"])
+    return {**{n: "mcp" for n in seats}, **{n: models[i % len(models)] for i, n in enumerate(others)}, **picked}
 
 
 def request_kind(messages: list[dict]) -> str:

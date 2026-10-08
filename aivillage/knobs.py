@@ -69,7 +69,8 @@ KNOBS: list[dict[str, Any]] = [
      "default": "one", "options": [["one", "Одна на всех"], ["luna_haiku", "Luna и Haiku поровну"]],
      "about": {"one": "Все ИИ-жители думают через модель из «⚙️ Настройки».",
                "luna_haiku": "Половина жителей на Luna (через OpenAI), половина на Haiku 5.5 (через OpenRouter, "
-                             "нужен его ключ). Кто на какой модели, решает жребий, как в опытах."},
+                             "нужен его ключ). Кто на какой модели, решает жребий; в «Настроить каждого жителя» можно поменять у "
+                             "каждого."},
      "hint": "Смесь моделей нужна, чтобы сравнить их в одной деревне; модель каждого жителя записана в журнале."},
     {"key": "villains", "path": "villains", "group": "Деревня", "type": "range", "label": "Злых жителей на каждую модель",
      "min": 0, "max": 5, "step": 1, "default": 0, "only": "llm",
@@ -704,12 +705,19 @@ def layout(knobs: list[dict]) -> tuple[list[dict], list[dict]]:
     return out, sections
 
 
-# Russian names for llm.CHARACTERS presets (the start screen's "Характер" dropdown).
+# Russian names for llm.CHARACTERS and llm.STRONG_CHARACTERS presets (the start screen's "Характер" dropdown).
 CHARACTER_LABELS = {
     "friendly": "Дружелюбный", "generous": "Щедрый", "honest": "Честный", "cautious": "Осторожный",
     "ambitious": "Честолюбивый", "greedy": "Жадный", "aggressive": "Вспыльчивый", "sly": "Хитрый",
     "lazy": "Ленивый",
+    "villain": "😈 Без морали, жаждет власти (как Борис)", "tyrant": "👑 Тиран", "schemer": "🐍 Интриган",
+    "thief": "🦝 Вор без стыда", "kind": "😇 Добрый", "peacemaker": "🕊️ Миротворец", "selfless": "🤲 Бескорыстный",
 }
+CHARACTER_GROUPS = {"villain": "evil", "tyrant": "evil", "schemer": "evil", "thief": "evil",
+                    "kind": "good", "peacemaker": "good", "selfless": "good"}  # the rest: "mild"
+# The per-villager model choice ("" = as «Модели жителей» says).
+VILLAGER_MODELS = [["", "Модель из «⚙️ Настройки»"], ["openai/gpt-6-luna", "Luna"],
+                   ["anthropic/claude-haiku-5.5", "Haiku 5.5"]]
 NAME_MAX = 20
 ALWAYS = ("Boris",)  # Danel's test subject: in every app village, otherwise an ordinary random villager
 LOOKS = 24  # villager looks in viewer/sprites.js
@@ -721,18 +729,23 @@ def roster(n: int, seed: int, existing: list[dict] | None = None) -> list[dict]:
     cfg = make_config({"seed": seed, "population": {"always": list(ALWAYS)}})
     base = [] if existing is None else existing  # fresh roster: all names seeded, like an app start
     return [{"name": a["name"], "profession": a["profession"], "character": a.get("character", "default"),
-             **({"look": a["look"]} if a.get("look") is not None else {})}
+             **({"look": a["look"]} if a.get("look") is not None else {}),
+             **({"model": a["model"]} if a.get("model") else {})}
             for a in generate_agents(base, n, cfg)]
 
 
 def characters() -> dict:
-    from .llm import CHARACTERS
-    return {k: {"label": CHARACTER_LABELS.get(k, k), "text": v} for k, v in CHARACTERS.items()}
+    """Character presets for the start screen: label, the exact text the villager's prompt gets, and the group
+    (evil / good / mild; only mild ones are what «Случайный у каждого» draws from)."""
+    from .llm import CHARACTERS, STRONG_CHARACTERS
+    return {k: {"label": CHARACTER_LABELS.get(k, k), "text": v, "group": CHARACTER_GROUPS.get(k, "mild")}
+            for k, v in {**STRONG_CHARACTERS, **CHARACTERS}.items()}
 
 
 def clean_roster(rows: list, n: int) -> list[dict]:
     """Start-screen villagers -> config `agents` (first n). Raises ValueError with a Russian message."""
-    from .llm import CHARACTER_MAX_CHARS, CHARACTERS
+    from .llm import CHARACTER_MAX_CHARS, CHARACTERS, STRONG_CHARACTERS
+    models = {m for m, _ in VILLAGER_MODELS if m}
     profs = set(DEFAULT_CONFIG["professions"])
     out, seen = [], set()
     for i, r in enumerate(rows[:n]):
@@ -748,11 +761,15 @@ def clean_roster(rows: list, n: int) -> list[dict]:
         if prof not in profs:
             raise ValueError(f"{name}: нет профессии {prof!r}")
         ch = str(r.get("character") or "default").strip()
-        if ch != "default" and ch not in CHARACTERS:
+        if ch != "default" and ch not in CHARACTERS and ch not in STRONG_CHARACTERS:
             ch = ch[:CHARACTER_MAX_CHARS]
         look = r.get("look")  # viewer/sprites.js look index; anything else = picked automatically
         look = look if isinstance(look, int) and not isinstance(look, bool) and 0 <= look < LOOKS else None
-        out.append({"name": name, "profession": prof, "character": ch, **({"look": look} if look is not None else {})})
+        model = r.get("model") or ""  # remote.models_for gives this villager that model instead of the mix's
+        if model and model not in models:
+            raise ValueError(f"{name}: нет модели {model!r}")
+        out.append({"name": name, "profession": prof, "character": ch, **({"look": look} if look is not None else {}),
+                    **({"model": model} if model else {})})
     return out
 
 
@@ -863,7 +880,7 @@ def changed(header: dict) -> dict[str, Any]:
 
 def schema() -> dict:
     ordered, sections = layout(active())
-    return {"knobs": ordered, "sections": sections, "characters": characters(), "professions": sorted(DEFAULT_CONFIG["professions"]),
+    return {"knobs": ordered, "sections": sections, "characters": characters(), "villager_models": VILLAGER_MODELS, "model_mixes": MODEL_MIXES, "professions": sorted(DEFAULT_CONFIG["professions"]),
             "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k and "action" not in k},
             "preset_defaults": {p: preset_defaults(p) for p in modes.PRESETS}, "follow": follow_keys()}
 
@@ -920,6 +937,9 @@ def to_run(opts: dict) -> dict:
                                       or "action" in knobs[key] or key == "food"}, knobs)
     override["population"] = {"size": val["villagers"], "always": list(ALWAYS)}
     override["characters"] = val["characters"]
+    if rows and val["characters"] == "off" and any((r or {}).get("character", "default") != "default"
+                                                   for r in rows[:val["villagers"]] if isinstance(r, dict)):
+        override["characters"] = "default"  # characters set by hand for a villager win over «Без характеров»
     # Villagers set one by one; population.py fills up to `villagers` if the list is shorter. Without a
     # list every name and profession is drawn from the seed, so no name keeps the same seat run after run.
     override["agents"] = clean_roster(rows, val["villagers"]) if rows else []
