@@ -8,7 +8,7 @@ One JSON file, `<home>/settings.json` (home: env AIVILLAGE_HOME, else ~/AIVillag
 Values in the file win over environment variables (OPENAI_API_KEY, OPENROUTER_API_KEY,
 AIVILLAGE_PROVIDER, AIVILLAGE_MODEL), so a key changed in the viewer's settings panel takes
 effect on the next model call. The file is re-read only when it changes.
-The old launcher file `<home>/openrouter_key` is still read as the OpenRouter key.
+The old file `<home>/openrouter_key` is still read as the OpenRouter key.
 
 On the public website (aivillage/web.py) each game server runs with AIVILLAGE_KEYS_IN_MEMORY: settings live
 only in this process's memory (never on disk) and model keys never come from the environment; the visitor's
