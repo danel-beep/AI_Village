@@ -185,6 +185,9 @@ MODES["survival"] = {
                                               # per kind of work, a bigger house a better household (labor.py)
                                               "labor": {"mastery": {"enabled": True}},
                                               "settle": {"enabled": True},
+                                              # face-to-face talk: one after another at a place,
+                                              # an answer within the same quarter-hour (talk.py)
+                                              "talk": {"turn_taking": True},
                                               # pace (progression audit R3, Danel 2026-10-06 «подгоняй
                                               # настройки»): 2 units an hour by hand instead of 1; builder
                                               # bots reach the town on d10-12 instead of d14-18

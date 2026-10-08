@@ -64,6 +64,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # addressed.py: letters, whispers and words said to a villager by name stay in "said_to_you" until the end of
     # the next day (keep_days) or until the two have since given, lent or traded to each other; at most `max`
     "said_to_you": {"keep_days": 1, "max": 5},
+    # talk.py: villagers at one place take turns within a tick and hear the earlier ones (`turn_taking`, at most
+    # `waves` turns in a row); a busy villager spoken to answers at once and owes the rest (`interrupt_pause`)
+    "talk": {"turn_taking": False, "waves": 5, "interrupt_pause": False},
     "health_max": 100,
     "health_regen_night_at_home": 15,
     "health_regen_min_satiety": 30,
