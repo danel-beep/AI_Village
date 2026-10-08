@@ -35,6 +35,8 @@
         else buffer.push(e.data);
       } else if (rec.type === 'end') setBadge('■ прогон завершён', '#9db0a4');
       else if (rec.type === 'error') setBadge('✖ ошибка: ' + rec.text, '#e4572e');
+      else if (rec.type === 'budget_pause') setBadge('⏸ ' + rec.text, '#f2c14e');
+      else if (rec.type === 'budget_resume') setBadge('● LIVE', '#76b041');
       window.dispatchEvent(new CustomEvent('village-live', { detail: rec }));
     };
     ws.onclose = () => {

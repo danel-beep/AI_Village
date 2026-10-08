@@ -55,6 +55,10 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Больше пяти: новые жители получают имена и профессии сами, ресурсов в мире больше."},
     {"key": "days", "group": "Деревня", "type": "range", "label": "Сколько игровых дней",
      "min": 1, "max": 60, "step": 1, "default": 3, "unit": " дн."},
+    {"key": "daily_budget", "group": "Деревня", "type": "range", "label": "Бюджет в сутки, $", "only": "llm",
+     "min": 0.5, "max": 50, "step": 0.5, "default": 5.0, "unit": " $",
+     "hint": "Сколько можно потратить на ИИ за одни настоящие сутки (все деревни вместе). Потратили: деревня "
+             "ставится на паузу и сама продолжает на следующий день."},
     {"key": "bot_mix", "group": "Деревня", "type": "choice", "label": "Какие боты", "only": "bots",
      "default": "mixed", "options": [["mixed", "Смешанные"], ["workers", "Трудяги"], ["traders", "Торговцы"],
                                      ["thieves", "Много воров"], ["homestead", "Хозяйственные"]]},
@@ -209,9 +213,24 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "work_hours", "path": "labor.work_hours_per_day", "group": "Ремёсла", "type": "range",
      "label": "Часов работы в день", "min": 0, "max": 12, "step": 1, "unit": " ч",
      "hint": "0: без ограничения. Работает, только когда включено «Каждый добывает только своё»."},
+    {"key": "no_professions", "path": "labor.mastery.enabled", "group": "Ремёсла", "type": "toggle",
+     "label": "Без профессий", "mode": "survival",
+     "hint": "Каждый может всё. Мастерство растёт отдельно по каждому делу (рыбалка, поле, кузня, охота...) от "
+             "практики: больше в час, больше вещей с поделки. Дело, заброшенное на несколько дней, понемногу "
+             "забывается. Выключено: профессии и места по ремёслам, как в «Обычном»."},
+    {"key": "mastery_bonus", "path": "labor.mastery.gather_bonus", "group": "Ремёсла", "type": "range",
+     "label": "Прибавка за уровень мастерства дела", "min": 0, "max": 3, "step": 1, "unit": " в час",
+     "mode": "survival", "hide_if": {"no_professions": [False]},
+     "hint": "Сколько больше добываешь в час за каждый из 5 уровней мастерства этого дела."},
+    {"key": "house_bonus", "path": "labor.mastery.house_bonus_pct", "group": "Ремёсла", "type": "range",
+     "label": "Хозяйство от размера дома", "min": 0, "max": 50, "step": 5, "unit": "% за уровень дома",
+     "mode": "survival", "hide_if": {"no_professions": [False]},
+     "hint": "Насколько больше дают свой двор (грядки, животные) и то, что делаешь дома или в своей мастерской, "
+             "за каждый уровень дома."},
     {"key": "skill_bonus", "path": "labor.skill_bonus", "group": "Ремёсла", "type": "range",
      "label": "Прибавка за уровень мастерства", "min": 0, "max": 3, "step": 1, "unit": " в час",
-     "hint": "Мастерство растёт от часов работы по своей профессии (3 уровня)."},
+     "hint": "Мастерство растёт от часов работы по своей профессии (3 уровня).",
+     "hide_if": {"no_professions": [True]}},
     {"key": "trader_buys", "path": "labor.trader_buys_per_day.default", "group": "Ремёсла", "type": "range",
      "label": "Торговец скупает в день", "min": 0, "max": 40, "step": 1, "unit": " шт.",
      "hint": "Сколько штук каждого товара торговец покупает за день у всей деревни (на 5 жителей). Кто первый, тот и продал."},
@@ -529,7 +548,7 @@ HINTS = {
 
 # Start-screen layout (viewer/setup.js). MAIN: the few knobs always shown at the top; the rest sit in folded
 # SECTIONS (title, one-line about, keys in order). A knob in neither lands in a section named by its own `group`.
-MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days"]
+MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, память, свои цели и что жители видят друг о друге.",
      ["characters", "own_goals", "llm_memory", "craft_hint", "summaries", "luxury", "hungry_seen_below",
@@ -546,7 +565,8 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
     ("❄️ Времена года", "Длина сезонов и насколько сурова зима.",
      ["seasons", "season_days", "season_start", "winter_hunger", "winter_fish"]),
     ("🔨 Работа и ремёсла", "Кто что добывает, крафт, инструменты, мастерство, заказы.",
-     ["labor", "crafting", "secret_recipes", "work_hours", "skill_bonus", "spoilage", "start_tool", "tool_hours",
+     ["labor", "crafting", "secret_recipes", "work_hours", "no_professions", "mastery_bonus", "house_bonus",
+      "skill_bonus", "spoilage", "start_tool", "tool_hours",
       "order_every_days"]),
     ("🏪 Торговец и рынок", "Сколько торговец покупает и продаёт, его цены, сделки между жителями.",
      ["trade_anywhere", "market_board", "trader_buys", "trader_buys_gold", "trader_purse", "trader_sells",
@@ -770,4 +790,5 @@ def to_run(opts: dict) -> dict:
             _set(override, f"seasons.{k}", v)
     return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
-            "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"], "values": val}
+            "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"],
+            "daily_budget": val["daily_budget"], "values": val}

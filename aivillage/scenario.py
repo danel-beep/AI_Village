@@ -10,6 +10,11 @@ food, two villagers build a smithy together, someone does not pay the tax). It s
 - `play`: how long to play from there, which villagers are AI (the others stay bots), the model, a cost cap;
 - `expect` / `watch`: what to look for in the log afterwards (passed or not / just counted).
 
+It can also start from a save instead (`from_save`: a `.save.json` or a zip holding one): the world and every
+villager's brain come from that moment, and the edits go on top. An experiment adds `arms` (variants that change one
+thing: a character, a model, memory, the world), `play.replicates` and `play.seating` (models on seats, mirrored
+between replicates); aivillage/lab.py plays every arm and compares them.
+
 The edits are made by the scenario, not by the engine, so the log of a scenario run starts from that moment:
 its header carries the whole starting world (`start`), and `run.replay()` begins there. Every tick after
 it is played and hash-checked as usual. Edited holdings are booked in the ledger, so invariants hold.
@@ -23,6 +28,7 @@ The app's start screen has a «🧪 Сценарии» block (viewer/scenarios.j
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -31,9 +37,11 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
+import hashlib
+import zipfile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import construction, engine, family, mapgen, runconfig
+from . import construction, engine, family, mapgen, runconfig, saves
 from .bots import BOT_TYPES
 from .invariants import check, holdings
 from .engine import rng_for
@@ -58,7 +66,7 @@ class Memory(Strict):
     plan: str | None = None
     notes: str | None = None
     people: dict[str, str] = Field(default_factory=dict)
-    diary: list[str] = Field(default_factory=list)  # oldest first; the last one is shown in every prompt
+    diary: list[str] = Field(default_factory=list)  # oldest first; prompts show the last one (llm.DAY_DIARIES in "day" memory)
     recent: list[str] = Field(default_factory=list)
 
 
@@ -72,6 +80,8 @@ class Villager(Strict):
     chest: dict[str, int] | None = None  # replaces the chest; key "coins" = coins in it
     feelings: dict[str, int] = Field(default_factory=dict)  # what this villager feels about others
     memory: Memory | None = None  # AI villagers only
+    character: str | None = None  # a preset key or own text, "" / "default" = neutral (llm.character_text)
+    model: str | None = None  # this villager's model (makes them AI); "bot" or "bot:<kind>" makes them a bot
 
 
 class Site(Strict):
@@ -95,12 +105,32 @@ class WorldEdits(Strict):
     bills: list[Bill] = Field(default_factory=list)
 
 
+class Seating(Strict):
+    """Models on seats for a fair comparison (fairness audit): the AI villagers are split into equal groups by a
+    seeded order, one model per group, and every next replicate moves each group to the next model, so with two
+    models replicate 2 is replicate 1 with the seats mirrored (3 Luna + 3 Haiku, then the same 6 swapped)."""
+    models: list[str] = Field(min_length=2)
+    rotate: bool = True  # False: every replicate keeps the same seats
+
+
 class Play(Strict):
     days: int = Field(default=1, ge=1, le=30)
-    ai: list[str] | Literal["all"] = "all"  # AI villagers; everyone else is a bot
+    ai: list[str] | Literal["all"] = "all"  # AI villagers; everyone else is a bot ("all" + from_save: as saved)
     model: str = "default"  # model id for the AI villagers, "stub" = offline
     bots: str = "worker"
-    max_cost: float = Field(default=0.25, ge=0)  # USD, 0 = no cap
+    max_cost: float = Field(default=0.25, ge=0)  # USD per run (each arm and replicate), 0 = no cap
+    replicates: int = Field(default=1, ge=1, le=50)  # runs per arm (aivillage/lab.py)
+    reseed: bool = False  # each replicate (each mirrored set, with seating) gets the next world seed
+    seating: Seating | None = None
+
+
+class Arm(Strict):
+    """One variant of an experiment: edits on top of the scenario's (aivillage/lab.py)."""
+    name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,24}$")
+    about: str = ""
+    villagers: dict[str, Villager] = Field(default_factory=dict)
+    world: WorldEdits = Field(default_factory=WorldEdits)
+    config: dict = Field(default_factory=dict)  # merged into the world's config (knobs read while playing)
 
 
 class Check(Strict):
@@ -120,6 +150,7 @@ class Check(Strict):
 class Scenario(Strict):
     title: str
     about: str = ""  # what is being tested, in plain words (shown in the app)
+    from_save: str | None = None  # start from this save (.save.json or a zip with one) instead of `config`/`warmup`
     config: dict = Field(default_factory=dict)  # run config (runconfig.RunConfig); days/log come from `play`
     warmup: Warmup = Field(default_factory=Warmup)
     world: WorldEdits = Field(default_factory=WorldEdits)
@@ -127,6 +158,12 @@ class Scenario(Strict):
     play: Play = Field(default_factory=Play)
     expect: list[Check] = Field(default_factory=list)
     watch: list[Check] = Field(default_factory=list)
+    arms: list[Arm] = Field(default_factory=list)  # experiment variants; an unedited control "AA" is added
+
+    @property
+    def is_lab(self) -> bool:
+        """An experiment (several runs compared), not a single scenario run."""
+        return bool(self.arms or self.play.seating or self.play.replicates > 1)
 
 
 class ScenarioError(ValueError):
@@ -171,16 +208,49 @@ def listing(folder: str | Path | None = None) -> list[dict]:
         except ScenarioError:
             continue
         out.append({"name": p.stem, "title": s.title, "about": s.about, "days": s.play.days,
-                    "warmup_days": s.warmup.days, "ai": s.play.ai, "mode": s.config.get("mode")})
+                    "warmup_days": s.warmup.days, "ai": s.play.ai, "mode": s.config.get("mode"),
+                    "lab": s.is_lab, "arms": [a.name for a in s.arms], "replicates": s.play.replicates,
+                    "models": s.play.seating.models if s.play.seating else [], "from_save": s.from_save})
     return out
 
 
 # --- building the starting moment ---
 
-def start_world(scn: Scenario) -> World:
-    """The world at the scenario's moment: config, warmup with bots, then the edits."""
+def read_save(path: str | Path) -> dict:
+    """A save (aivillage/saves.py) from a `.save.json` or from a zip holding one (the app's report zips).
+    Adds `sha` (of the save's bytes) and `source` for the fork's log header."""
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise ScenarioError(f"from_save: no file {p}")
     try:
-        rc = runconfig.parse({**scn.config, "days": 1}, "config")
+        if p.suffix == ".zip":
+            with zipfile.ZipFile(p) as z:
+                inner = [n for n in z.namelist() if n.endswith(".save.json")]
+                if len(inner) != 1:
+                    raise ScenarioError(f"from_save: {p.name} must hold exactly one .save.json")
+                raw = z.read(inner[0])
+        else:
+            raw = p.read_bytes()
+        snap = json.loads(raw)
+        if snap.get("type") != "save" or snap.get("version") != saves.SAVE_VERSION:
+            raise ValueError("not a village save this version can read")
+        saves.world_of(snap)  # checks the hash once: the engine still plays this world the same way
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        raise ScenarioError(f"from_save: {p.name}: {e}") from None
+    return {**snap, "sha": hashlib.sha256(raw).hexdigest()[:16], "source": str(p)}
+
+
+def start_world(scn: Scenario, *, seed: int | None = None, snap: dict | None = None) -> World:
+    """The world at the scenario's moment: config and warmup with bots (or the save's world), then the edits.
+    `seed`: another world seed (replicates with `play.reseed`); `snap`: the save, when the caller read it already."""
+    if scn.from_save or snap is not None:
+        world = World.from_dict(copy.deepcopy((snap or read_save(scn.from_save))["world"]))
+        if seed is not None:
+            world.config["seed"] = seed  # the named random streams (crises, threats, illness) follow it
+        edit(world, scn)
+        return world
+    try:
+        rc = runconfig.parse({**scn.config, "days": 1, **({"seed": seed} if seed is not None else {})}, "config")
     except runconfig.ConfigError as e:
         raise ScenarioError(str(e)) from None
     from .run import bots_decider, run, with_tick_minutes
@@ -208,11 +278,24 @@ def _items(world: World, items: dict[str, int], where: str) -> dict[str, int]:
     return {k: v for k, v in items.items() if v}
 
 
-def edit(world: World, scn: Scenario) -> None:
-    """Apply `villagers` and `world` edits, then book whatever appeared or vanished in the ledger."""
+def _merge(into: dict, edits: dict) -> None:
+    for k, v in edits.items():
+        if isinstance(v, dict) and isinstance(into.get(k), dict):
+            _merge(into[k], v)
+        else:
+            into[k] = v
+
+
+def edit(world: World, scn: Scenario | Arm) -> None:
+    """Apply `villagers` and `world` edits (of a scenario, or an experiment arm on top of it; an arm's `config` is
+    merged into the world's config too), then book whatever appeared or vanished in the ledger."""
     cfg = world.config
+    if isinstance(scn, Arm):
+        _merge(cfg, scn.config)
     for name, v in scn.villagers.items():
         a = world.agents[_name(world, name, "villagers")]
+        if v.character is not None:  # llm_agents builds the prompt's character line from the config
+            next(x for x in cfg["agents"] if x["name"] == name)["character"] = v.character
         if v.location is not None:
             loc = a.home if v.location == "home" else v.location
             if loc not in world.locations:
@@ -263,39 +346,96 @@ def edit(world: World, scn: Scenario) -> None:
                  kind=b.kind, note=f"day {max(1, due - 2)}", day=max(1, due - 2))
         world.debts[d.id] = d
     # The scenario is a god: what it added or took is booked as minted or burned, so conservation holds.
-    world.ledger = {k: v for k, v in holdings(world).items() if v}
+    # Untouched holdings keep the ledger as it was (an unedited fork starts with its save's exact hash).
+    held = {k: v for k, v in holdings(world).items() if v}
+    if held != {k: v for k, v in world.ledger.items() if v}:
+        world.ledger = held
     check(world)
 
 
+def ai_names(world: World, scn: Scenario, *, ai: list[str] | None = None, snap: dict | None = None,
+             arm: Arm | None = None) -> list[str]:
+    """Who plays with a model: `ai` (the caller's choice), else the scenario's play.ai ("all" from a save = the
+    save's AI villagers), then villagers given a `model` edit join (or leave, with "bot")."""
+    names = sorted(world.agents)
+    if ai is not None:
+        chosen = list(ai)
+    elif scn.play.ai != "all":
+        chosen = list(scn.play.ai)
+    elif snap is not None:
+        chosen = sorted(snap["brains"]["agents"])
+    else:
+        chosen = names
+    for n in chosen:
+        _name(world, n, "play.ai")
+    for edits in (scn.villagers, arm.villagers if arm else {}):
+        for n, v in edits.items():
+            if v.model:
+                chosen = [x for x in chosen if x != n] + ([] if v.model.startswith("bot") else [n])
+    return sorted(set(chosen))
+
+
 def brains(world: World, scn: Scenario, *, ai: list[str] | None = None, model: str | None = None,
-           bots: str | None = None):
-    """`decide` (with .agents / .bots like run.main builds it) and `on_night` for the scenario's villagers."""
+           bots: str | None = None, snap: dict | None = None, arm: Arm | None = None,
+           seats: dict[str, str] | None = None):
+    """`decide` (with .agents / .bots like run.main builds it) and `on_night` for the scenario's villagers.
+
+    Models: `model` (else play.model) for every AI villager, then `seats` (play.seating, aivillage/lab.py), then
+    each villager's own `model` edit. From a save (`snap`) the villagers keep their saved brains (memory, diary,
+    bot state) and their saved model unless one of those changes it; a model change keeps the memory. Token use
+    starts at zero, so a fork's cost is its own."""
+    from .llm import Usage
     from .run import llm_agents, night_reflection
     play = scn.play
     names = sorted(world.agents)
-    chosen = ai if ai is not None else (names if play.ai == "all" else list(play.ai))
-    for n in chosen:
-        _name(world, n, "play.ai")
+    chosen = ai_names(world, scn, ai=ai, snap=snap, arm=arm)
     kind = bots or play.bots
     if kind not in BOT_TYPES:
         raise ScenarioError(f"play.bots: unknown bot '{kind}' (have: {', '.join(BOT_TYPES)})")
-    agents = llm_agents(world, {n: model or play.model for n in chosen})
+    villagers = [scn.villagers, arm.villagers if arm else {}]
+    saved = (snap or {}).get("brains") or {"agents": {}, "bots": {}}
+    models = {n: model or (saved["agents"][n]["model"] if n in saved["agents"] else play.model) for n in chosen}
+    models.update({n: m for n, m in (seats or {}).items() if n in models})
+    bot_kind = {}
+    for edits in villagers:
+        for n, v in edits.items():
+            if v.model and v.model.startswith("bot"):
+                bot_kind[n] = v.model.partition(":")[2] or kind
+            elif v.model:
+                models[n] = v.model
+    for k in bot_kind.values():
+        if k not in BOT_TYPES:
+            raise ScenarioError(f"villagers: unknown bot '{k}' (have: {', '.join(BOT_TYPES)})")
     seed = world.config["seed"]
-    bot = {n: BOT_TYPES[kind](n, seed) for n in names if n not in agents}
-    for name, v in scn.villagers.items():
-        m = v.memory
-        if m is None or name not in agents:
-            continue
-        ag = agents[name]
-        for f in ("about_me", "wants", "plan", "notes"):
-            if getattr(m, f) is not None:
-                setattr(ag, f, getattr(m, f))
-        if m.about_me or m.wants or m.plan:
-            ag.introduced = True  # its own words are given: no INTRO call before the first turn
-        ag.people.update(m.people)
-        ag.recent = list(m.recent)
-        first = world.day - len(m.diary)
-        ag.diary = [{"day": first + i, "text": t} for i, t in enumerate(m.diary)]
+    if snap is not None:
+        keep = copy.deepcopy(saved)
+        keep["agents"] = {n: {**a, "model": models[n]} for n, a in keep["agents"].items() if n in models}
+        keep["bots"] = {n: b for n, b in keep["bots"].items() if n not in models and n not in bot_kind}
+        old, _ = saves.decider(world, {"brains": keep})
+        agents, bot = dict(old.agents), dict(old.bots)
+        agents.update(llm_agents(world, {n: m for n, m in models.items() if n not in agents}))
+        for ag in agents.values():
+            ag.usage = Usage()
+    else:
+        agents, bot = llm_agents(world, models), {}
+    for n in names:
+        if n not in agents and n not in bot:
+            bot[n] = BOT_TYPES[bot_kind.get(n, kind)](n, seed)
+    for edits in villagers:
+        for name, v in edits.items():
+            m = v.memory
+            if m is None or name not in agents:
+                continue
+            ag = agents[name]
+            for f in ("about_me", "wants", "plan", "notes"):
+                if getattr(m, f) is not None:
+                    setattr(ag, f, getattr(m, f))
+            if m.about_me or m.wants or m.plan:
+                ag.introduced = True  # its own words are given: no INTRO call before the first turn
+            ag.people.update(m.people)
+            ag.recent = list(m.recent)
+            first = world.day - len(m.diary)
+            ag.diary = [{"day": first + i, "text": t} for i, t in enumerate(m.diary)]
 
     def decide(name: str, obs: dict) -> dict:
         return agents[name].decide(obs) if name in agents else bot[name].decide(obs)

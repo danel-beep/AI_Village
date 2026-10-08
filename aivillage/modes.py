@@ -173,12 +173,17 @@ MODES: dict[str, dict[str, Any]] = {
 # is the ready village of «Обычный»; a camp start empties it (bare_start below).
 MODES["survival"] = {
     "title": "С нуля",
-    "about": "Деревню строят сами жители. На старте нет домов, денег, профессий, рынка и кузницы: всё добывается "
-             "руками, карманы пустые. "
+    "about": "Деревню строят сами жители. На старте нет домов, денег, рынка и кузницы: всё добывается "
+             "руками, карманы пустые. Профессий нет вовсе: каждый может всё, но мастерство растёт отдельно по "
+             "каждому делу (рыбалка, поле, кузня, охота...) от практики, а в день успеваешь немного, так что "
+             "выгоднее делать одно дело много и меняться. Чем больше дом, тем больше даёт своё хозяйство. "
              "Инструменты делают сами: каменные руками, железные в кузнице; руду голыми руками не добыть. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
              "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
              "как в «Обычном».",
     "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True}, "bare_start": {"enabled": True},
+                                              # no professions at any start stage (Danel 2026-10-08): mastery
+                                              # per kind of work, a bigger house a better household (labor.py)
+                                              "labor": {"mastery": {"enabled": True}},
                                               "settle": {"enabled": True},
                                               # pace (progression audit R3, Danel 2026-10-06 «подгоняй
                                               # настройки»): 2 units an hour by hand instead of 1; builder
@@ -214,7 +219,8 @@ MODES["survival"] = {
                                                   "start": 12, "max": 12, "regen": 4, "slots": 3}}}}}),
 }
 
-DEFAULT_MODE = "crafts"
+# «С нуля» is what a new village starts in (Danel 2026-10-08); «Обычный» (crafts) stays a choice.
+DEFAULT_MODE = "survival"
 
 # Rules every run starts with (under the mode's own settings), while the bare engine default stays off so
 # engine tests can leave villagers idle for days: one hospital stay, the second collapse is death.

@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import clock, engine, keys, knobs, llm, mapgen, mcpserver, modes, remote, reports, saves, scenario, session, threats
+from . import budget, clock, engine, keys, knobs, lab, llm, mapgen, mcpserver, modes, remote, reports, saves, scenario, session, threats
 from .tunnel import TUNNEL
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
@@ -81,8 +81,14 @@ class LiveSim:
     def __init__(self, world: World, decide, days: int, log_path: str | None = None, pace: float = 1.0,
                  on_night=None, summarizer: Summarizer | None = None, reports_dir: str | None = None,
                  reveal_reports: bool = False, view_lag_minutes: int = VIEW_LAG_MINUTES,
-                 resume_header: dict | None = None, meta: dict | None = None):
+                 resume_header: dict | None = None, meta: dict | None = None, daily_budget: float = 0.0):
         self.world, self.decide, self.days, self.log_path = world, decide, days, log_path
+        # «Бюджет в сутки, $» (aivillage/budget.py): 0 = no cap. Spending is counted per real day across villages.
+        self.daily_budget = float(daily_budget or 0)
+        self.budget_paused = False
+        self.budget_poll = 1.0  # seconds between checks for the next real day while paused
+        self._spent_seen: float | None = None  # model cost already counted toward the daily cap
+        self._own_today: tuple[str, float] = ("", 0.0)  # this village's share today (if spend.json is unwritable)
         self.log_meta = meta  # extra log header fields (a scenario run: its starting world, aivillage/scenario.py)
         # Saves (aivillage/saves.py): `<log>.save.json`, taken between ticks on request, every game hour,
         # when the village is stopped and when it ends. `resume_header`: this sim continues a loaded save.
@@ -189,6 +195,7 @@ class LiveSim:
         self._serve_saves()
         if world.tick - self._autosave_tick >= clock.per_hour(world.config):
             self._save_quietly()
+        self._check_budget()
         if self._paced_once or self.stopping:  # the first tick of a run (or of a loaded save) starts at once
             self._wait()
         self._paced_once = True
@@ -210,6 +217,50 @@ class LiveSim:
         self._save_quietly()  # closing a village keeps it: it can be continued from the start screen
         self._serve_saves()
         raise _Stop  # stop() asked the thread to end
+
+    # --- daily spending cap (aivillage/budget.py) ---
+    def spent(self) -> float:
+        """USD this village's models have cost so far: villagers, recaps, highlights."""
+        agents = getattr(self.decide, "agents", None) or {}
+        total = sum(float(getattr(getattr(ag, "usage", None), "cost_usd", 0.0) or 0.0) for ag in agents.values())
+        total += float(getattr(self.summarizer, "cost_usd", 0.0) or 0.0)
+        total += float(getattr(self.highlighter, "cost_usd", 0.0) or 0.0)
+        return total
+
+    def _spent_today(self) -> float:
+        own = self._own_today[1] if self._own_today[0] == budget.today() else 0.0
+        return max(budget.spent_today(), own)
+
+    def _count_spending(self) -> None:
+        now = self.spent()
+        if self._spent_seen is None:  # a loaded save's villagers bring the cost of earlier days: not today's
+            self._spent_seen = now
+        delta, self._spent_seen = now - self._spent_seen, now
+        if delta > 0:
+            day = budget.today()
+            self._own_today = (day, (self._own_today[1] if self._own_today[0] == day else 0.0) + delta)
+            budget.add(delta)
+
+    def _check_budget(self) -> None:
+        """Before every tick: once today's spending reaches the cap, wait for the next real day (saves and
+        "stop" still work). The village goes on by itself; it is not stopped."""
+        if self.daily_budget <= 0:
+            return
+        self._count_spending()
+        if self._spent_today() < self.daily_budget:
+            return
+        day = budget.today()
+        self.budget_paused = True
+        self._publish({"type": "budget_pause", "tick": self.world.tick, "cap": self.daily_budget,
+                       "spent": round(self._spent_today(), 4),
+                       "text": f"Дневной бюджет ${self.daily_budget:g} потрачен. Деревня ждёт следующих суток."})
+        while not self.stopping and budget.today() == day and self._spent_today() >= self.daily_budget:
+            self._serve_saves()  # "save" pressed while waiting
+            time.sleep(self.budget_poll)
+        self.budget_paused = False
+        if self.stopping:
+            return  # _wait() saves and ends the thread
+        self._publish({"type": "budget_resume", "tick": self.world.tick, "text": "Новые сутки: деревня идёт дальше."})
 
     # --- saves (aivillage/saves.py) ---
     def save(self, timeout: float = 20.0) -> dict | None:
@@ -443,6 +494,7 @@ class LiveSim:
                 "minute": self.world.minute, "tick_minutes": clock.tick_minutes(self.world.config),
                 "view_lag_ticks": self.view_lag_ticks,
                 "paused": not self.running.is_set(), "pace": self.pace, "finished": self.finished,
+                "budget_paused": self.budget_paused, "daily_budget": self.daily_budget,
                 "error": self.error, "last_save": self.last_save,
                 "log_name": Path(self.log_path).stem if self.log_path else None}
 
@@ -459,7 +511,7 @@ class LiveSim:
 def make_sim(world: World, *, models: list[str] | None, bots: list[str], seed: int, days: int,
              log_path: str | None, pace: float = 1.0, summary_model: str | None = None,
              reports_dir: str | None = None, reveal_reports: bool = False,
-             view_lag_minutes: int = VIEW_LAG_MINUTES) -> LiveSim:
+             view_lag_minutes: int = VIEW_LAG_MINUTES, daily_budget: float = 0.0) -> LiveSim:
     """Villager brains, nightly diaries and recaps around a fresh world (CLI and start screen alike)."""
     on_night = None
     if models:
@@ -472,7 +524,42 @@ def make_sim(world: World, *, models: list[str] | None, bots: list[str], seed: i
     sm = summary_model or ("default" if keys.has_any_key() else "off")
     summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
     return LiveSim(world, decide, days, log_path, pace, on_night, summarizer, reports_dir, reveal_reports,
-                   view_lag_minutes)
+                   view_lag_minutes, daily_budget=daily_budget)
+
+
+class LabJob:
+    """An experiment (aivillage/lab.py) played in the background from the start screen («🔬 Опыт»): no live
+    view, its runs go one after another as fast as the models answer. The app's daily cap counts its spending and
+    stops it between runs once reached."""
+
+    def __init__(self, name: str, out: Path, *, llm: bool, save: Path | None, daily_budget: float):
+        self.name, self.out, self.llm, self.save, self.daily_budget = name, out, llm, save, daily_budget
+        self.stopping = False
+        self.status = {"name": name, "state": "running", "index": 0, "of": 0, "arm": None, "replicate": None,
+                       "spent": 0.0, "out": str(out), "llm": llm, "save": save.stem if save else None}
+        self.thread = threading.Thread(target=self._run, daemon=True, name=f"lab-{name}")
+
+    def _progress(self, info: dict) -> None:
+        if info["state"] == "done":
+            budget.add(info["cost"])
+        self.status.update(index=info["index"], of=info["of"], arm=info["arm"], replicate=info["replicate"],
+                           spent=round(info["spent"], 4))
+        if info["state"] == "start":
+            if self.stopping:
+                raise lab.LabStopped("остановлено")
+            if self.llm and self.daily_budget and budget.spent_today() >= self.daily_budget:
+                raise lab.LabStopped(f"дневной бюджет ${self.daily_budget:g} исчерпан")
+
+    def _run(self) -> None:
+        try:
+            rep = lab.run_lab(self.name, out=self.out, ai=None if self.llm else [],
+                              from_save=str(self.save) if self.save else None, on_progress=self._progress)
+            self.status.update(state="done", report=lab.markdown(rep), stopped=rep.get("stopped"))
+        except Exception as e:  # shown on the start screen; the logs written so far stay
+            self.status.update(state="error", error=str(e))
+
+    def view(self) -> dict:
+        return dict(self.status)
 
 
 class Host:
@@ -486,6 +573,7 @@ class Host:
         self.reports_dir = reports_dir
         self.reveal_reports = reveal_reports
         self.last: dict | None = None  # start-screen answers of the current run, to prefill the next one
+        self.lab: LabJob | None = None  # the experiment playing in the background (start screen, «🔬 Опыт»)
         self._lock = threading.Lock()
 
     def start(self, opts: dict) -> LiveSim:
@@ -501,11 +589,12 @@ class Host:
             self.sim = make_sim(world, models=models, bots=run_opts["bots"],
                                 seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
                                 summary_model=sm, reports_dir=self.reports_dir,
-                                reveal_reports=self.reveal_reports)
+                                reveal_reports=self.reveal_reports, daily_budget=run_opts["daily_budget"])
             self.last = {**run_opts["values"], "seed": None}
             if opts.get("roster"):
                 self.last["roster"] = world.config["agents"]
-            self.sim.run_info = {"days": run_opts["days"], "seed": seed, "last": self.last}
+            self.sim.run_info = {"days": run_opts["days"], "seed": seed, "last": self.last,
+                                 "daily_budget": run_opts["daily_budget"]}
             remote.HUB.info["days"] = run_opts["days"]
             self.sim.start()
             print(f"Village seed {seed}: {log}")
@@ -554,7 +643,8 @@ class Host:
             summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
             sim = LiveSim(world, decide, days, str(log), float(info.get("pace", 1.0)), on_night, summarizer,
                           self.reports_dir, self.reveal_reports,
-                          int(info.get("view_lag_minutes") or VIEW_LAG_MINUTES), resume_header=recs[0])
+                          int(info.get("view_lag_minutes") or VIEW_LAG_MINUTES), resume_header=recs[0],
+                          daily_budget=float(info.get("daily_budget") or budget.DEFAULT_USD))
             sim.run_info = {**info, "days": info.get("days") or days}
             remote.HUB.info["days"] = days
             sim.preload(recs)
@@ -580,13 +670,36 @@ class Host:
             log = self.runs_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}_{name}.jsonl"
             sm = "default" if llm and keys.has_any_key() else "off"
             summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
+            cap = float((self.last or {}).get("daily_budget") or budget.DEFAULT_USD)
             sim = LiveSim(world, decide, scn.play.days, str(log), 1.0, on_night, summarizer, self.reports_dir,
-                          self.reveal_reports, meta=scenario.header_meta(world, name, scn))
-            sim.run_info = {"days": scn.play.days, "seed": world.config["seed"], "scenario": name}
+                          self.reveal_reports, meta=scenario.header_meta(world, name, scn), daily_budget=cap)
+            sim.run_info = {"days": scn.play.days, "seed": world.config["seed"], "scenario": name,
+                            "daily_budget": cap}
             self.sim = sim
             sim.start()
             print(f"Scenario {name}: {log}")
             return sim
+
+    def start_lab(self, name: str, llm: bool, save: str | None = None) -> LabJob:
+        """Play an experiment (a scenario with arms, replicates or seating) in the background. `save`: the name of
+        a saved village (start screen «Продолжить») to fork from instead of the scenario's own start."""
+        if self.lab and self.lab.status["state"] == "running":
+            raise ValueError("Опыт уже идёт: дождитесь конца или остановите его.")
+        scn = scenario.load(name)  # ScenarioError (a ValueError) on a bad name or file
+        if not scn.is_lab:
+            raise ValueError("Это обычный сценарий, не опыт.")
+        path = None
+        if save:
+            if not save.replace("-", "").replace("_", "").isalnum():
+                raise ValueError("Нет такого сохранения.")
+            path = saves.path_for(self.runs_dir / f"{save}.jsonl")
+            if not path.is_file():
+                raise ValueError("Нет такого сохранения.")
+        out = self.runs_dir / "labs" / f"{datetime.now():%Y-%m-%d_%H-%M-%S}_{name}"
+        cap = float((self.last or {}).get("daily_budget") or budget.DEFAULT_USD)
+        self.lab = LabJob(name, out, llm=llm, save=path, daily_budget=cap)
+        self.lab.thread.start()
+        return self.lab
 
     def runs(self) -> list[Path]:
         return sorted(self.runs_dir.glob("*.jsonl"), reverse=True) if self.runs_dir.is_dir() else []
@@ -848,6 +961,35 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
             raise HTTPException(400, str(e)) from None
         return {"ok": True, **sim.status()}
 
+    # --- experiments (aivillage/lab.py, viewer/scenarios.js «🔬 Опыт») ---
+    @app.get("/api/lab")
+    def lab_status(request: Request) -> dict:
+        local_only(request)
+        return {"job": host.lab.view() if host.lab else None}
+
+    @app.post("/api/lab")
+    def start_lab(body: dict, request: Request) -> dict:
+        local_only(request)
+        if not host.setup:
+            raise HTTPException(400, "this server runs one village (started without --setup)")
+        body = body or {}
+        llm_on = body.get("brains", "llm") == "llm"
+        if llm_on and not keys.has_any_key():
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+                                     "Или выберите ботов, они бесплатные.")
+        try:
+            job = host.start_lab(str(body.get("name") or ""), llm_on, body.get("save") or None)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, "job": job.view()}
+
+    @app.post("/api/lab/stop")
+    def stop_lab(request: Request) -> dict:
+        local_only(request)
+        if host.lab:
+            host.lab.stopping = True
+        return {"ok": True}
+
     @app.get("/api/runs")
     def past_runs(request: Request) -> dict:
         local_only(request)
@@ -1043,6 +1185,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="economy mode (aivillage/modes.py)")
     p.add_argument("--log", default="runs/live.jsonl", help="also write the replayable log here")
     p.add_argument("--pace", type=float, default=1.0, help="seconds per game hour (min wait; split over its ticks)")
+    p.add_argument("--daily-budget", type=float, default=budget.DEFAULT_USD,
+                   help="USD the models may spend per real day (all villages together); then the village pauses "
+                        "until the next day. 0 = no cap")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--summary-model", default=None,
@@ -1082,7 +1227,7 @@ def main(argv: list[str] | None = None) -> int:
     sim = make_sim(world, models=a.models.split(",") if a.models else None, bots=a.bots.split(","), seed=a.seed,
                    days=a.days or (3 if a.models else 30), log_path=a.log, pace=a.pace,
                    summary_model=a.summary_model, reports_dir=a.reports, reveal_reports=a.reveal_reports,
-                   view_lag_minutes=a.view_lag_minutes)
+                   view_lag_minutes=a.view_lag_minutes, daily_budget=a.daily_budget if a.models else 0.0)
     sim.start()
     print(f"AI Village live: http://{a.host}:{a.port}")
     uvicorn.run(create_app(sim), host=a.host, port=a.port, log_level="warning")

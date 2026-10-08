@@ -631,6 +631,31 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # (`professions`); 0 = only the item limits above
         "trader_coins_per_trade": 0,
         "trader_sells_per_day": {"default": 2, "tool": 2},
+        # No professions (the «С нуля» mode): everyone gathers and makes everything; mastery grows separately
+        # for each kind of work by practice, and a bigger house makes one's own household yield more.
+        "mastery": {
+            "enabled": False,
+            # kind of work -> the goods its gathering makes (water stays free and teaches nothing)
+            "gather": {"farming": ["grain", "berries"], "fishing": ["fish"], "woodcutting": ["wood"],
+                       "mining": ["stone", "ore", "gold", "clay"]},
+            # where a recipe is made -> its kind of work (a recipe's own `activity` wins; else "handwork")
+            "craft": {"home": "cooking", "campfire": "cooking", "smokehouse": "cooking", "smithy": "smithing",
+                      "workbench": "carpentry", "kiln": "pottery", "mill": "milling", "tannery": "tanning",
+                      "weaving_shed": "weaving"},
+            "levels": [6, 18, 36, 60, 90],  # hours of one kind of work to reach level 1..5
+            # fine things need practice first: recipe -> mastery level of its kind of work (simpler recipes of
+            # the same kind teach it: iron at the smithy, spears and hoes at the workbench)
+            "requires": {"tool": 1, "bow": 1, "lock": 2, "iron_axe": 2, "iron_pick": 2, "leather_armor": 2,
+                         "cart": 2, "sword": 3, "iron_armor": 3, "ring": 3},
+            "gather_bonus": 1,              # extra units per hour of gathering for each level
+            "craft_bonus_pct": 25,          # % more items made per level (fractions carry over to the next batch)
+            "bed_bonus": 1,                 # farming: extra grain per garden bed harvest per level
+            "hunt_bonus": 1,                # hunting: +1 to every strike per level
+            "forget_after_days": 3,         # a kind of work left alone this many days ...
+            "forget_per_day": 2,            # ... loses this many hours of mastery each further day
+            "house_bonus_pct": 25,          # % more from one's own household per house level: garden beds,
+                                            # yard animals, things made at home or at one's own workshop
+        },
     },
     # Trade places (aivillage/places.py). Off here; the crafts mode turns them on. Each trade has
     # ceil(spare x villagers x its share of population.profession_weights) places; no work at one's trade

@@ -64,7 +64,7 @@ Below is what you did, said and noticed today. Answer with ONE JSON object and n
 {{"diary": "your private diary entry for today, first person, at most {words} words",
   "people": {{"<Name>": "what you now think of this person and why (one or two sentences)"}}}}
 In "people" include only villagers your opinion of changed today; their old entries are kept otherwise.
-Be honest with yourself: nobody else will ever read this."""
+Be honest with yourself: no other villager reads this."""
 
 # Own goals (config `own_goals`, docs/STATUS.md): the villager is asked what it wants, never told. Before its first
 # turn it writes who it is and what it wants (INTRO), every night it may rewrite that and plans tomorrow
@@ -77,7 +77,7 @@ Answer with ONE JSON object and nothing else:
 {{"about_me": "who you are and what matters to you, first person, at most {words} words",
   "wants": "what you want from your life here, in your own words (empty if nothing in particular)",
   "today": "what you mean to do today, one or two sentences"}}
-Nobody else will ever read this."""
+No other villager reads this."""
 
 REFLECT_GOALS = (
     '\nAlso put in the same object "wants": what you want from your life here now, in your own words (keep, change '
@@ -399,11 +399,16 @@ class OpenRouterClient(Client):
         limited = 0
         for attempt in range(self.retries + 1):
             try:
-                return self._post(models, messages)
-            except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
+                text, usage = self._post(models, messages)
+                if usage.get("cost") is None:  # OpenRouter left the price out: count it from the tokens
+                    usage["cost"] = token_cost(usage.get("model") or models[0], usage)
+                return text, usage
+            except urllib.error.HTTPError as e:
+                if e.code in (400, 401, 402, 403, 404):  # bad request, key, credit or model: retrying will not help
+                    raise ProviderDown(f"OpenRouter: HTTP {e.code} for {models[0]} ({OpenAIClient._error(e)})") from e
                 last = e
                 wait = 2 ** attempt
-                if isinstance(e, urllib.error.HTTPError) and e.code == 429:  # rate limit: whole queue cools down
+                if e.code == 429:  # rate limit: whole queue cools down
                     limited += 1
                     after = e.headers.get("Retry-After") if e.headers else None
                     wait = float(after) if after and after.isdigit() else min(4 * 2 ** attempt, 40)
@@ -412,13 +417,22 @@ class OpenRouterClient(Client):
                     if limited >= 2 and len(models) > 1:  # main model is saturated: go to the backups
                         models, limited = models[1:], 0
                 time.sleep(wait)
+            except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
+                last = e
+                time.sleep(2 ** attempt)
         raise RuntimeError(f"{self.model}: {last}")
 
 
-# OpenAI direct: USD per 1M tokens (input, cached input, output); OpenAI's API reports no cost itself.
+# USD per 1M tokens (input, cached input, output). OpenAI's API reports no cost itself; OpenRouter usually
+# does, and these are the fallback when it does not. A model missing here is charged the highest price in the
+# table, never $0, so the daily cap (aivillage/budget.py) still holds.
 OPENAI_PRICES = {"gpt-6-luna": (0.10, 0.01, 0.50), "gpt-6-luna-pro": (0.10, 0.01, 0.50),
                  "gpt-5.6-luna": (0.20, 0.02, 1.20), "gpt-6-sol": (2.00, 0.20, 10.00),
                  "gpt-6-astra": (10.00, 1.00, 50.00)}
+# Anthropic list prices (prompts up to 100K tokens), as named on OpenRouter.
+ANTHROPIC_PRICES = {"anthropic/claude-haiku-5.5": (0.10, 0.01, 0.50), "anthropic/claude-sonnet-5.5": (2.00, 0.20, 10.00),
+                    "anthropic/claude-opus-5.5": (4.00, 0.40, 20.00)}
+MODEL_PRICES = {**OPENAI_PRICES, **{f"openai/{k}": v for k, v in OPENAI_PRICES.items()}, **ANTHROPIC_PRICES}
 # OpenAI's per-minute limits are far above OpenRouter's ~4 parallel calls for Luna.
 OPENAI_PARALLEL = 16
 # OpenAI limits tokens per minute (a new key: 200k, ~40 village turns). When a reply says less than this
@@ -463,10 +477,17 @@ def retry_after(headers, message: str = "") -> float | None:
     return _seconds(m.group(1).replace(" ", "")) if m else None
 
 
-def openai_cost(model: str, usage: dict) -> float:
-    price = OPENAI_PRICES.get(model)
-    if not price:
-        return 0.0
+def price_of(model: str) -> tuple[float, float, float]:
+    """USD per 1M tokens for `model` ('openai/gpt-6-luna', 'gpt-6-luna', 'anthropic/claude-haiku-5-5' ...);
+    an unknown model gets the highest known price."""
+    m = (model or "").lower()
+    if m.startswith("anthropic/"):  # OpenRouter writes versions with a dot: claude-haiku-5.5
+        m = re.sub(r"-(\d+)-(\d+)$", r"-\1.\2", m)
+    return MODEL_PRICES.get(m) or max(MODEL_PRICES.values(), key=lambda p: p[2])
+
+
+def token_cost(model: str, usage: dict) -> float:
+    price = price_of(model)
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     fresh = int(usage.get("prompt_tokens") or 0) - cached
     return (fresh * price[0] + cached * price[1] + int(usage.get("completion_tokens") or 0) * price[2]) / 1e6
@@ -509,7 +530,7 @@ class OpenAIClient(Client):
                 data = json.load(r)
                 self._pace(gate, getattr(r, "headers", None))
         usage = dict(data.get("usage") or {})
-        usage["cost"] = openai_cost(self.name, usage)
+        usage["cost"] = token_cost(self.name, usage)
         usage["model"] = self.model
         return data["choices"][0]["message"]["content"] or "", usage
 
@@ -678,6 +699,10 @@ def parse_decision(text: str) -> dict:
     """Pull the first JSON object out of a model reply. Never raises: bad replies become `wait`."""
     d = parse_json_object(text, "action")
     if d is not None:
+        if isinstance(d["action"], str):  # {"action": "eat"} (Haiku 5.5 does this): the name alone
+            d["action"] = {"name": d["action"]}
+        elif not isinstance(d["action"], dict):
+            d["action"] = {"name": "wait"}
         return d
     return {"thought": "(unparseable reply)", "action": {"name": "wait"}, "parse_error": text[:200]}
 
@@ -853,7 +878,7 @@ class LLMAgent:
             line += f', said "{dec["say"]}"'
         if dec.get("thought"):
             line += f" (thinking: {dec['thought']})"
-        self.day_log.extend(l[:200] for l in lines + [line])
+        self.day_log.extend(l[:300] for l in lines + [line])  # as long as the news lines it carries
         self.trim_day_log()
 
     def to_me(self, line: str) -> bool:

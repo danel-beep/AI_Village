@@ -40,7 +40,7 @@ const Inspect = (() => {
   const PLACE = { square: 'Площадь', market: 'Рынок', smithy: 'Кузница', forest: 'Лес', mine: 'Шахта', river: 'Река',
     field: 'Поле', grove: 'Роща', pond: 'Пруд', quarry: 'Каменоломня', hamlet: 'Хутор', waypoint: 'Развилка' };
   const PROF = { farmer: 'фермер', fisher: 'рыбак', smith: 'кузнец', woodcutter: 'лесоруб', miner: 'шахтёр', baker: 'пекарь',
-    trader: 'торговец', builder: 'строитель' };
+    trader: 'торговец', builder: 'строитель', villager: 'житель', laborer: 'разнорабочий' };
   const it = k => ITEM[k] || k;
   const goods = o => window.ItemIcons ? ItemIcons.list(o, it) : Object.entries(o || {}).filter(([, q]) => q).map(([k, q]) => `${q} ${it(k)}`).join(', ');
   const who = n => n ? `<a data-who="${esc(n)}" style="color:${color[n] || 'inherit'}">${esc(n)}</a>` : '—';

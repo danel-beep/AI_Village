@@ -181,7 +181,8 @@ def move(ctx: Ctx, a: Agent, args: MoveArgs) -> None:
 
 
 class WorkArgs(BaseModel):
-    hours: int = Field(1, ge=1, le=8, description="how many hours to keep working")
+    hours: int = Field(1, ge=1, le=8, description="how many hours to keep working in a row with this one call "
+                       "(default 1; at most 4, the rest of the day's work cap still applies)")
     resource: str | None = Field(None, description="what to gather here; default: the first resource here")
 
 
@@ -189,7 +190,8 @@ def _can_work(ctx: Ctx, a: Agent) -> bool:
     return bool(_here(ctx, a).resources)
 
 
-@ACTIONS.action("work", "Gather a resource at this location. Your profession gives x3, a tool x2.",
+@ACTIONS.action("work", "Gather a resource at this location for `hours` hours in a row (up to 4 per call). "
+                "Your profession gives x3, a tool x2.",
                 WorkArgs, available=_can_work)
 def work(ctx: Ctx, a: Agent, args: WorkArgs) -> None:
     loc = _here(ctx, a)
@@ -235,7 +237,7 @@ def craft(ctx: Ctx, a: Agent, args: CraftArgs) -> None:
         raise ActionError(f"{args.recipe} can only be made at your home")
     if r["where"] != "home" and a.location != r["where"]:
         raise ActionError(f"{args.recipe} can only be made at the {r['where']}")
-    if r["profession"] and a.profession != r["profession"]:
+    if r["profession"] and a.profession != r["profession"] and not labor.no_professions(ctx.cfg):
         raise ActionError(f"only a {r['profession']} can make {args.recipe}")
     need = {k: v * args.times for k, v in r["inputs"].items()}
     _need(a.inventory, need)
@@ -264,7 +266,8 @@ def eat(ctx: Ctx, a: Agent, args: EatArgs) -> None:
     ctx.emit("eat", f"You ate {args.qty} {args.item}. Satiety {a.satiety}.", actor=a.name, to=[a.name])
 
 
-@ACTIONS.action("sleep", "Go to sleep until morning. Sleeping at home restores health.")
+@ACTIONS.action("sleep", "Go to sleep until morning (you skip the rest of the day). Health comes back at night if you spend "
+                 "the night at home and are not too hungry, asleep or awake.")
 def sleep(ctx: Ctx, a: Agent, args) -> None:
     a.asleep = True
     a.task = None

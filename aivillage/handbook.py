@@ -12,7 +12,7 @@ Both are computed facts from rules the model already has; switching the hint off
 
 from __future__ import annotations
 
-from . import crafting, progress
+from . import crafting, labor, progress
 from .registry import ACTIONS
 
 INTRO = ("Handbook of this world: everything a villager can do. Every villager has the same list, and so do you; "
@@ -80,25 +80,34 @@ def observe(world, name: str) -> dict:
         return {}
     a = world.agents[name]
     inv = a.inventory
+    # Goods in the villager's own chest at home count too (Dmitri starved with 14 grain in his chest).
+    chest = world.chests.get(f"chest_{name}")
+    stored = {k: v for k, v in (chest.items if chest else {}).items() if v > 0}
+    both = {k: inv.get(k, 0) + stored.get(k, 0) for k in set(inv) | set(stored)}
     can = {}
     for rid, r in cfg["recipes"].items():
-        if r.get("profession") and r["profession"] != a.profession:
+        if not crafting.profession_ok(world, a, r) or labor.mastery_gate(cfg, a, rid, r):
             continue
         if not progress.unlocked(world, f"recipe:{rid}"):
             continue
         if not crafting.may_make(world, a, rid):  # secret recipes: someone else knows it
             continue
-        times = min((inv.get(k, 0) // n for k, n in r["inputs"].items() if n > 0), default=0)
+        times = min((both.get(k, 0) // n for k, n in r["inputs"].items() if n > 0), default=0)
         if times > 0:
-            can[rid] = {"times": times, "where": "your home" if r["where"] == "home" else r["where"]}
+            row = {"times": times, "where": "your home" if r["where"] == "home" else r["where"]}
+            pocket = min((inv.get(k, 0) // n for k, n in r["inputs"].items() if n > 0), default=0)
+            if pocket < times:
+                row["take_first"] = f"{times - pocket} of these need goods from your chest at home (take them first)"
+            can[rid] = row
     items = cfg["items"]
     raw = {}
-    for item, qty in inv.items():
+    for item, qty in sorted(both.items()):
         if qty <= 0 or items.get(item, {}).get("food"):
             continue
         into = [rid for rid, r in cfg["recipes"].items() if item in r["inputs"] and items.get(rid, {}).get("food")]
         if into:
-            raw[item] = "not food; an ingredient of " + ", ".join(into)
+            where = f" ({stored[item]} in your chest at home)" if stored.get(item) else ""
+            raw[item] = "not food; an ingredient of " + ", ".join(into) + where
     out = {}
     if can:
         out["can_craft_now"] = can
