@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/danel-beep/ai_village/main/scripts/
 ## Запуск (для разработки)
 
 ```bash
-pip install pydantic pytest
+pip install -e ".[live,dev]"   # всё для игры и тестов
 python -m aivillage.run --days 10 --bots worker,worker,thief,worker,random --log runs/demo.jsonl --fire-day 3
 python -m aivillage.run --replay runs/demo.jsonl     # проверить, что лог воспроизводится один в один
 python -m pytest -q

@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: aivillage
+Version: 0.1.0
+Summary: A village simulation where every villager is an LLM agent
+Requires-Python: >=3.11
+Requires-Dist: pydantic>=2
+Requires-Dist: pyyaml>=6
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-xdist>=3; extra == "dev"
+Requires-Dist: httpx>=0.27; extra == "dev"
+Provides-Extra: live
+Requires-Dist: fastapi>=0.110; extra == "live"
+Requires-Dist: uvicorn>=0.29; extra == "live"
+Requires-Dist: websockets>=12; extra == "live"
