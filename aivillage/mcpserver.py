@@ -147,23 +147,33 @@ def wants_page(request: Request) -> bool:
 
 
 def mount(app: FastAPI, hub: remote.Hub | None = None) -> None:
-    hub_of = (lambda: hub) if hub is not None else (lambda: remote.HUB)
+    """`hub`: serve this one hub only (tests); default every hub of the process (the host's village and each
+    tournament, remote.hubs())."""
 
     def seat_or_404(code: str) -> remote.Seat | None:
-        return hub_of().get(code)
+        return hub.get(code) if hub is not None else remote.find_seat(code)
 
     def lobby_or_404(lobby: str) -> remote.Hub:
-        h = hub_of()
-        if not h.seats or not h.lobby or not secrets.compare_digest(h.lobby, lobby):
+        code = str(lobby or "").strip().upper()
+        if hub is not None:
+            h = hub if hub.seats and hub.lobby and secrets.compare_digest(hub.lobby.encode(), code.encode()) else None
+        else:
+            h = remote.find_lobby(code)
+        if h is None:
             raise HTTPException(404, "Эта ссылка-приглашение устарела: попросите у хозяина деревни новую.")
         return h
 
     # --- lobby (registered before /mcp/{code} so "join" is never taken for a seat code) ---
 
+    @app.get("/mcp/join")
+    def lobby_by_code() -> Response:
+        """Type the lobby's code instead of opening its link."""
+        return page({"mode": "code"})
+
     @app.get("/mcp/join/{lobby}")
     def lobby_page(lobby: str) -> Response:
         h = lobby_or_404(lobby)
-        return page({"mode": "lobby", "base": f"/mcp/join/{lobby}", "session": h.session})
+        return page({"mode": "lobby", "base": f"/mcp/join/{h.lobby}", "code": h.lobby, "session": h.session})
 
     @app.get("/mcp/join/{lobby}/state")
     def lobby_state(lobby: str, claim: str = "") -> dict:

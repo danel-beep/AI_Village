@@ -150,7 +150,6 @@
   }
 
   Promise.all([getJson('/api/setup'), getJson('/api/saves'), getJson('/api/scenarios')]).then(([info, sv, sc]) => {
-    if (info.lobby && !info.running) { location.href = info.lobby; return; }  // a «MCP-турнир» is gathering its players
     if (info.running) {
       if (/^#(home|new|cont|lab|past)$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
       restartButton(info);
@@ -321,6 +320,7 @@
           <button class="go" id="su-go">▶ Играть</button>
           <button class="small" id="su-reset">Сбросить к пресету</button>
           <div class="msg" id="su-msg"></div>
+          <div class="hint" id="su-tour" hidden></div>
         </div>
       </div>
       <div class="page" id="pg-cont" hidden><div id="su-saves-slot"></div></div>
@@ -706,6 +706,13 @@
     setView(view);
 
     $('su-reset').onclick = () => { touched = new Set(); set(byKey.preset, values.preset); };
+    // «MCP-турнир»: lobbies gathering or playing right now, each with its own code (several at once)
+    const tours = info.tournaments || [];
+    if (tours.length) {
+      $('su-tour').hidden = false;
+      $('su-tour').innerHTML = '🏆 Турниры сейчас: ' + tours.map(t => `<a href="${t.lobby}">код ${t.code}</a> ` +
+        `(${t.phase === 'lobby' ? `сбор, готовы ${t.ready} из ${t.places}` : t.finished ? 'окончен' : 'идёт'})`).join(', ');
+    }
     $('su-go').onclick = () => {
       const go = $('su-go');
       go.disabled = true; $('su-msg').textContent = ''; $('su-msg').className = 'msg';

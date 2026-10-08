@@ -354,7 +354,7 @@ class Hub:
             self.wait_s = max(0.0, float(wait_minutes)) * 60
             self.style = style if style in STYLES else "owner"
             self.info = {"started": time.strftime("%Y-%m-%d %H:%M"), **(info or {})}
-            self.lobby = secrets.token_urlsafe(9)
+            self.lobby = lobby_code()
             self.world = None
             self.phase, self.prepared = "game", False
 
@@ -422,7 +422,7 @@ class Hub:
             return seat
 
     def by_claim(self, claim: str) -> Seat | None:
-        return next((s for s in self.seats.values() if claim and secrets.compare_digest(s.claim, str(claim))), None)
+        return next((s for s in self.seats.values() if claim and secrets.compare_digest(s.claim.encode(), str(claim).encode())), None)
 
     def release(self, seat: Seat) -> None:
         """The seat is free again (the player left, or the host freed it). A connected AI keeps playing it."""
@@ -473,7 +473,45 @@ class Hub:
                 "seats": [s.status() for s in self.seats.values()]}
 
 
-HUB = Hub()
+def lobby_code() -> str:
+    """A short invite code a person can read out or type: 8 letters and digits without look-alikes (32^8)."""
+    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
+
+
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+MAX_TOURNAMENTS = 20  # lobbies and their villages kept at once; the oldest finished ones go first
+
+HUB = Hub()  # own-AI seats of the host's own village (start screen «Свои ИИ»)
+HUBS: dict[str, Hub] = {}  # «MCP-турнир»: one hub per tournament, by session, each with its own invite code
+
+
+def new_tournament(places: int, *, wait_minutes: float = 5, info: dict | None = None) -> Hub:
+    """A new tournament lobby next to every other one: its own invite code, places and (later) village."""
+    done = [h for h in HUBS.values() if h.closed]
+    for h in done[:max(0, len(HUBS) + 1 - MAX_TOURNAMENTS)]:
+        HUBS.pop(h.session, None)
+    if len(HUBS) >= MAX_TOURNAMENTS:
+        raise ValueError(f"Уже идёт {len(HUBS)} турниров: закончите или отмените один из них.")
+    hub = Hub()
+    hub.open_lobby(places, wait_minutes=wait_minutes, info=info)
+    while hub.session in HUBS:
+        hub.session = secrets.token_hex(3)
+    HUBS[hub.session] = hub
+    return hub
+
+
+def hubs() -> list[Hub]:
+    return [HUB, *HUBS.values()]
+
+
+def find_seat(code: str) -> Seat | None:
+    return next((s for s in (h.get(code) for h in hubs()) if s is not None), None)
+
+
+def find_lobby(code: str) -> Hub | None:
+    """The hub whose invite code this is (any case), or None."""
+    code = str(code or "").strip().upper()
+    return next((h for h in hubs() if h.seats and h.lobby and secrets.compare_digest(h.lobby.encode(), code.encode())), None)
 
 
 class RemoteClient:
