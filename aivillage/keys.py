@@ -3,7 +3,11 @@
 One JSON file, `<home>/settings.json` (home: env AIVILLAGE_HOME, else ~/AIVillage):
 
     {"provider": "auto|openai|openrouter", "model": "openai/gpt-6-luna",
-     "openai_key": "sk-...", "openrouter_key": "sk-or-...", "parallel": 16, "openai_tier": "flex|default"}
+     "openai_key": "sk-...", "openrouter_key": "sk-or-...", "parallel": 16, "openai_tier": "flex|default",
+     "content_lang": "ru|en", "narration": "off|on", "tts_voice": "cedar"}
+
+`content_lang` is the language of highlights and highlight clips (the text a spectator reads), `narration`
+turns the narrator's voice in clips on (OpenAI text-to-speech, needs the OpenAI key), `tts_voice` picks the voice.
 
 Values in the file win over environment variables (OPENAI_API_KEY, OPENROUTER_API_KEY,
 AIVILLAGE_PROVIDER, AIVILLAGE_MODEL), so a key changed in the viewer's settings panel takes
@@ -19,10 +23,15 @@ import threading
 from pathlib import Path
 
 PROVIDERS = ("auto", "openai", "openrouter")
-FIELDS = ("provider", "model", "openai_key", "openrouter_key", "parallel", "openai_tier")
+FIELDS = ("provider", "model", "openai_key", "openrouter_key", "parallel", "openai_tier",
+          "content_lang", "narration", "tts_voice")
 ENV = {"openai_key": "OPENAI_API_KEY", "openrouter_key": "OPENROUTER_API_KEY",
        "provider": "AIVILLAGE_PROVIDER", "model": "AIVILLAGE_MODEL", "parallel": "AIVILLAGE_MAX_PARALLEL",
-       "openai_tier": "AIVILLAGE_OPENAI_TIER"}
+       "openai_tier": "AIVILLAGE_OPENAI_TIER", "content_lang": "AIVILLAGE_CONTENT_LANG",
+       "narration": "AIVILLAGE_NARRATION", "tts_voice": "AIVILLAGE_TTS_VOICE"}
+LANGS = ("ru", "en")
+# OpenAI text-to-speech voices (gpt-4o-mini-tts); marin and cedar are the newest and most natural.
+VOICES = ("cedar", "marin", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "alloy")
 
 _lock = threading.Lock()
 _cache: dict[str, tuple[float, dict]] = {}
@@ -81,6 +90,12 @@ def save(changes: dict, h: Path | None = None) -> dict:
         raise ValueError(f"provider must be one of {PROVIDERS}")
     if data.get("openai_tier") not in (None, "flex", "default"):
         raise ValueError("openai_tier must be flex or default")
+    if data.get("content_lang") not in (None, *LANGS):
+        raise ValueError(f"content_lang must be one of {LANGS}")
+    if data.get("narration") not in (None, "on", "off"):
+        raise ValueError("narration must be on or off")
+    if data.get("tts_voice") not in (None, *VOICES):
+        raise ValueError(f"tts_voice must be one of {VOICES}")
     if "parallel" in data:
         data["parallel"] = max(1, min(64, int(data["parallel"])))
     h.mkdir(parents=True, exist_ok=True)
@@ -110,6 +125,21 @@ def provider(h: Path | None = None) -> str:
     return p if p in PROVIDERS else "auto"
 
 
+def content_lang(h: Path | None = None) -> str:
+    """Language of highlights and clips: "ru" (default) or "en"."""
+    v = (get("content_lang", h) or "ru").lower()
+    return v if v in LANGS else "ru"
+
+
+def narration_on(h: Path | None = None) -> bool:
+    return (get("narration", h) or "off").lower() == "on"
+
+
+def tts_voice(h: Path | None = None) -> str:
+    v = (get("tts_voice", h) or VOICES[0]).lower()
+    return v if v in VOICES else VOICES[0]
+
+
 def has_any_key(h: Path | None = None) -> bool:
     return bool(get("openai_key", h) or get("openrouter_key", h))
 
@@ -125,7 +155,8 @@ def public(h: Path | None = None) -> dict:
     """Settings for the viewer: keys masked, plus where each value came from."""
     saved = load(h)
     out: dict = {"provider": provider(h), "model": get("model", h) or "", "parallel": get("parallel", h) or "",
-                 "openai_tier": get("openai_tier", h) or "flex"}
+                 "openai_tier": get("openai_tier", h) or "flex", "content_lang": content_lang(h),
+                 "narration": "on" if narration_on(h) else "off", "tts_voice": tts_voice(h), "voices": list(VOICES)}
     for k in ("openai_key", "openrouter_key"):
         v = get(k, h)
         out[k] = {"set": bool(v), "masked": mask(v), "from": "file" if saved.get(k) else ("env" if v else "")}

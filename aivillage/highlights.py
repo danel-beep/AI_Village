@@ -3,10 +3,11 @@ viewer can rewind to it ("⭐ Хайлайты").
 
     python -m aivillage.highlights runs/x.jsonl                # -> runs/x.highlights.json
     python -m aivillage.highlights runs/x.jsonl --model stub   # offline: picked by rules, no key
+    python -m aivillage.highlights runs/x.jsonl --lang en      # English titles (for English clips)
 
 Reads only log records, like summary.py (whose digest gives the model context and whose client it reuses).
 Candidates are scored log events (theft, fire, debts, deals...); the model picks among them by number and
-writes a Russian title and a line for each. If the model is off or answers nonsense, the rules pick.
+writes a title and a line for each, in Russian or English (`keys.content_lang`, `--lang`). If the model is off or answers nonsense, the rules pick.
 """
 
 from __future__ import annotations
@@ -75,12 +76,41 @@ TITLES = {
     "sell": "Продажа", "buy": "Покупка", "order": "Новый заказ",
 }
 
+# The same titles for English clips (keys.content_lang == "en").
+TITLES_EN = {
+    "announcement": "Announcement", "arson_seen": "Arson", "audit_clean": "Treasury checks out", "build": "Building",
+    "build_work": "Work on the build", "buy": "A purchase", "candidate": "Running for mayor", "craft": "Crafting",
+    "crisis": "Trouble in the village", "crop_failed": "The harvest failed", "death": "A death",
+    "debt_claim": "Complaint to the mayor", "debt_collected": "The mayor collects a debt", "debt_forgiven": "Debt forgiven",
+    "debt_rejected": "The mayor says no", "debt_seized": "Debt seized", "debt_transferred": "Debt sold on",
+    "decline": "Turned down", "default": "An unpaid debt", "dice": "Dice for coins", "discharged": "Out of hospital",
+    "divorce": "Divorce", "drought": "Drought", "elected": "A new mayor", "election": "Election",
+    "election_day": "Election day", "embezzle": "Secretly took from the treasury", "embezzlement_found": "The mayor robbed the treasury",
+    "evicted": "Evicted", "exile_over": "Exile is over", "extinguish": "Fighting the fire", "feast": "A feast",
+    "fight": "A fight", "fire": "Fire", "fire_grows": "The fire spreads", "fire_out": "The fire is out",
+    "fund_project": "Treasury money for a build", "gift": "A gift from the gods", "give": "A gift",
+    "god_treasure": "Buried treasure", "gossip": "A rumor", "gossip_heard": "A rumor", "hang_out": "Time together",
+    "hospital": "In hospital", "house_burned": "A house burned down", "inheritance": "Inheritance",
+    "land_bought": "Bought land", "land_offer": "Land for sale", "land_sold": "Sold land", "law_failed": "A law fails",
+    "law_passed": "A new law", "law_proposed": "A law is proposed", "lend": "A loan", "letter": "A letter",
+    "lock": "A lock", "offer": "An offer", "order": "A new order", "overheard": "Overheard", "plant": "Planting",
+    "pledge_forfeited": "The pledge is lost", "praise": "Praise on the honor board", "project_done": "A village build is done",
+    "promise": "An IOU", "proposal": "A marriage proposal", "proposal_refused": "Proposal refused", "rats": "Rats",
+    "repay": "Debt repaid", "robbed": "Robbed", "say": "A talk", "sell": "A sale", "set_fire": "Arson",
+    "share": "Shared with all", "sick": "Sickness", "starving": "Hunger", "steal": "Theft",
+    "steal_attempt": "A theft attempt", "take_shared": "Took from the common store", "tax": "Tax",
+    "theft_report": "Theft reported", "title_given": "A title", "tool_broke": "A tool broke", "trade": "A deal",
+    "unshare": "Took back their own", "wedding": "A wedding", "whisper": "A whisper", "whisper_seen": "A whisper overheard",
+    "witness": "Saw a theft", "work_started": "A new build",
+}
+LANG_NAMES = {"ru": "Russian", "en": "English"}
+
 PROMPT = """You pick the highlights of one day in a village life simulation where every villager is an AI.
 Input: numbered candidate moments ("#3 D2 09:00 [steal] ...") and, for context, a digest of the day with
 villagers' private thoughts, actions and speech. Choose the 3-5 most dramatic, surprising or story-worthy
 moments for a human spectator: betrayal, theft, lies (thought differs from what was said), fires, debts,
 alliances, quarrels, generosity, someone in trouble. Prefer different stories over repeats of one.
-For each write in Russian a title (at most 6 words) and one or two sentences with concrete names.
+For each write in {language} a title (at most 6 words) and one or two sentences with concrete names.
 Write only what the candidate and the digest show: an intention or a failed action did not happen, and
 the text must be about the moment of its own id (not another hour).
 Answer ONLY a JSON object: {"highlights": [{"id": 3, "title": "...", "text": "..."}]}"""
@@ -137,41 +167,53 @@ def by_rules(cands: list[dict], n: int = MAX_PICKS) -> list[int]:
     return sorted(picked, key=lambda k: cands[k]["tick"])
 
 
-def _item(c: dict, title: str | None = None, text: str | None = None) -> dict:
-    return {"tick": c["tick"], "day": c["day"], "hour": c["hour"], "time": f"день {c['day']}, {c['hour']:02d}:{c.get('minute', 0):02d}",
-            "kind": c["kind"], "score": c["score"], "who": c["who"], "title": title or TITLES.get(c["kind"], c["kind"]),
-            "text": text or c["event"] + (f" (×{c['times']} за день)" if c["times"] > 1 else ""),
-            "event": c["event"], "times": c["times"]}
+def _item(c: dict, title: str | None = None, text: str | None = None, lang: str = "ru") -> dict:
+    en = lang == "en"
+    hm = f"{c['hour']:02d}:{c.get('minute', 0):02d}"
+    times = (f" (×{c['times']} that day)" if en else f" (×{c['times']} за день)") if c["times"] > 1 else ""
+    return {"tick": c["tick"], "day": c["day"], "hour": c["hour"], "time": f"day {c['day']}, {hm}" if en else f"день {c['day']}, {hm}",
+            "kind": c["kind"], "score": c["score"], "who": c["who"],
+            "title": title or (TITLES_EN if en else TITLES).get(c["kind"], c["kind"]),
+            "text": text or c["event"] + times, "event": c["event"], "times": c["times"]}
 
 
 class Highlighter:
-    def __init__(self, client: Client | None, cfg: dict | None = None):
-        """`client=None` or a stub: rules only, no model call."""
+    def __init__(self, client: Client | None, cfg: dict | None = None, lang: str | None = None):
+        """`client=None` or a stub: rules only, no model call. `lang`: "ru" / "en"; None = the player's
+        setting (keys.content_lang), read on every pick so a change in the settings panel applies to the next day."""
         self.client = None if client is None or isinstance(client, StubSummaryClient) else client
         self.cfg = cfg
+        self.lang = lang
         self.cost_usd = 0.0
+
+    def language(self) -> str:
+        if self.lang in LANG_NAMES:
+            return self.lang
+        from . import keys
+        return keys.content_lang()
 
     def pick(self, ticks: list[dict]) -> dict | None:
         """Highlights of these ticks (normally one game day), or None if nothing dramatic happened."""
         cands = candidates(ticks, self.cfg)
         if not ticks or not cands:
             return None
-        items, cost, source = self._ask(ticks, cands) if self.client else ([], 0.0, "rules")
+        lang = self.language()
+        items, cost, source = self._ask(ticks, cands, lang) if self.client else ([], 0.0, "rules")
         if len(items) < min(MIN_PICKS, len(by_rules(cands))):
-            items, source = [_item(cands[k]) for k in by_rules(cands)], "rules"
+            items, source = [_item(cands[k], lang=lang) for k in by_rules(cands)], "rules"
         if not items:
             return None
         day = when(ticks[0], self.cfg)[0]
         return {"day": day, "from_tick": ticks[0]["tick"], "to_tick": ticks[-1]["tick"], "source": source,
-                "items": items, "cost_usd": cost}
+                "items": items, "cost_usd": cost, "lang": lang}
 
-    def _ask(self, ticks: list[dict], cands: list[dict]) -> tuple[list[dict], float, str]:
+    def _ask(self, ticks: list[dict], cands: list[dict], lang: str = "ru") -> tuple[list[dict], float, str]:
         listing = "\n".join(f"#{k} D{c['day']} {c['hour']:02d}:{c.get('minute', 0):02d} [{c['kind']}] {c['event'][:200]}"
                             + (f" (x{c['times']} that day)" if c["times"] > 1 else "")
                             for k, c in enumerate(cands))
         text = f"Candidates:\n{listing}\n\nDigest:\n{digest(ticks, CONTEXT_LINES, self.cfg)}"
         try:
-            reply, usage = self.client.complete([{"role": "system", "content": PROMPT},
+            reply, usage = self.client.complete([{"role": "system", "content": PROMPT.replace("{language}", LANG_NAMES[lang])},
                                                  {"role": "user", "content": text}])
         except Exception:  # a failed call falls back to the rules; highlights never stop the village
             return [], 0.0, "rules"
@@ -190,7 +232,7 @@ class Highlighter:
                 continue
             used.add(k)
             title, line = str(h.get("title") or "").strip()[:80], str(h.get("text") or "").strip()[:400]
-            items.append(_item(cands[k], title or None, line or None))
+            items.append(_item(cands[k], title or None, line or None, lang))
             if len(items) >= MAX_PICKS:
                 break
         return sorted(items, key=lambda it: it["tick"]), cost, "model"
@@ -211,11 +253,13 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Highlights (3-5 dramatic moments) per game day of a finished log.")
     p.add_argument("log")
     p.add_argument("--model", default=DEFAULT_MODEL, help="OpenRouter id, 'default' or 'stub' (rules only)")
+    p.add_argument("--lang", choices=sorted(LANG_NAMES), default=None,
+                   help="language of titles and lines (default: the settings panel's, else ru)")
     a = p.parse_args(argv)
     from .run import read_log
     recs = list(read_log(a.log))
     cfg = recs[0].get("config") if recs and recs[0].get("type") == "header" else None
-    h = Highlighter(make_client(a.model), cfg)
+    h = Highlighter(make_client(a.model), cfg, a.lang)
     days = [r for day in by_day(ticks_of(recs), cfg) if (r := h.pick(day))]
     out = write_sidecar(a.log, days)
     for d in days:

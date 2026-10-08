@@ -5,6 +5,9 @@
 // a beat, the cuts on the downbeat, a hit on every new moment).
 // Shape: a hook (the strongest moment), 4.8 s per moment (fast up to it, slow motion and a punch-in on it, the
 // villager's words typed out), then the totals of the period and a call to follow the village.
+// Language of the text in the clip (RU / EN) and the narrator's voice come from the settings panel (keys.py
+// content_lang / narration): with «Озвучка» on, POST /api/narration (aivillage/narration.py) returns a line per
+// moment read by OpenAI TTS, mixed over the music with the music ducked under the voice.
 // A clip spec: { key, label, from, to, items: [{tick, title, line, who, kind, score}] } (a day: highlights.js, a week:
 // viewer/reel.js). Uses the viewer globals ticks / i / frac / playing / userPaused / selected / lastPanel / header /
 // color / tr / g and Camera / PixelMap; the viewer's loop() draws nothing while Clip.busy().
@@ -21,11 +24,21 @@ const Clip = (() => {
     overheard: '👂', whisper_seen: '👂', announcement: '📣', embezzlement_found: '🕵️', embezzle: '🕵️',
     land_bought: '🏡', land_sold: '🏡', inheritance: '📜', work_started: '🔨', project_done: '🏗️', god_treasure: '✨' };
   const VIOLENT = new Set(['fire', 'set_fire', 'arson_seen', 'house_burned', 'fight', 'steal', 'robbed', 'death']);
-  // Totals for the end card: [label forms (1, 2-4, 5+), kinds]
-  const STATS = [[['кража', 'кражи', 'краж'], ['steal']], [['пожар', 'пожара', 'пожаров'], ['fire', 'set_fire']],
-    [['драка', 'драки', 'драк'], ['fight']], [['свадьба', 'свадьбы', 'свадеб'], ['wedding']],
-    [['смерть', 'смерти', 'смертей'], ['death']], [['выселение', 'выселения', 'выселений'], ['evicted']],
-    [['сделка', 'сделки', 'сделок'], ['trade']], [['подарок', 'подарка', 'подарков'], ['gift', 'give']]];
+  // Totals for the end card: [kinds, label forms ru (1, 2-4, 5+), en (1, many)]
+  const STATS = [[['steal'], ['кража', 'кражи', 'краж'], ['theft', 'thefts']],
+    [['fire', 'set_fire'], ['пожар', 'пожара', 'пожаров'], ['fire', 'fires']],
+    [['fight'], ['драка', 'драки', 'драк'], ['fight', 'fights']], [['wedding'], ['свадьба', 'свадьбы', 'свадеб'], ['wedding', 'weddings']],
+    [['death'], ['смерть', 'смерти', 'смертей'], ['death', 'deaths']],
+    [['evicted'], ['выселение', 'выселения', 'выселений'], ['eviction', 'evictions']],
+    [['trade'], ['сделка', 'сделки', 'сделок'], ['deal', 'deals']], [['gift', 'give'], ['подарок', 'подарка', 'подарков'], ['gift', 'gifts']]];
+  // Text drawn into the clip, per language (the viewer's own messages stay Russian).
+  const T = {
+    ru: { day: n => `День ${n}`, week: n => `Неделя ${n}`, villagers: n => `${n} жителей. `, ai: 'Все они ИИ. Никакого сценария.',
+      sumDay: 'Итоги дня', sumWeek: 'Итоги недели', quiet: 'Тихо. Слишком тихо…', rich: 'Богаче всех', coins: ['монета', 'монеты', 'монет'],
+      next: 'Что будет дальше?', follow: 'Подписывайтесь 👀', q: s => '«' + s + '»' },
+    en: { day: n => `Day ${n}`, week: n => `Week ${n}`, villagers: n => `${n} villagers. `, ai: 'All of them AI. No script.',
+      sumDay: 'Day in numbers', sumWeek: 'Week in numbers', quiet: 'Quiet. Too quiet…', rich: 'Richest', coins: ['coin', 'coins'],
+      next: 'What happens next?', follow: 'Follow the village 👀', q: s => '“' + s + '”' } };
 
   const css = document.createElement('style');
   css.textContent = `
@@ -56,7 +69,11 @@ const Clip = (() => {
   const supported = () => !!(window.VideoEncoder && window.VideoFrame && window.Mp4Muxer);
   const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
   const ease = u => 1 - (1 - clamp(u)) ** 3;
-  const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2];
+  const plural = (n, f) => f.length === 2 ? f[n === 1 ? 0 : 1]
+    : f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2];
+  // "День 3" / "Неделя 2" from the highlights panel, in the clip's language
+  const labelOf = J => { const n = (String(J.spec.label).match(/\d+/) || [''])[0];
+    return n ? (J.spec.days > 1 ? J.t.week(n) : J.t.day(n)) : J.spec.label; };
   const icon = it => ICON[it.kind] || '⭐';
 
   // ---------- drawing ----------
@@ -95,7 +112,7 @@ const Clip = (() => {
     o.imageSmoothingEnabled = false; o.fillStyle = '#2a3a24'; o.fillRect(0, 0, OW, OH);
     o.drawImage(cv, sx, sy, cw, ch, dx, dy, OW, OH);
   }
-  const clock = t => `День ${t.view.day} · ${String(t.view.hour).padStart(2, '0')}:${String(t.view.minute || 0).padStart(2, '0')}`;
+  const clock = (J, t) => `${J.t.day(t.view.day)} · ${String(t.view.hour).padStart(2, '0')}:${String(t.view.minute || 0).padStart(2, '0')}`;
 
   function hook(J, el) {   // first seconds: the strongest moment, big
     const top = J.top.it, a = clamp(el / .35), s = 1.12 - .12 * ease(el / .5);
@@ -103,9 +120,9 @@ const Clip = (() => {
     o.save(); o.translate(OW / 2, OH / 2); o.scale(s, s); o.translate(-OW / 2, -OH / 2); o.globalAlpha = a;
     o.textAlign = 'center'; o.textBaseline = 'alphabetic';
     const pop = header && header.config.agents.length;   // the villager stays visible in the middle, words above and below
-    o.font = '800 30px system-ui, sans-serif'; text([`AI VILLAGE · ${J.spec.label.toUpperCase()}`], OW / 2, 170, 36, '#f2c14e', 6);
+    o.font = '800 30px system-ui, sans-serif'; text([`AI VILLAGE · ${labelOf(J).toUpperCase()}`], OW / 2, 170, 36, '#f2c14e', 6);
     o.font = '700 34px system-ui, sans-serif';
-    text(wrap(`${pop ? pop + ' жителей. ' : ''}Все они ИИ. Никакого сценария.`, OW - 120, 2), OW / 2, 226, 42, '#e8efe9', 6);
+    text(wrap(`${pop ? J.t.villagers(pop) : ''}${J.t.ai}`, OW - 120, 2), OW / 2, 226, 42, '#e8efe9', 6);
     o.font = '900 84px system-ui, sans-serif'; text([icon(top)], OW / 2, OH - 380, 90, '#fff', 0);
     o.font = '900 72px system-ui, sans-serif';
     text(wrap(top.title, OW - 90, 2), OW / 2, OH - 290, 80, '#ffffff', 10);
@@ -116,7 +133,7 @@ const Clip = (() => {
     band(0, 340, true); band(OH - 470, OH, false, .92);
     o.textAlign = 'left'; o.textBaseline = 'alphabetic';
     o.font = '800 26px system-ui, sans-serif'; text(['AI VILLAGE'], 40, 62, 30, '#f2c14e', 5);
-    o.textAlign = 'right'; o.font = '600 26px system-ui, sans-serif'; text([clock(t)], OW - 40, 62, 30, '#cfe3d6', 5);
+    o.textAlign = 'right'; o.font = '600 26px system-ui, sans-serif'; text([clock(J, t)], OW - 40, 62, 30, '#cfe3d6', 5);
     o.textAlign = 'left';
     const gw = (OW - 80 - (n - 1) * 8) / n;   // one progress segment per moment
     for (let j = 0; j < n; j++) {
@@ -148,8 +165,8 @@ const Clip = (() => {
     const a = clamp(el / .4);
     o.fillStyle = `rgba(14,18,16,${.8 * a})`; o.fillRect(0, 0, OW, OH);
     o.globalAlpha = a; o.textAlign = 'center'; o.textBaseline = 'alphabetic';
-    o.font = '800 30px system-ui, sans-serif'; text([`AI VILLAGE · ${J.spec.label.toUpperCase()}`], OW / 2, 250, 36, '#f2c14e', 6);
-    o.font = '900 60px system-ui, sans-serif'; text([J.spec.days > 1 ? 'Итоги недели' : 'Итоги дня'], OW / 2, 330, 66, '#fff', 8);
+    o.font = '800 30px system-ui, sans-serif'; text([`AI VILLAGE · ${labelOf(J).toUpperCase()}`], OW / 2, 250, 36, '#f2c14e', 6);
+    o.font = '900 60px system-ui, sans-serif'; text([J.spec.days > 1 ? J.t.sumWeek : J.t.sumDay], OW / 2, 330, 66, '#fff', 8);
     const st = J.stats;
     st.top.forEach(([n, label], k) => {   // up to 4 big numbers, 2 x 2, popping in one after another
       const p = ease((el - .25 - k * .18) / .3); if (p <= 0) return;
@@ -160,25 +177,26 @@ const Clip = (() => {
     });
     o.globalAlpha = a;
     let y = 470 + Math.ceil(st.top.length / 2) * 190 + (st.top.length ? 0 : -60);
-    if (!st.top.length) { o.font = '700 40px system-ui, sans-serif'; y = text(['Тихо. Слишком тихо…'], OW / 2, y, 48, '#e8efe9', 6); }
-    if (st.rich) { o.font = '600 32px system-ui, sans-serif'; y = text(wrap(`💰 Богаче всех: ${st.rich}`, OW - 100, 2), OW / 2, y + 20, 42, '#cfe3d6', 6); }
+    if (!st.top.length) { o.font = '700 40px system-ui, sans-serif'; y = text([J.t.quiet], OW / 2, y, 48, '#e8efe9', 6); }
+    if (st.rich) { o.font = '600 32px system-ui, sans-serif'; y = text(wrap(`💰 ${J.t.rich}: ${st.rich}`, OW - 100, 2), OW / 2, y + 20, 42, '#cfe3d6', 6); }
     const p = ease((el - 1.2) / .4);
     o.globalAlpha = a * p; o.font = '900 46px system-ui, sans-serif';
-    text(wrap('Что будет дальше?', OW - 80, 2), OW / 2, OH - 260, 54, '#ffffff', 8);
-    o.font = '700 32px system-ui, sans-serif'; text(['Подписывайтесь 👀'], OW / 2, OH - 200, 40, '#f2c14e', 6);
+    text(wrap(J.t.next, OW - 80, 2), OW / 2, OH - 260, 54, '#ffffff', 8);
+    o.font = '700 32px system-ui, sans-serif'; text([J.t.follow], OW / 2, OH - 200, 40, '#f2c14e', 6);
     o.globalAlpha = 1;
   }
 
   // ---------- what goes into a clip ----------
   // Latest words (or else thought) of the moment's villager up to the tick on screen.
-  function quoteOf(who, upto, from) {
+  function quoteOf(J, who, upto, from) {   // the log's own words are English; Russian clips use the translation
     if (!who) return null;
     for (let k = upto; k >= from; k--) {
       const d = ((ticks[k] || {}).decisions || {})[who]; if (!d) continue;
       const act = d.action || {}, args = act.args || {};
       const said = d.say || (act.name === 'say' || act.name === 'whisper') && args.text;
-      if (said) return { who, raw: said, text: '«' + tr(said) + '»' };
-      if (d.thought) return { who, raw: d.thought, text: '💭 ' + tr(d.thought) };
+      const say = x => J.lang === 'en' ? x : tr(x);
+      if (said) return { who, raw: said, text: J.t.q(say(said)) };
+      if (d.thought) return { who, raw: d.thought, text: '💭 ' + say(d.thought) };
     }
     return null;
   }
@@ -199,7 +217,7 @@ const Clip = (() => {
     for (let j = 1; j < 4; j++) if (u <= T[j]) return G[j - 1] + (G[j] - G[j - 1]) * (u - T[j - 1]) / (T[j] - T[j - 1]);
     return 1;
   }
-  function stats(spec, shots) {
+  function stats(J, spec, shots) {
     const lo = spec.from || ticks[shots[0].a].view.day, hi = spec.to || ticks[shots[shots.length - 1].b].view.day;
     const count = {}; let last = null;
     for (const t of ticks) {
@@ -207,13 +225,14 @@ const Clip = (() => {
       last = t;
       for (const e of t.events || []) count[e.kind] = (count[e.kind] || 0) + 1;
     }
-    const top = STATS.map(([f, kinds]) => [kinds.reduce((s, k) => s + (count[k] || 0), 0), f])
+    const en = J.lang === 'en';
+    const top = STATS.map(([kinds, ru, enf]) => [kinds.reduce((s, k) => s + (count[k] || 0), 0), en ? enf : ru])
       .filter(([n]) => n > 0).slice(0, 4).map(([n, f]) => [n, plural(n, f)]);
     let rich = null;
     if (last) {
       const alive = Object.entries(last.view.agents).filter(([, v]) => v.status !== 'dead');
       const best = alive.sort((p, q) => (q[1].coins || 0) - (p[1].coins || 0))[0];
-      if (best && best[1].coins > 0) rich = `${best[0]}, ${best[1].coins} ${plural(best[1].coins, ['монета', 'монеты', 'монет'])}`;
+      if (best && best[1].coins > 0) rich = `${best[0]}, ${best[1].coins} ${plural(best[1].coins, J.t.coins)}`;
     }
     return { top, rich };
   }
@@ -271,6 +290,7 @@ const Clip = (() => {
       hiss(t - BEAT * 2, BEAT * 2, .09, 'bandpass', 400, 6000);
       osc('sine', 70, t, 1.1, .7, .002, 38); hiss(t, .5, .16, 'lowpass', 3000);
     }
+    voiceOver(J, ac, master, comp, end);
     return ac.startRendering();
   }
   async function encodeAudio(buf, muxer, codec) {
@@ -345,7 +365,7 @@ const Clip = (() => {
       const z = 1.3 + .06 * u + .3 * ease((u - .26) / .08);                       // Ken Burns drift + punch-in on the moment
       const hit = u - .3, shake = VIOLENT.has(s.it.kind) && hit > 0 && hit < .14 ? 9 * (1 - hit / .14) : 0;
       map(cv, J.fx, J.fy, z, shake * Math.sin(f * 2.1), shake * Math.cos(f * 2.9));
-      overlay(J, s, k, u, local, t, (s.it.who || []).slice(0, 2).map(w => quoteOf(w, ki, s.a)).filter(Boolean));
+      overlay(J, s, k, u, local, t, (s.it.who || []).slice(0, 2).map(w => quoteOf(J, w, ki, s.a)).filter(Boolean));
       if (local < .14) { o.fillStyle = `rgba(255,255,255,${.75 * (1 - local / .14)})`; o.fillRect(0, 0, OW, OH); }   // flash cut
       return t;
     }
@@ -375,7 +395,7 @@ const Clip = (() => {
     const J = job = { spec, shots, top, total: INTRO + shots.length * MOMENT + OUTRO, cancelled: false, time: performance.now(),
       hourSec: MOMENT / ((shots[0].b - shots[0].a) / per) * .6, cur: null, fx: null, fy: null,
       saved: { i, frac, playing, userPaused, selected, dir: Camera.directorOn() } };
-    J.stats = stats(spec, shots);
+    J.lang = 'ru'; J.t = T.ru; J.stats = stats(J, spec, shots);   // run() switches to the settings' language first
     playing = false; userPaused = true;   // the clip drives i / frac itself; live ticks keep arriving
     box.hidden = false;
     box.innerHTML = `<div class="card"><b>🎞 Собираю ролик: ${spec.label}${opts.auto ? ' (автоматически)' : ''}</b></div>`;
@@ -393,12 +413,56 @@ const Clip = (() => {
       return res;
     });
   }
+  // The clip's language and the narrator's voice (settings panel). No server (an offline replay): the viewer's
+  // RU/EN button decides the language and there is no voice.
+  async function prefs(J) {
+    let st = null;
+    if (live()) try { const r = await fetch('/api/settings'); if (r.ok) st = await r.json(); } catch (e) { /* offline */ }
+    J.lang = st ? (st.content_lang === 'en' ? 'en' : 'ru') : (typeof lang !== 'undefined' && lang === 'en' ? 'en' : 'ru');
+    J.t = T[J.lang]; J.stats = stats(J, J.spec, J.shots);
+    if (!st || st.narration !== 'on') return;
+    progress(J, 0, 'озвучиваю…');
+    try {
+      const items = J.shots.map(s => ({ title: s.it.title, line: s.it.line, who: s.it.who || [], kind: s.it.kind, top: s === J.top }));
+      const r = await fetch('/api/narration', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, lang: J.lang }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || ('ошибка ' + r.status));
+      const Off = window.OfflineAudioContext || window.webkitOfflineAudioContext, dec = new Off(1, 1, SR);
+      const wav = async b64 => { const bin = atob(b64), u = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+        return dec.decodeAudioData(u.buffer); };
+      J.voice = { hook: await wav(j.audio.hook), moments: await Promise.all(j.audio.moments.map(wav)), outro: await wav(j.audio.outro),
+        lines: j.lines };
+    } catch (e) { J.voiceError = e.message; console.warn('clip narration', e); }   // the clip is still made, without a voice
+  }
+  // Narrator lines over the music: each in its slot (cut with a fade if it runs over), the music ducked under it.
+  function voiceOver(J, ac, master, comp, end) {
+    const V = J.voice; if (!V) return;
+    const slots = [[V.hook, .2, INTRO - .1], ...V.moments.map((b, k) => [b, INTRO + k * MOMENT + .45, INTRO + (k + 1) * MOMENT - .15]),
+      [V.outro, end + .35, J.total - .05]];
+    const spans = [];
+    for (const [buf, t0, t1] of slots) {
+      if (!buf || t1 <= t0) continue;
+      const stop = Math.min(t1, t0 + buf.duration), src = ac.createBufferSource(), gn = ac.createGain();
+      src.buffer = buf; gn.gain.setValueAtTime(1.5, t0); gn.gain.setValueAtTime(1.5, Math.max(t0, stop - .08)); gn.gain.linearRampToValueAtTime(0, stop);
+      src.connect(gn); gn.connect(comp); src.start(t0); src.stop(stop + .02);
+      const last = spans[spans.length - 1];
+      if (last && t0 - last[1] < .5) last[1] = stop; else spans.push([t0, stop]);   // close lines: one long duck
+    }
+    const full = master.gain.value, low = full * .35;
+    for (const [t0, t1] of spans) {
+      master.gain.setValueAtTime(full, Math.max(0, t0 - .15)); master.gain.linearRampToValueAtTime(low, t0);
+      master.gain.setValueAtTime(low, t1); master.gain.linearRampToValueAtTime(full, t1 + .25);
+    }
+  }
   async function run(J) {
     const { video, audio } = await pickCodecs();
     if (!video) throw new Error('нет подходящего видеокодека');
     const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), fastStart: 'in-memory', firstTimestampBehavior: 'offset',
       video: { codec: video.mux, width: OW, height: OH, frameRate: FPS },
       ...(audio ? { audio: { codec: audio.mux, numberOfChannels: 2, sampleRate: SR } } : {}) });
+    await prefs(J);
     if (audio) try { const buf = await soundtrack(J); if (buf) await encodeAudio(buf, muxer, audio.codec); } catch (e) { console.warn('clip sound', e); }
     let err = null;
     const enc = new VideoEncoder({ output: (c, meta) => muxer.addVideoChunk(c, meta), error: e => { err = e; } });
@@ -433,10 +497,11 @@ const Clip = (() => {
     } catch (e) { /* no server: the download button is enough */ }
     const file = new File([res.blob], res.name, { type: 'video/mp4' });
     box.hidden = false;
-    box.innerHTML = `<div class="card"><b>🎞 Ролик готов: ${J.spec.label}</b><video src="${res.url}" controls ${opts.auto ? '' : 'autoplay'} playsinline></video>
+    box.innerHTML = `<div class="card"><b>🎞 Ролик готов: ${J.spec.label}${J.lang === 'en' ? ' (EN)' : ''}</b><video src="${res.url}" controls ${opts.auto ? '' : 'autoplay'} playsinline></video>
       <div class="row"><a class="main" href="${res.url}" download="${res.name}">⬇ Скачать</a><button id="clip-share" hidden>Поделиться</button>
       <button id="clip-close">Закрыть</button></div>
-      <span class="muted">MP4, вертикальный 9:16, ${Math.round(res.seconds)} с, со своей музыкой. ${saved}</span></div>`;
+      <span class="muted">MP4, вертикальный 9:16, ${Math.round(res.seconds)} с, со своей музыкой${J.voice ? ' и голосом рассказчика' : ''}.
+      ${J.voiceError ? 'Озвучка не получилась: ' + J.voiceError + '. ' : ''}${saved}</span></div>`;
     const share = box.querySelector('#clip-share');
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       share.hidden = false; share.onclick = () => navigator.share({ files: [file], title: `AI Village, ${J.spec.label}` }).catch(() => {});

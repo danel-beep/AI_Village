@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import budget, clock, engine, keys, knobs, lab, llm, mapgen, mcpserver, modes, remote, reports, saves, scenario, session, threats
+from . import budget, clock, engine, keys, knobs, lab, llm, mapgen, mcpserver, modes, narration, remote, reports, saves, scenario, session, threats
 from .tunnel import TUNNEL
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
@@ -109,6 +109,7 @@ class LiveSim:
         # picked by rules alone when recaps are off.
         self.highlighter = Highlighter(summarizer.client if summarizer else None, world.config)
         self.highlights: list[dict] = []
+        self.narration_cost = 0.0  # narrator voice of highlight clips (narration.py, POST /api/narration)
         self._sum_lock = threading.Lock()
         self.reports_dir = reports_dir or str(Path(log_path or "runs/live.jsonl").parent / "reports")
         self.reveal_reports = reveal_reports
@@ -220,11 +221,12 @@ class LiveSim:
 
     # --- daily spending cap (aivillage/budget.py) ---
     def spent(self) -> float:
-        """USD this village's models have cost so far: villagers, recaps, highlights."""
+        """USD this village's models have cost so far: villagers, recaps, highlights, clip narration."""
         agents = getattr(self.decide, "agents", None) or {}
         total = sum(float(getattr(getattr(ag, "usage", None), "cost_usd", 0.0) or 0.0) for ag in agents.values())
         total += float(getattr(self.summarizer, "cost_usd", 0.0) or 0.0)
         total += float(getattr(self.highlighter, "cost_usd", 0.0) or 0.0)
+        total += self.narration_cost
         return total
 
     def _spent_today(self) -> float:
@@ -847,7 +849,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     @app.post("/api/settings")
     def save_settings(body: dict, request: Request) -> dict:
         local_only(request)
-        changes = {k: body[k] for k in ("provider", "model", "parallel", "openai_tier") if k in body}
+        changes = {k: body[k] for k in ("provider", "model", "parallel", "openai_tier", "content_lang", "narration",
+                                        "tts_voice") if k in body}
         for k in ("openai_key", "openrouter_key"):
             if (body.get(k) or "").strip():  # empty field = keep the saved key
                 changes[k] = body[k]
@@ -1048,6 +1051,27 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         path = folder / f"{prefix}{key}.mp4"
         path.write_bytes(data)
         return {"ok": True, "folder": str(folder), "file": path.name, "path": str(path)}
+
+    @app.post("/api/narration")
+    def clip_narration(body: dict, request: Request) -> dict:
+        """Narrator lines + WAV audio (base64) for a clip's moments; viewer/clip.js mixes them over the music."""
+        local_only(request)
+        sim = need()
+        if not keys.get("openai_key"):
+            raise HTTPException(400, "Для озвучки нужен ключ OpenAI: ⚙️ Настройки.")
+        items = [{"title": str(it.get("title") or "")[:120], "line": str(it.get("line") or "")[:400],
+                  "kind": str(it.get("kind") or "")[:40], "who": [str(w)[:40] for w in (it.get("who") or [])][:4],
+                  "top": bool(it.get("top"))}
+                 for it in (body.get("items") or [])[:12] if isinstance(it, dict)]
+        if not items:
+            raise HTTPException(400, "no moments")
+        lang = body.get("lang") if body.get("lang") in keys.LANGS else keys.content_lang()
+        try:
+            res = narration.narrate(items, lang, sim.highlighter.client, cache=keys.home() / "tts_cache")
+        except (RuntimeError, OSError) as e:
+            raise HTTPException(502, f"Озвучка не получилась: {e}")
+        sim.narration_cost += res["cost_usd"]
+        return res
 
     @app.get("/clips/{name}")
     def clip_file(name: str, request: Request) -> FileResponse:
