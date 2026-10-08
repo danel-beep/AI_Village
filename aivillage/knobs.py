@@ -34,12 +34,14 @@ from typing import Any
 from . import modes, seasons
 from .config import DEFAULT_CONFIG, _merge, make_config
 
+# The base bot is `builder`: the game is always «С нуля» and only builders feed themselves there (worker bots
+# sell at a market that does not exist yet, so a village of them starved within 10 days on every preset).
 BOT_MIXES = {
-    "mixed": ["worker", "worker", "thief", "worker", "random"],
-    "workers": ["worker"],
-    "traders": ["trader", "worker"],
-    "thieves": ["thief", "worker"],
-    "homestead": ["homestead", "worker"],
+    "mixed": ["builder", "builder", "thief", "builder", "random"],
+    "workers": ["builder"],
+    "traders": ["trader", "builder"],
+    "thieves": ["thief", "builder"],
+    "homestead": ["homestead", "builder"],
 }
 
 # Models of the AI villagers on the start screen: None = the saved model for everyone; a list is handed out over
@@ -66,12 +68,12 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Смесь моделей нужна, чтобы сравнить их в одной деревне; модель каждого жителя записана в журнале."},
     {"key": "villains", "path": "villains", "group": "Деревня", "type": "range", "label": "Злых жителей на каждую модель",
      "min": 0, "max": 5, "step": 1, "default": 0, "only": "llm",
-     "hint": "Злой житель без морали и жаждет власти, как Борис в прогоне со злодеем. Число на каждую модель: при "
+     "hint": "Злой житель: без морали и жаждет власти. Число на каждую модель: при "
              "«Luna и Haiku поровну» 1 значит один злой на Luna и один на Haiku. Кто злой, решает жребий (может "
              "выпасть и Борис); остальные обычные. Кто злой и на какой модели, записано в журнале. 0: злых нет."},
     {"key": "villagers", "group": "Деревня", "type": "range", "label": "Сколько жителей",
      "min": 2, "max": 60, "step": 1, "default": 5,
-     "hint": "Больше пяти: новые жители получают имена и профессии сами, ресурсов в мире больше."},
+     "hint": "Больше пяти: новые жители получают случайные имена, ресурсов в мире больше."},
     {"key": "days", "group": "Деревня", "type": "range", "label": "Сколько игровых дней",
      "min": 1, "max": 60, "step": 1, "default": 3, "unit": " дн."},
     {"key": "daily_budget", "group": "Деревня", "type": "range", "label": "Бюджет в сутки, $", "only": "llm",

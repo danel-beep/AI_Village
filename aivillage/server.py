@@ -952,11 +952,11 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         opts = dict(body or {})
         all_own = int(opts.get("own_ai_seats") or 0) >= int(opts.get("villagers") or 5)  # no key needed then
         if opts.get("brains", "llm") == "llm" and not keys.has_any_key() and not all_own:
-            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху справа. "
                                      "Или выберите ботов, они бесплатные.")
         mix = knobs.MODEL_MIXES.get(opts.get("models") or "one") if opts.get("brains", "llm") == "llm" else None
         if mix and any(not m.startswith("openai/") for m in mix) and not keys.get("openrouter_key"):
-            raise HTTPException(400, "Для Haiku нужен ключ OpenRouter: «⚙️ Настройки» вверху слева. "
+            raise HTTPException(400, "Для Haiku нужен ключ OpenRouter: «⚙️ Настройки» вверху справа. "
                                      "Или выберите «Одна на всех».")
         try:
             sim = host.start(opts)
@@ -996,7 +996,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         body = body or {}
         info = next((s for s in host.saves() if s["name"] == body.get("name")), None)
         if info and info["needs_key"] and not keys.has_any_key():
-            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева.")
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху справа.")
         try:
             sim = host.load(str(body.get("name") or ""), body.get("days"))
         except (ValueError, TypeError) as e:
@@ -1017,7 +1017,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         body = body or {}
         llm_on = body.get("brains", "llm") == "llm"
         if llm_on and not keys.has_any_key():
-            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху справа. "
                                      "Или выберите ботов, они бесплатные.")
         try:
             sim = host.scenario(str(body.get("name") or ""), llm_on)
@@ -1039,7 +1039,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         body = body or {}
         llm_on = body.get("brains", "llm") == "llm"
         if llm_on and not keys.has_any_key():
-            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху справа. "
                                      "Или выберите ботов, они бесплатные.")
         try:
             job = host.start_lab(str(body.get("name") or ""), llm_on, body.get("save") or None)
