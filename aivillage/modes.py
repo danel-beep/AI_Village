@@ -185,11 +185,11 @@ MODES["survival"] = {
                                                            # not only the town (villain run: 0 raids in 50 days)
                                                            "unlocks": {"feature:raids": {"stage": "hamlet"}}},
                                               "bare_start": {"enabled": True},
-                                              # danger at a random moment, never more than 10 calm days in a
+                                              # danger at a random moment: 4 to 10 calm days between, never more in a
                                               # row (Danel 2026-10-08), mostly announced ahead; bandits also
                                               # take what lies ready in the yard
                                               "threats": {"first_day": 4, "warn_chance": 0.8,
-                                                          "hostile": {"max_gap_days": 10},
+                                                          "hostile": {"max_gap_days": 10, "min_gap_days": 4},
                                                           "kinds": {"raid": {"yard_share": 0.5}}},
                                               # the hospital is no free meal; others see who is wounded
                                               "hospital_discharge": {"satiety": 30},
