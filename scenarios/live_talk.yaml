@@ -1,0 +1,35 @@
+# Опыт: «Живой разговор». Ветка A: жители думают разом, как раньше. Ветка B: в одном месте говорят по очереди и
+# слышат сказанное до них в этот же ход. Ветка C: то же, плюс разговор прерывает дело. AA добавляется сама (контроль).
+# 3 Luna и 3 Haiku 5.5 с зеркальной рассадкой; старт «С нуля», все шестеро на одной поляне.
+# Итог 2026-10-08 (PR #130): ветка C лучше всех, в «С нуля» теперь включены оба переключателя.
+title: "Опыт: живой разговор"
+about: >-
+  Шесть обычных жителей «С нуля», три на Luna и три на Haiku 5.5, три дня. A как раньше (думают разом), B говорят
+  по очереди, C по очереди и разговор прерывает дело. Смотрим ответы в тот же ход, длинные разговоры и сделки.
+config:
+  mode: survival
+  seed: 21
+  villagers: 6
+  characters: "off"
+  world:
+    map: {procedural: true, unfairness: 0}
+    talk: {turn_taking: false, interrupt_pause: false}
+play:
+  days: 3
+  ai: all
+  bots: builder
+  max_cost: 0.4
+  replicates: 2
+  seating:
+    models: [openai/gpt-6-luna, anthropic/claude-haiku-5.5]
+arms:
+  - name: B
+    about: говорят по очереди
+    config: {talk: {turn_taking: true}}
+  - name: C
+    about: по очереди, и разговор прерывает дело
+    config: {talk: {turn_taking: true, interrupt_pause: true}}
+watch:
+  - {title: разговоры, kind: say, ai: true}
+  - {title: подарки, kind: give, ai: true}
+  - {title: сделки, kind: trade}

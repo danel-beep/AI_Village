@@ -28,6 +28,7 @@ class Agent:
     # {"kind": "move", "path": [...]} or {"kind": "work", "hours_left": n, "resource": r}
     task: dict | None = None
     busy_until: int = 0  # tick at which the current action (or task step) is over; not asked before it
+    time_debt: int = 0  # ticks still owed for a job left to answer someone (talk.py interrupt_pause)
     tool_wear: int = 0
     tool_wear_by: dict[str, int] = field(default_factory=dict)  # crafting.py: hours of use per tool kind
     # crafting.py secret recipes: recipes this agent knows beyond the common ones, and lessons offered to it
@@ -359,6 +360,9 @@ class World:
         for x in d["debts"].values():
             if not x["items_owed"]:
                 del x["items_owed"]
+        for ag in d["agents"].values():  # no time owed: same dict and hash as before the field existed
+            if not ag["time_debt"]:
+                del ag["time_debt"]
         return d
 
     @classmethod

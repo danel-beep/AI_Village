@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import (clock, conflict, crises, debts, dice, governance, graves, illness, keys, labor, land, plots, pricing, seasons,
                theft, threats, works)
 from .bots import WorkerBot
-from . import addressed, animals, chronicle, honors, construction, crafting, explore, handbook, hire, luxury, market, merchant, places, progress, reputation, settle, spoilage, taxes, transport
+from . import addressed, animals, chronicle, honors, construction, crafting, explore, handbook, hire, luxury, market, merchant, places, progress, reputation, settle, spoilage, talk, taxes, transport
 
 # Default model for LLM runs: newest ultra-cheap model that plays sensibly (see docs/runs/first-llm-run.md).
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -156,7 +156,7 @@ DAY_DIARIES = 3  # "day" mode: diary entries of the last days shown (in the cach
 #              part; the current observation keeps only LIVE_FIELDS and names the rest.
 OBS_MODES = ("full", "changes")
 DEFAULT_OBS = "changes"  # A/B 2026-10-08: −14–20% a turn, fewer failed actions
-LIVE_FIELDS = frozenset({"time", "you", "here", "news", "said_to_you", "last_error", "available_actions",
+LIVE_FIELDS = frozenset({"time", "you", "here", "news", "said_to_you", "just_said", "last_error", "available_actions",
                          "offers_to_you", "your_offers", "fires", "animals_here", "last_seen", "work_today",
                          "dice_challenges_to_you", "can_start_building_here"})
 
@@ -196,6 +196,8 @@ def world_facts(cfg: dict) -> str:
                      "\"starving\" at 0.")
     if said := addressed.facts(cfg):
         lines.append(said)
+    if heard := talk.facts(cfg):
+        lines.append(heard)
     for rid, r in ({} if crafting.enabled(cfg) else cfg["recipes"]).items():
         ins = " + ".join(f"{n} {k}" for k, n in r["inputs"].items())
         who = f", only a {r['profession']}" if r["profession"] else ""
