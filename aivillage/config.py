@@ -488,6 +488,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "score_cap": 10,
         "notes_per_person": 3,
         "rumors_kept": 6,
+        # Book of deeds instead of the score (modes «С нуля»): bad and good deeds in separate lists of
+        # `record_keep` each, counts per kind; shown for people met in the last `record_days` days or with
+        # a bad deed. Off here so old logs replay unchanged.
+        "record": False,
+        "record_keep": 5,
+        "record_days": 14,
         # Word of mouth: hearers learn who started a rumor for this many tellings, then "someone".
         # Each hearer may mishear: a number in the text changes, or (rarer) the rumor lands on another
         # villager. Whispers and gossip told to one person are overheard by each bystander with "overhear".

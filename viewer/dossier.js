@@ -81,6 +81,16 @@
     width:${Math.abs(v) / 2}%;background:${v < 0 ? '#e4572e' : '#76b041'}"></i></div>`;
   const seenText = s => { const m = /^day (\d+): (.*)$/s.exec(s); return m ? `д${m[1]} ${tr(m[2])}` : tr(s); };
 
+  // Book of deeds (reputation.record): harms and help in separate lists, never a score.
+  const DEED = { witness: 'видел кражу', steal_attempt: 'поймал на краже', theft_report: 'заявили о преступлении',
+    embezzlement_found: 'взял из казны', fight: 'драка', arson_seen: 'поджог', default: 'не вернул долг в срок',
+    repay: 'вернул долг в срок', lend: 'дал в долг', give: 'подарок', trade: 'сделка', fire_out: 'потушил пожар',
+    extinguish: 'тушил пожар', contribute: 'вклад в общее дело', build_work: 'час на общей стройке',
+    construct: 'час на стройке', site_supplied: 'материалы на стройку' };
+  const bookOf = r => [...(r.harms || []).slice().reverse().map(x => `<div style="color:#e4572e">✖ ${esc(seenText(x))}</div>`),
+    ...(r.help || []).slice().reverse().map(x => `<div style="color:#76b041">✚ ${esc(seenText(x))}</div>`)].join('')
+    + (Object.keys(r.counts || {}).length ? `<div class="muted">Книга дел: ${Object.entries(r.counts)
+      .map(([k, v]) => `${esc(DEED[k] || k)} ×${v}`).join(', ')}</div>` : '');
   function people(n, c) {
     const t = ticks[i], kin = t.view.kin || {}, social = (t.view.social || {})[n] || {};
     const mine = (kin.feelings || {})[n] || {}, rep = social.reputation || {};
@@ -97,8 +107,9 @@
       return `<div class="row">${pname(p)} <span class="muted">· ${FEEL[feelLabel(v)]} (${v > 0 ? '+' : ''}${v})
           · в ответ: ${FEEL[feelLabel(back(p))]} · ${ev.length} взаимодействий</span>
         ${'kin' in t.view ? feelBar(v) : ''}
-        ${r ? `<div>Оценка поступков: <b>${r.score > 0 ? '+' : ''}${r.score}</b></div>
+        ${r && 'score' in r ? `<div>Оценка поступков: <b>${r.score > 0 ? '+' : ''}${r.score}</b></div>
           ${(r.seen || []).slice().reverse().map(x => `<div class="muted">• ${esc(seenText(x))}</div>`).join('')}` : ''}
+        ${r && !('score' in r) ? bookOf(r) : ''}
         ${notes[p] ? `<div class="thought">${esc(tr(notes[p]))}</div>` : ''}
         ${last ? `<div class="muted">последнее: ${esc(tr(last.text))}</div>` : ''}</div>`;
     }).join('') : '<div class="muted">Пока ни с кем не общался.</div>';
@@ -126,7 +137,9 @@
     const intro = first ? `<div class="row"><span class="muted">Перед первым днём</span>
       ${first.d.intro.about_me ? `<div class="thought">${esc(tr(first.d.intro.about_me))}</div>` : ''}${goals(first.d.intro)}</div>` : '';
     return own.length || intro ? own.map(d => `<div class="row"><span class="muted">День ${d.day}</span>
-      <div class="thought">${esc(tr(d.text))}</div>${goals(d)}</div>`).join('') + intro
+      <div class="thought">${esc(tr(d.text))}</div>${goals(d)}${(d.remember || []).map(t =>
+        `<div>📌 Запомнить надолго: ${esc(tr(t))}</div>`).join('')}${(d.forgot || []).map(t =>
+        `<div class="muted">🗑 Забыл: ${esc(tr(t))}</div>`).join('')}</div>`).join('') + intro
       : '<div class="muted">Пока записей нет: дневник пишется ночью.</div>';
   }
 
