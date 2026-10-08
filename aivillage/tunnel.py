@@ -67,14 +67,20 @@ def find_url(line: str) -> str | None:
 
 
 class Tunnel:
-    """One quick tunnel for the app's lifetime. `state`: off / starting / on / error."""
+    """One quick tunnel for the app's lifetime. `state`: off / starting / on / error.
 
-    def __init__(self):
-        self.state, self.url, self.error = "off", "", ""
+    On the public website (aivillage/web.py sets AIVILLAGE_PUBLIC_URL) the game is already on the internet:
+    the address is fixed, always on, and no cloudflared runs."""
+
+    def __init__(self, fixed: str | None = None):
+        self.fixed = (fixed if fixed is not None else os.environ.get("AIVILLAGE_PUBLIC_URL", "")).rstrip("/")
+        self.state, self.url, self.error = ("on", self.fixed, "") if self.fixed else ("off", "", "")
         self.proc: subprocess.Popen | None = None
         self.lock = threading.Lock()
 
     def start(self, port: int) -> None:
+        if self.fixed:
+            return
         with self.lock:
             if self.state in ("starting", "on"):
                 return
@@ -99,6 +105,8 @@ class Tunnel:
             self.state, self.error = "error", f"{type(e).__name__}: {e}"
 
     def stop(self) -> None:
+        if self.fixed:
+            return
         proc, self.proc = self.proc, None
         self.state, self.url = "off", ""
         if proc is not None and proc.poll() is None:

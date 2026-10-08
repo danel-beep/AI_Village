@@ -959,7 +959,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     @app.get("/api/settings")
     def settings(request: Request) -> dict:
         local_only(request)
-        return {**keys.public(), "default_model": llm.DEFAULT_MODEL, "home": str(keys.home())}
+        return {**keys.public(), "default_model": llm.DEFAULT_MODEL, "home": str(keys.home()),
+                "hosted": keys.in_memory()}
 
     @app.post("/api/settings")
     def save_settings(body: dict, request: Request) -> dict:
@@ -975,7 +976,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
             keys.save(changes)
         except (ValueError, TypeError) as e:
             raise HTTPException(400, str(e))
-        return {**keys.public(), "default_model": llm.DEFAULT_MODEL, "home": str(keys.home())}
+        return {**keys.public(), "default_model": llm.DEFAULT_MODEL, "home": str(keys.home()),
+                "hosted": keys.in_memory()}
 
     @app.post("/api/settings/check")
     def check_settings(request: Request) -> dict:
@@ -1270,6 +1272,15 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     @app.get("/api/meta")
     def meta() -> dict:
         return need().meta()
+
+    @app.get("/api/busy")
+    def busy(request: Request) -> dict:
+        """A village, a tournament lobby or an experiment is on: the website (aivillage/web.py) must not stop this server."""
+        local_only(request)
+        sim, lab_ = host.sim, host.lab
+        playing = sim is not None and not sim.finished
+        lobby = host.lobby_opts is not None  # an MCP tournament gathering its players
+        return {"busy": playing or lobby or bool(lab_ and lab_.status.get("state") == "running")}
 
     @app.get("/api/status")
     def status() -> dict:

@@ -75,6 +75,7 @@ aivillage/tiles.py
 aivillage/translate.py
 aivillage/transport.py
 aivillage/tunnel.py
+aivillage/web.py
 aivillage/works.py
 aivillage.egg-info/PKG-INFO
 aivillage.egg-info/SOURCES.txt
@@ -102,6 +103,7 @@ tests/test_crises.py
 tests/test_danger.py
 tests/test_data_money.py
 tests/test_debts.py
+tests/test_desktop_app.py
 tests/test_dice.py
 tests/test_dilemmas.py
 tests/test_economy_balance.py
@@ -164,6 +166,7 @@ tests/test_settle.py
 tests/test_setup.py
 tests/test_shards.py
 tests/test_sim.py
+tests/test_site.py
 tests/test_sound.py
 tests/test_spoilage.py
 tests/test_sprites.py

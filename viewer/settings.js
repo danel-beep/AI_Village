@@ -1,6 +1,8 @@
 // Settings panel (live mode only, injected by aivillage/server.py): API keys, provider and model.
 // Keys are saved by the server into <home>/settings.json on this computer; the page only ever
 // sees masked keys ("sk-…abcd"). A new key applies from the next model call, no restart needed.
+// On the public website (`hosted`, aivillage/web.py) the server keeps settings in memory only: this browser
+// keeps them in localStorage and sends them again when the server has lost them (a restart or an update).
 (function () {
   const css = document.createElement('style');
   css.textContent = `
@@ -58,7 +60,7 @@
       <button class="b test" id="st-test">Проверить ключ</button>
     </div>
     <div class="msg" id="st-msg"></div>
-    <div class="hint">Ключи хранятся только на этом компьютере и не попадают в логи.
+    <div class="hint" id="st-where">Ключи хранятся только на этом компьютере и не попадают в логи.
       Новый ключ и тариф начинают работать сразу, перезапуск не нужен. Модель и одновременность
       применятся со следующего запуска деревни.</div>`;
   // Joins the top-left button row of report.js when it is there (same look), else stands alone.
@@ -83,7 +85,22 @@
     }
   }
 
+  const STORE = 'aiv_settings';
+  const stored = () => { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; } };
+  function remember(body) {  // hosted: what was saved, so it can be sent again after a server restart
+    const s = stored();
+    for (const k of ['provider', 'model', 'parallel', 'openai_tier']) s[k] = body[k];
+    for (const k of ['openai_key', 'openrouter_key']) if (body[k]) s[k] = body[k];
+    for (const k of body.clear || []) delete s[k];
+    try { localStorage.setItem(STORE, JSON.stringify(s)); } catch (e) {}
+  }
+  let hosted = false;
+
   function fill(s) {
+    hosted = !!s.hosted;
+    if (hosted) $('st-where').textContent = 'Ключ хранится только в этом браузере. Сервер держит его в памяти, пока вы играете, '
+      + 'не записывает на диск и в логи и не показывает другим игрокам. Новый ключ и тариф работают сразу; модель и '
+      + 'одновременность применятся со следующего запуска деревни.';
     $('st-provider').value = s.provider || 'auto';
     $('st-model').value = s.model || '';
     $('st-model').placeholder = s.default_model || '';
@@ -116,7 +133,7 @@
     if (or && !or.startsWith('sk-or-')) return msg('Ключ OpenRouter начинается с sk-or-.', 'bad');
     const body = { provider: $('st-provider').value, model: $('st-model').value.trim(),
       parallel: $('st-parallel').value.trim(), openai_tier: $('st-tier').value, openai_key: oa, openrouter_key: or, clear: clear.slice() };
-    try { fill(await call('/api/settings', body)); msg('Сохранено.', 'ok'); return true; }
+    try { fill(await call('/api/settings', body)); if (hosted) remember(body); msg('Сохранено.', 'ok'); return true; }
     catch (e) { msg('Не сохранилось: ' + e.message, 'bad'); return false; }
   }
 
@@ -133,6 +150,17 @@
       }
     } catch (e) { msg('Проверка не удалась: ' + e.message, 'bad'); }
   }
+
+  // Hosted: the server forgot the keys (restarted or updated) -> send this browser's copy back at once.
+  (async () => {
+    const s = stored();
+    if (!s.openai_key && !s.openrouter_key) return;
+    try {
+      const cur = await call('/api/settings');
+      if (!cur.hosted || (cur.openai_key && cur.openai_key.set) || (cur.openrouter_key && cur.openrouter_key.set)) return;
+      await call('/api/settings', { ...s, clear: [] });
+    } catch (e) {}
+  })();
 
   btn.onclick = open;
   $('st-save').onclick = save;

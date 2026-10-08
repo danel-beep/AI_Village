@@ -216,7 +216,7 @@
   }
   function mineCard(m, opts = {}) {
     const root = $('mine-tpl').content.firstElementChild.cloneNode(true);
-    const link = location.origin + m.path, pick = { ai: m.ai && STEPS[m.ai] ? m.ai : 'claude' };
+    const link = location.origin + PREFIX + m.path, pick = { ai: m.ai && STEPS[m.ai] ? m.ai : 'claude' };
     root.querySelector('.t-link').value = link;
     root.querySelector('.t-link-copy').onclick = e => copy(link, e.target);
     root.querySelector('.t-prompt').value = PROMPT;
@@ -245,10 +245,12 @@
   }
 
   let phase = 'lobby';
+  // On the public website a game sits under /p/<id>/ (aivillage/web.py): keep that prefix in links and calls.
+  const PREFIX = location.pathname.slice(0, Math.max(0, location.pathname.indexOf('/mcp/')));
   for (const [k, v] of AIS) $('ai').append(new Option(v, k));
   if (!AIV) return;
   if (AIV.mode === 'seat') {  // the connector link opened in a browser
-    $('mine-list').append(mineCard({ path: location.pathname, name: AIV.name, look: AIV.look }, { static: true,
+    $('mine-list').append(mineCard({ path: location.pathname.slice(PREFIX.length), name: AIV.name, look: AIV.look }, { static: true,
       title: () => AIV.name ? `Ссылка-коннектор жителя ${AIV.name}` : 'Ссылка-коннектор места в турнире',
       state: () => 'Эту ссылку не нужно открывать в браузере: добавьте её в свой ИИ как коннектор.' +
         (AIV.player ? ` Место занято игроком ${AIV.player}.` : '') }));
@@ -258,7 +260,7 @@
   const key = 'aiv-claims-' + AIV.base;
   const claims = () => store.get(key).split(',').filter(Boolean);
   const setClaims = list => store.set(key, list.join(','));
-  const post = (url, body) => fetch(AIV.base + url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const post = (url, body) => fetch(PREFIX + AIV.base + url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body) }).then(r => r.json().then(d => { if (!r.ok) throw new Error(d.detail || r.status); return d; }));
   let pickLook = null;
   lookPicker($('looks'), null, k => { pickLook = k; });
@@ -293,7 +295,9 @@
       $('host').hidden = !host;
       if (!host) return;
       const t = host.tunnel || {}, local = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
-      const base = local ? (t.state === 'on' ? t.url : '') : location.origin;
+      // the public website has a fixed internet address for players (t.url, aivillage/web.py): never its own,
+      // which needs the password
+      const base = t.state === 'on' && t.url ? t.url : local ? '' : location.origin + PREFIX;
       $('invite').value = base ? base + AIV.base : t.state === 'error' ? 'Нет доступа из интернета' : 'Открываю доступ из интернета…';
       $('retry').hidden = !(local && t.state === 'error');
       $('host-tunnel').textContent = !local ? `Игра открыта по адресу ${location.origin}.`
@@ -332,7 +336,7 @@
     $('table-card').hidden = false;
   }
   function poll() {
-    return fetch(`${AIV.base}/state?claim=${encodeURIComponent(claims().join(','))}`).then(r => {
+    return fetch(`${PREFIX}${AIV.base}/state?claim=${encodeURIComponent(claims().join(','))}`).then(r => {
       if (r.status === 404) { for (const id of ['take', 'mine-list', 'table-card', 'host']) $(id).hidden = true; $('gone').hidden = false; return; }
       return r.json().then(draw);
     }).catch(() => {});

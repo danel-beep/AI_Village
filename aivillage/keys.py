@@ -9,6 +9,10 @@ Values in the file win over environment variables (OPENAI_API_KEY, OPENROUTER_AP
 AIVILLAGE_PROVIDER, AIVILLAGE_MODEL), so a key changed in the viewer's settings panel takes
 effect on the next model call. The file is re-read only when it changes.
 The old launcher file `<home>/openrouter_key` is still read as the OpenRouter key.
+
+On the public website (aivillage/web.py) each game server runs with AIVILLAGE_KEYS_IN_MEMORY: settings live
+only in this process's memory (never on disk) and model keys never come from the environment; the visitor's
+browser keeps its own copy and sends it again after a restart (viewer/settings.js).
 """
 
 from __future__ import annotations
@@ -26,6 +30,11 @@ ENV = {"openai_key": "OPENAI_API_KEY", "openrouter_key": "OPENROUTER_API_KEY",
 
 _lock = threading.Lock()
 _cache: dict[str, tuple[float, dict]] = {}
+_memory: dict = {}  # the settings when in_memory()
+
+
+def in_memory() -> bool:
+    return bool(os.environ.get("AIVILLAGE_KEYS_IN_MEMORY"))
 
 
 def home() -> Path:
@@ -38,6 +47,9 @@ def path(h: Path | None = None) -> Path:
 
 def load(h: Path | None = None) -> dict:
     """Saved settings only (no environment). Missing or broken file -> {}."""
+    if in_memory():
+        with _lock:
+            return dict(_memory)
     h = h or home()
     f = path(h)
     try:
@@ -83,6 +95,11 @@ def save(changes: dict, h: Path | None = None) -> dict:
         raise ValueError("openai_tier must be flex or default")
     if "parallel" in data:
         data["parallel"] = max(1, min(64, int(data["parallel"])))
+    if in_memory():
+        with _lock:
+            _memory.clear()
+            _memory.update(data)
+        return load()
     h.mkdir(parents=True, exist_ok=True)
     f = path(h)
     tmp = f.with_suffix(".tmp")
@@ -100,7 +117,7 @@ def save(changes: dict, h: Path | None = None) -> dict:
 def get(name: str, h: Path | None = None):
     """Saved value, else environment variable, else None."""
     v = load(h).get(name)
-    if v in (None, ""):
+    if v in (None, "") and not (in_memory() and name.endswith("_key")):
         v = os.environ.get(ENV[name]) or None
     return v
 
