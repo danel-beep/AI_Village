@@ -37,7 +37,7 @@ Start from this map; per-module details are in `docs/modules.md` (read only the 
 | Social | `reputation.py`, `family.py`, `chronicle.py`, `honors.py`, `graves.py`, `dilemmas.py` |
 | Danger, world events | `threats.py`, `animals.py`, `conflict.py`, `crises.py`, `illness.py`, `seasons.py`, `god.py` |
 | Measuring, experiments | `metrics.py`, `social_metrics.py`, `scorecard.py`, `lab.py`, `reports.py`, `summary.py`, `highlights.py` |
-| App, server, launcher | `server.py`, `launcher.py`, `remote.py`, `tunnel.py`, `mcpserver.py` (own AI, `docs/own-ai.md`), `scripts/install.*`, `scripts/start.*` |
+| App, server, launcher | `server.py`, `launcher.py`, `remote.py`, `tunnel.py`, `mcpserver.py` (own AI, `docs/own-ai.md`; tournament lobby `viewer/join.html`, `docs/tournament.md`), `scripts/install.*`, `scripts/start.*` |
 | Viewer (browser) | `viewer/index.html`, `live.js`, `replay.js`, `setup.js`/`settings.js` (start screen), `maplayer.js`/`pixelmap.js`/`sprites*.js` (map art), `actors.js`/`camera.js`/`combat.js` (motion), `dossier.js`/`hero.js`/`inspect.js` (panels), `efir.js`/`fate.js`/`foresight.js` (broadcast) |
 | Log format, map objects | `docs/modules.md` («Map objects and fire in the log») |
 | Specs and run reports | `docs/specs/`, `docs/runs/` |
