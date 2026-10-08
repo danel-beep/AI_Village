@@ -298,8 +298,8 @@
         <div class="note" id="su-note-adv" hidden></div>
         <div id="su-adv">
           <h3 class="more">Все остальные настройки</h3>
-          <p class="hint more-hint">Режим уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
-            зелёной точкой ●, «Сбросить к режиму» внизу вернёт всё как было.</p>
+          <p class="hint more-hint">Пресет уже выставил разумные значения, трогать их не обязательно. Изменённые помечены
+            зелёной точкой ●, «Сбросить к пресету» внизу вернёт всё как было.</p>
           <div id="su-groups"></div>
           <details id="su-people"><summary>👥 Жители по одному: имена, характеры, внешность</summary>
             <div class="vbar"><label class="tog"><input type="checkbox" id="su-own"><span></span></label>
@@ -315,7 +315,7 @@
         </div>
         <div class="play">
           <button class="go" id="su-go">▶ Играть</button>
-          <button class="small" id="su-reset">Сбросить к режиму</button>
+          <button class="small" id="su-reset">Сбросить к пресету</button>
           <div class="msg" id="su-msg"></div>
         </div>
       </div>
@@ -526,7 +526,7 @@
       root.querySelectorAll('.view button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
       $('su-view-hint').textContent = v === 'simple'
         ? 'Только главное. Остальное выставлено как задумано: так деревня работает лучше всего.'
-        : 'Здесь можно поменять всё: режим экономики, налоги, кражи, беды, скорость, каждого жителя.';
+        : 'Здесь можно поменять всё: еду, налоги, кражи, беды, скорость, каждого жителя.';
       for (const [key, ph] of Object.entries(spot)) {  // simple knobs from the sections join «Главное» in «Простой»
         if (v === 'simple') $('su-main').insertBefore(rows[key].el, model);
         else ph.parentNode.insertBefore(rows[key].el, ph);

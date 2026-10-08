@@ -244,7 +244,7 @@ function panel() {
     const v = t.view.agents[n], inv = (window.ItemIcons ? ItemIcons.list(v.inventory) : Object.entries(v.inventory).map(([k, q]) => `${q} ${k}`).join(', ')) || 'пусто';
     const status = (STATUS_RU[v.status] || v.status) + (v.hospital_stays && v.status !== 'dead' ? ` · 🏥×${v.hospital_stays}` : '');
     return `<div class="card ${n === selected ? 'sel' : ''} ${v.status === 'dead' ? 'gone' : ''}" data-n="${n}"><span class="name" style="color:${color[n]}">${n}</span>
-      <span class="muted">${v.profession} · ${v.status === 'dead' ? '' : (t.view.locations[v.location] || v.location) + ' · '}${status}</span>
+      <span class="muted">${v.profession && v.profession !== 'villager' ? v.profession + ' · ' : ''}${v.status === 'dead' ? '' : (t.view.locations[v.location] || v.location) + ' · '}${status}</span>
       <div class="muted">еда ${v.satiety} · здоровье ${v.health} · ${v.coins} монет · ${inv}</div>
       <div class="thought">${esc(tr(thoughts[n] || ''))}</div></div>`;
   }).join('');
