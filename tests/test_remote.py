@@ -309,12 +309,19 @@ def test_public_server_opens_no_tunnel_and_lobby_can_be_cancelled(tmp_path, monk
     monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
     opened = []
     monkeypatch.setattr(tunnel.TUNNEL, "start", lambda port: opened.append(port))
+    monkeypatch.setenv("AIVILLAGE_PUBLIC_URL", "https://village.example/p/ab12/")
     host = Host(None, str(tmp_path / "runs"), str(tmp_path / "reports"), setup=True)
     c = TestClient(create_app(host=host))  # "testserver": like a public domain
+    assert not c.get("/api/busy").json()["busy"]
     r = c.post("/api/start", json={"brains": "mcp", "villagers": 2, "days": 1}).json()
-    assert not opened and c.get(r["lobby"]).status_code == 200
+    page = c.get(r["lobby"])
+    assert not opened and page.status_code == 200
+    # the host's own page is behind the website's password: players' connector links use its public address
+    assert '"public": "https://village.example/p/ab12"' in page.text
+    assert c.get("/api/busy").json()["busy"]  # the website must not stop the game while players gather
     assert c.post("/api/tournament/cancel", json={"session": r["session"]}).json()["ok"]
     assert c.get("/api/setup").json()["tournaments"] == [] and c.get(r["lobby"]).status_code == 404
+    assert not c.get("/api/busy").json()["busy"]
 
 
 def test_several_tournaments_at_once_each_with_its_own_code(tmp_path, monkeypatch):

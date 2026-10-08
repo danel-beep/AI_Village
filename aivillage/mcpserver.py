@@ -18,6 +18,7 @@ the invite sees (who plays whom, alive, wealth), never anyone's connector link. 
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from pathlib import Path
 from typing import Any
@@ -173,7 +174,9 @@ def mount(app: FastAPI, hub: remote.Hub | None = None) -> None:
     @app.get("/mcp/join/{lobby}")
     def lobby_page(lobby: str) -> Response:
         h = lobby_or_404(lobby)
-        return page({"mode": "lobby", "base": f"/mcp/join/{h.lobby}", "code": h.lobby, "session": h.session})
+        return page({"mode": "lobby", "base": f"/mcp/join/{h.lobby}", "code": h.lobby, "session": h.session,
+                     # the website's address for players (aivillage/web.py): the host's own page sits behind the password
+                     "public": os.environ.get("AIVILLAGE_PUBLIC_URL", "").rstrip("/")})
 
     @app.get("/mcp/join/{lobby}/state")
     def lobby_state(lobby: str, claim: str = "") -> dict:
