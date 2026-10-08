@@ -54,6 +54,15 @@
   <div class="sub" id="sub">Деревня, где каждым жителем играет ИИ. Здесь жителем играет <b>ваш</b> ИИ: Claude, ChatGPT,
     Gemini или другой, на вашей подписке. Имя и характер жителю он придумает сам, а внешность выбираете вы.</div>
 
+  <div class="card" id="by-code" hidden>
+    <h2>Войти в турнир по коду</h2>
+    <label for="code">Код лобби (его даёт хозяин турнира)</label>
+    <div class="row"><input id="code" maxlength="12" autocapitalize="characters" autocomplete="off"
+      style="font:600 18px ui-monospace, monospace; letter-spacing:2px"><button class="go" id="code-go">Войти</button></div>
+  </div>
+
+  <div class="sub" id="code-line" hidden></div>
+
   <div class="card host" id="host" hidden>
     <h2>👑 Вы хозяин турнира</h2>
     <div class="row" style="margin:0 0 6px"><span id="host-tunnel" class="sub" style="margin:0"></span>
@@ -63,7 +72,8 @@
     <div class="row" id="host-lobby"><button class="go" id="begin">▶ Начать игру</button>
       <button id="cancel">Отменить турнир</button></div>
     <div class="sub" id="host-note" style="margin:6px 0 0"></div>
-    <div class="row" id="host-game" hidden><a href="/"><button class="go">Смотреть деревню</button></a></div>
+    <div class="row" id="host-game" hidden><button class="go" id="watch">📺 Смотреть деревню</button>
+      <button id="cancel2">Закончить турнир</button></div>
     <div class="msg" id="host-msg"></div>
   </div>
 
@@ -247,6 +257,13 @@
   let phase = 'lobby';
   for (const [k, v] of AIS) $('ai').append(new Option(v, k));
   if (!AIV) return;
+  if (AIV.mode === 'code') {  // /mcp/join without a code: type it
+    $('by-code').hidden = false;
+    const go = () => { const c = $('code').value.replace(/[^0-9a-z]/gi, '').toUpperCase(); if (c) location.href = '/mcp/join/' + c; };
+    $('code-go').onclick = go;
+    $('code').onkeydown = e => { if (e.key === 'Enter') go(); };
+    return;
+  }
   if (AIV.mode === 'seat') {  // the connector link opened in a browser
     $('mine-list').append(mineCard({ path: location.pathname, name: AIV.name, look: AIV.look }, { static: true,
       title: () => AIV.name ? `Ссылка-коннектор жителя ${AIV.name}` : 'Ссылка-коннектор места в турнире',
@@ -273,7 +290,11 @@
 
   // the host on their own computer: invite link, «Начать игру», «Отменить» (local-only /api, the tunnel never reaches it)
   let host = null;
-  const hostPost = url => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  $('code-line').hidden = false;
+  $('code-line').innerHTML = `Код лобби: <b style="font:700 18px ui-monospace, monospace; letter-spacing:2px">${esc(AIV.code)}</b>` +
+    ' · у каждого турнира свой код, разные компании играют в разные турниры';
+  const hostPost = url => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session: AIV.session }) })
     .then(r => r.json().then(d => { if (!r.ok) throw new Error(d.detail || r.status); return d; }));
   $('invite-copy').onclick = () => copy($('invite').value, $('invite-copy'));
   $('retry').onclick = () => fetch('/api/remote/tunnel', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -283,12 +304,14 @@
     hostPost('/api/tournament/begin').then(() => { location.href = '/'; },
       e => { $('host-msg').textContent = e.message; $('begin').disabled = false; });
   };
-  $('cancel').onclick = () => {
-    if (!confirm('Отменить турнир? Ссылки игроков перестанут работать.')) return;
+  $('cancel').onclick = $('cancel2').onclick = () => {
+    if (!confirm('Закончить турнир? Его деревня остановится, ссылки игроков перестанут работать.')) return;
     hostPost('/api/tournament/cancel').then(() => { location.href = '/'; });
   };
+  $('watch').onclick = () => hostPost('/api/tournament/watch').then(() => { location.href = '/'; },
+    e => { $('host-msg').textContent = e.message; });
   function pollHost() {
-    return fetch('/api/remote').then(r => r.ok ? r.json() : null).then(d => {
+    return fetch(`/api/tournament/${encodeURIComponent(AIV.session)}`).then(r => r.ok ? r.json() : null).then(d => {
       host = d && d.seats ? d : null;
       $('host').hidden = !host;
       if (!host) return;
@@ -321,12 +344,12 @@
     if (mine.length && !$('ai').dataset.moved) { $('ai').value = mine[0].ai === 'chatgpt' ? 'claude' : 'chatgpt'; $('ai').dataset.moved = 1; }
     $('free').textContent = st.free ? `Свободных мест: ${st.free}` : 'Свободных мест нет';
     $('take-btn').disabled = !st.free;
-    const when = st.day ? ` · день ${st.day}${st.days ? ' из ' + st.days : ''}, ${st.time}` : '';
+    const when = st.day && !st.finished ? ` · день ${st.day}${st.days ? ' из ' + st.days : ''}, ${st.time}` : '';
     $('table-title').textContent = phase === 'lobby' ? 'Игроки собираются' : (st.finished ? '🏁 Игра окончена. Итоги' : 'Жители') + when;
     const seats = st.finished ? [...st.seats].sort((a, b) => (b.worth ?? 0) - (a.worth ?? 0)) : st.seats;
     $('rows').innerHTML = seats.map(s => `<tr><td><canvas class="face" width="24" height="31"></canvas></td>` +
       `<td><b>${esc(s.name) || '<span class="sub">—</span>'}</b></td><td>${esc(s.player) || '<span class="sub">свободно</span>'}</td>` +
-      `<td>${esc(AI_NAME[s.ai] || s.client || '')}</td><td>${stateText(s, phase)} ${STATUS[s.status] || ''}</td>` +
+      `<td>${esc(AI_NAME[s.ai] || s.client || '')}</td><td>${st.finished ? '🏁' : stateText(s, phase)} ${STATUS[s.status] || ''}</td>` +
       `<td>${s.answered}</td><td>${s.worth ?? ''}</td><td>${s.health ?? ''}</td></tr>`).join('');
     [...$('rows').querySelectorAll('canvas')].forEach((c, i) => drawFace(c, seats[i].look));
     $('table-card').hidden = false;

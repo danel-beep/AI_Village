@@ -242,12 +242,12 @@ def test_tournament_lobby_then_the_ais_name_themselves_and_play(tmp_path, monkey
     try:
         r = c.post("/api/start", json={"brains": "mcp", "villagers": 3, "days": 1, "pace": 0, "seed": 4})
         assert r.status_code == 200, r.text
-        lobby = r.json()["lobby"]
+        lobby, session = r.json()["lobby"], r.json()["session"]
         assert opened and host.sim is None  # players gather first; the tunnel opens by itself
-        assert c.get("/api/setup").json()["lobby"] == lobby
-        hub = remote.HUB
+        assert c.get("/api/setup").json()["tournaments"][0]["lobby"] == lobby
+        hub = remote.HUBS[session]
         assert hub.phase == "lobby" and len(hub.seats) == 3
-        assert c.post("/api/tournament/begin").status_code == 400  # nobody is ready
+        assert c.post("/api/tournament/begin", json={"session": session}).status_code == 400  # nobody is ready
 
         took = [c.post(f"{lobby}/take", json={"player": "Маша", "ai": ai, "look": look}).json()
                 for ai, look in (("claude", 5), ("chatgpt", None))]
@@ -275,9 +275,10 @@ def test_tournament_lobby_then_the_ais_name_themselves_and_play(tmp_path, monkey
         st = c.get(f"{lobby}/state").json()
         assert st["ready"] == 2 and {s["name"] for s in st["seats"]} == {"Ada", "Lumen", ""}
 
-        r = c.post("/api/tournament/begin")
+        r = c.post("/api/tournament/begin", json={"session": session})
         assert r.status_code == 200, r.text
-        sim = host.sim
+        assert host.sim is None  # the host's viewer shows it only on «Смотреть»
+        sim = host.tournaments[session]["sim"]
         assert sorted(sim.world.agents) == ["Ada", "Lumen"] and len(hub.seats) == 2  # the empty place is gone
         agents = sim.decide.agents
         assert agents["Ada"].character == "You are curious." and agents["Lumen"].character == "You are calm and exact."
@@ -296,9 +297,11 @@ def test_tournament_lobby_then_the_ais_name_themselves_and_play(tmp_path, monkey
             head = json.loads(f.readline())
         assert head["brains"] == {"Ada": "mcp", "Lumen": "mcp"}  # the log keeps what the AIs wrote
         assert {a["name"]: a["character"] for a in head["config"]["agents"]}["Ada"] == "You are curious."
+        assert c.post("/api/tournament/watch", json={"session": session}).json()["ok"] and host.sim is sim
     finally:
+        for t in list(host.tournaments):
+            host.cancel_lobby(t)
         host.stop()
-        remote.HUB.close()
 
 
 def test_public_server_opens_no_tunnel_and_lobby_can_be_cancelled(tmp_path, monkeypatch):
@@ -308,10 +311,66 @@ def test_public_server_opens_no_tunnel_and_lobby_can_be_cancelled(tmp_path, monk
     monkeypatch.setattr(tunnel.TUNNEL, "start", lambda port: opened.append(port))
     host = Host(None, str(tmp_path / "runs"), str(tmp_path / "reports"), setup=True)
     c = TestClient(create_app(host=host))  # "testserver": like a public domain
-    lobby = c.post("/api/start", json={"brains": "mcp", "villagers": 2, "days": 1}).json()["lobby"]
-    assert not opened and c.get(lobby).status_code == 200
-    assert c.post("/api/tournament/cancel").json()["ok"]
-    assert c.get("/api/setup").json()["lobby"] is None and c.get(lobby).status_code == 404
+    r = c.post("/api/start", json={"brains": "mcp", "villagers": 2, "days": 1}).json()
+    assert not opened and c.get(r["lobby"]).status_code == 200
+    assert c.post("/api/tournament/cancel", json={"session": r["session"]}).json()["ok"]
+    assert c.get("/api/setup").json()["tournaments"] == [] and c.get(r["lobby"]).status_code == 404
+
+
+def test_several_tournaments_at_once_each_with_its_own_code(tmp_path, monkeypatch):
+    from aivillage.server import Host, create_app
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    monkeypatch.setattr(remote, "CALL_WAIT", 0.3)
+    host = Host(None, str(tmp_path / "runs"), str(tmp_path / "reports"), setup=True)
+    c = TestClient(create_app(host=host))
+    try:
+        # the host's own village goes on while tournaments gather and play next to it
+        assert c.post("/api/start", json={"brains": "bots", "villagers": 2, "days": 1, "pace": 0}).status_code == 200
+        own = host.sim
+        a = c.post("/api/start", json={"brains": "mcp", "villagers": 2, "days": 1, "pace": 0}).json()
+        b = c.post("/api/start", json={"brains": "mcp", "villagers": 2, "days": 1, "pace": 0}).json()
+        assert host.sim is own and a["code"] != b["code"] and len(a["code"]) == 8
+        assert c.get("/mcp/join").status_code == 200  # type a code instead of opening a link
+        assert c.get(f"/mcp/join/{a['code'].lower()}").status_code == 200  # any case
+        assert c.get("/mcp/join/NOPE1234/state").status_code == 404
+
+        def ready(t, names):
+            players = []
+            for n in names:
+                took = c.post(f"{t['lobby']}/take", json={"player": n}).json()
+                p = Player(c, took["path"], n)
+                p.tool("join_village", confirm=remote.HUBS[t["session"]].session)
+                text, _ = p.tool("next_turn")
+                rid = int(re.search(r"Request (\d+)", text).group(1))
+                assert not p.tool("answer", request_id=rid, reply={"name": n, "character": "You."})[1]
+                players.append(p)
+            return players
+
+        pa, pb = ready(a, ["Ann", "Bob"]), ready(b, ["Ann", "Cid"])  # the same name in two tournaments is fine
+        # one tournament's link is no key to the other
+        assert c.post(f"{b['lobby']}/look", json={"claim": remote.HUBS[a["session"]].ready()[0].claim}).status_code == 409
+        wrong = pa[0].tool("join_village", confirm=remote.HUBS[b["session"]].session)[0]
+        assert "Wrong session code" in wrong
+        for t in (a, b):
+            assert c.post("/api/tournament/begin", json={"session": t["session"]}).status_code == 200
+        sims = [host.tournaments[t["session"]]["sim"] for t in (a, b)]
+        assert sorted(sims[0].world.agents) == ["Ann", "Bob"] and sorted(sims[1].world.agents) == ["Ann", "Cid"]
+        threads = [threading.Thread(target=p.play, args=([],), daemon=True) for p in pa + pb]
+        for t in threads:
+            t.start()
+        deadline = time.time() + 60
+        while not all(x.finished for x in sims) and time.time() < deadline:
+            time.sleep(0.1)
+        assert all(x.finished for x in sims) and host.sim is own
+        states = [c.get(f"{t['lobby']}/state").json() for t in (a, b)]
+        assert [s["finished"] for s in states] == [True, True]
+        assert {r["player"] for r in states[1]["seats"]} == {"Ann", "Cid"}
+        listing = c.get("/api/setup").json()["tournaments"]
+        assert {t["code"] for t in listing} == {a["code"], b["code"]} and all(t["finished"] for t in listing)
+    finally:
+        for t in list(host.tournaments):
+            host.cancel_lobby(t)
+        host.stop()
 
 
 def test_lobby_one_invite_link_each_player_takes_a_villager():
