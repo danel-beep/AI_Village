@@ -139,6 +139,8 @@ def test_night_choice_of_what_to_remember(w):
     assert entry["forgot"] == ["Boris was kind."] and [k["text"] for k in ag.kept] == ["Anna stole fish."]
     assert "1. day 1: Anna stole fish." in ag.client.seen[-1][-1]["content"]  # shown to the night's choice
     assert ag.long_memory()["you_chose_to_remember"] == ["1. day 1: Anna stole fish."]
+    ag.keep(3, ["1. day 1: Anna stole fish.", "Day 3: Snow fell."], None)  # copied list format, a repeat
+    assert [k["text"] for k in ag.kept] == ["Anna stole fish.", "Snow fell."]
     ag.kept = [{"day": 1, "text": str(i)} for i in range(llm.KEEP_MAX)]
     ag.keep(3, ["new"], None)
     assert len(ag.kept) == llm.KEEP_MAX and ag.kept[-1]["text"] == "new" and ag.kept[0]["text"] == "1"

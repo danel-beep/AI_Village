@@ -88,6 +88,8 @@ REFLECT_KEEP = (
 KEEP_PER_NIGHT = 2
 KEEP_MAX = 20  # past it the oldest goes
 KEEP_CHARS = 200
+# Models copy the "1. day 2:" of the list they see; it is added back when shown.
+KEEP_PREFIX = re.compile(r"^\s*(?:\d+\.\s*)?(?:day\s*\d+\s*[:.,-]\s*)?", re.I)
 
 REFLECT_GOALS = (
     '\nAlso put in the same object "wants": what you want from your life here now, in your own words (keep, change '
@@ -1072,7 +1074,9 @@ class LLMAgent:
         if isinstance(remember, str):
             remember = [remember]
         if isinstance(remember, list):
-            new = [" ".join(t.split())[:KEEP_CHARS] for t in remember if isinstance(t, str) and t.strip()][:KEEP_PER_NIGHT]
+            have = {k["text"] for k in self.kept}
+            new = [t for t in (KEEP_PREFIX.sub("", " ".join(t.split()))[:KEEP_CHARS] for t in remember
+                               if isinstance(t, str)) if t and t not in have][:KEEP_PER_NIGHT]
             if new:
                 self.kept += [{"day": day, "text": t} for t in new]
                 del self.kept[:-KEEP_MAX]
