@@ -89,7 +89,7 @@ def run(world: World, decide: DecideFn, days: int, god_script: dict[int, list] |
     (aivillage/saves.py saves there); it may raise to stop the run. `resume_header`: the world was loaded from a
     save (aivillage/saves.py), so append to the log at `log_path` and only hand its old header to `on_record`."""
     log = JsonlLog(log_path, append=resume_header is not None)
-    meta = {"brains": brains_of(decide), **(meta or {})}
+    meta = {"brains": brains_of(decide), **villains_meta(decide), **(meta or {})}
     llm = getattr(decide, "agents", None) or {}
 
     def emit(rec: dict) -> None:
@@ -188,6 +188,14 @@ def brains_of(decide: DecideFn) -> dict[str, str]:
     return dict(sorted(out.items()))
 
 
+def villains_meta(decide: DecideFn) -> dict:
+    """{"villains": {villager: model}} for the log header when any LLM villager has the villain character, else {}."""
+    from .llm import VILLAIN_CHARACTER
+    bad = {n: getattr(ag.client, "model", "?") for n, ag in (getattr(decide, "agents", None) or {}).items()
+           if getattr(ag, "character", "") == VILLAIN_CHARACTER}
+    return {"villains": dict(sorted(bad.items()))} if bad else {}
+
+
 def usage_record(agents: dict, tick: int) -> dict:
     """Cumulative token use and cost per LLM villager (the last `usage` record in a log is the total)."""
     return {"type": "usage", "tick": tick,
@@ -279,6 +287,17 @@ def seat_order(names, seed: int) -> list[str]:
     order = sorted(names)
     random.Random(f"{seed}:seats").shuffle(order)
     return order
+
+
+def villains_of(models: dict[str, str], per_model: int, seed: int) -> dict[str, str]:
+    """{villager: model} of the villains: `per_model` villagers of every model (own AIs aside), drawn from the seed,
+    so each model gets the same number and no seat (Boris included) is fixed."""
+    out: dict[str, str] = {}
+    for m in sorted(set(models.values()) - {"mcp"}):
+        names = sorted(n for n, mm in models.items() if mm == m)
+        random.Random(f"{seed}:villains:{m}").shuffle(names)
+        out.update({n: m for n in names[:max(0, per_model)]})
+    return dict(sorted(out.items()))
 
 
 def bots_decider(world: World, kinds: list[str], seed: int) -> DecideFn:
@@ -420,7 +439,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         models = {n: models[i % len(models)] for i, n in enumerate(seats)}
     if not models:
         return {}
-    from .llm import LLMAgent, StubClient, character_text, make_client, world_facts
+    from .llm import VILLAIN_CHARACTER, LLMAgent, StubClient, character_text, make_client, world_facts
     off = hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
@@ -429,9 +448,12 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
     if "mcp" in models.values():  # own AIs over MCP (aivillage/remote.py): new links and new consent every time
         remote.HUB.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
                          info={"villagers": len(world.agents)})
+    villains = villains_of(models, int(world.config.get("villains") or 0), world.config["seed"])
     out = {}
     for name, m in models.items():
         character = character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name)
+        if name in villains:
+            character = VILLAIN_CHARACTER
         if m == "mcp":
             client = remote.RemoteClient(remote.HUB.add(name, world.agents[name].profession))
             if remote.HUB.style == "owner":

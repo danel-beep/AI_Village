@@ -20,6 +20,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "craft_hint": True,
     "own_goals": True,
     "characters": "default",
+    # Villains: this many LLM villagers per model get llm.VILLAIN_CHARACTER (run.villains_of picks them from the
+    # seed), whatever `characters` says. 0 = none; only when the user turns it on (Danel's decision).
+    "villains": 0,
     # How a villager remembers its day (llm.MEMORY_MODES): "day" = the day is one conversation, earlier turns stay
     # as short lines plus its own answers (cached by the provider, reset each night); "fresh" = every turn is a new
     # chat with the last 3 actions and own notes (the old way).

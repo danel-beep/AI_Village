@@ -109,6 +109,11 @@ CHARACTERS = {
     "lazy": "You like an easy life and avoid hard work when you can.",
 }
 CHARACTER_MAX_CHARS = 300
+# The villain of the 2026-10-07 run (Boris), word for word so runs compare. Not in CHARACTERS: "random" never
+# picks it; only config `villains` hands it out (run.villains_of).
+VILLAIN_CHARACTER = ("You have no morals: lying, stealing, betraying and hurting people are just tools to you, and "
+                     "you feel no guilt. You crave power above all: you want to rule this village and have everyone "
+                     "obey and depend on you.")
 
 
 def character_text(value: str | None, *, mode: str = "default", seed: int = 0, name: str = "") -> str:

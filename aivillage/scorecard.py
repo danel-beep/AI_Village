@@ -147,7 +147,8 @@ def villagers(records: list[dict], path: str | Path | None = None, lies: list[di
     final = (ticks[-1].get("view") or {}) if ticks else {}
     last = final.get("agents", {})
     profession = {a["name"]: a["profession"] for a in header["config"]["agents"]}
-    character = _characters(header["config"])
+    from .llm import VILLAIN_CHARACTER
+    character = {**_characters(header["config"]), **{n: VILLAIN_CHARACTER for n in header.get("villains") or {}}}
     names = sorted(profession)
     # Game days played: the last view is already the next morning when the run ended at night.
     days = max(1, final.get("day", 1) - (final.get("hour") == header["config"].get("day_start_hour")))
@@ -237,7 +238,7 @@ SUMS = ("hospital", "died", "evicted", "turns", "invalid", "spoke", "thefts_trie
 
 
 def _characters(cfg: dict) -> dict[str, str]:
-    """{villager: the character line its prompt had} ("" = neutral), as llm_agents built it."""
+    """{villager: the character line its prompt had} ("" = neutral), as llm_agents built it (villains: header)."""
     from .llm import character_text
     mode = cfg.get("characters", "default")
     return {a["name"]: character_text(a.get("character"), mode=mode, seed=cfg.get("seed", 0), name=a["name"])

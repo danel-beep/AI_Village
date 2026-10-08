@@ -64,6 +64,11 @@ KNOBS: list[dict[str, Any]] = [
                "luna_haiku": "Половина жителей на Luna (через OpenAI), половина на Haiku 5.5 (через OpenRouter, "
                              "нужен его ключ). Кто на какой модели, решает жребий, как в опытах."},
      "hint": "Смесь моделей нужна, чтобы сравнить их в одной деревне; модель каждого жителя записана в журнале."},
+    {"key": "villains", "path": "villains", "group": "Деревня", "type": "range", "label": "Злых жителей на каждую модель",
+     "min": 0, "max": 5, "step": 1, "default": 0, "only": "llm",
+     "hint": "Злой житель без морали и жаждет власти, как Борис в прогоне со злодеем. Число на каждую модель: при "
+             "«Luna и Haiku поровну» 1 значит один злой на Luna и один на Haiku. Кто злой, решает жребий (может "
+             "выпасть и Борис); остальные обычные. Кто злой и на какой модели, записано в журнале. 0: злых нет."},
     {"key": "villagers", "group": "Деревня", "type": "range", "label": "Сколько жителей",
      "min": 2, "max": 60, "step": 1, "default": 5,
      "hint": "Больше пяти: новые жители получают имена и профессии сами, ресурсов в мире больше."},
@@ -619,9 +624,9 @@ HINTS = {
 # SIMPLE: all the «Простой» view shows (the default view); «Расширенный» shows MAIN and every section.
 # RETIRED: kept in to_run() and in the config (old saved forms, the lab, scenarios), never on the screen: switches
 # back to an older, dearer or worse way that nobody should pick by hand (Danel 2026-10-08).
-SIMPLE = ["brains", "models", "bot_mix", "preset", "start_stage", "villagers", "days", "daily_budget", "chaos"]
+SIMPLE = ["brains", "models", "villains", "bot_mix", "preset", "start_stage", "villagers", "days", "daily_budget", "chaos"]
 RETIRED = {"llm_memory", "llm_obs", "fixed_map"}
-MAIN = ["brains", "models", "bot_mix", "preset", "start_stage", "food", "villagers", "days", "daily_budget"]
+MAIN = ["brains", "models", "villains", "bot_mix", "preset", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, свои цели, разговоры и что жители видят друг о друге.",
      ["characters", "own_goals", "craft_hint", "summaries", "luxury", "hungry_seen_below",
