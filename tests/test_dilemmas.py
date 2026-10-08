@@ -114,6 +114,8 @@ def test_stages_built_and_owned():
     assert d["owns"]["Anna"] == {"house": 2, "buildings": {"shelter": 1}, "lots": 0}
     assert d["owns"]["Boris"]["lots"] == 1
     assert dilemmas.owns_line(d["owns"]["Clara"]) == "без дома"
+    assert dilemmas.owns_line({"house": 0, "buildings": {"shelter": 1, "workbench": 1}}) == \
+        "живёт в шалаше (shelter); workbench"
 
 
 def test_no_progress_no_stages():
