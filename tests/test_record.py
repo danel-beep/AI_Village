@@ -67,6 +67,7 @@ def test_trades_and_village_work_are_only_counted(w):
 def test_a_loan_stays_between_the_two_sides(w):
     put(w, "square", "Anna", "Boris", "Clara")
     act(w, "Anna", "lend", to="Boris", coins=5, repay_coins=5, due_day=2)
+    act(w, "Boris", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     assert "Anna" in w.agents["Boris"].reputation
     assert "Anna" not in w.agents["Clara"].reputation  # she stood there, but the book keeps no one else's debts
 

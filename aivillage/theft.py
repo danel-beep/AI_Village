@@ -189,7 +189,8 @@ def observe(world: World, name: str, obs: dict) -> None:
             c["coins"], c["food"] = chest.coins, _food(cfg, chest.items)
 
 
-def fact(cfg: dict) -> str:
+def fact(cfg: dict, treasury: bool = True) -> str:
+    """The Theft rules line; `treasury` False (no treasury yet, llm.world_facts) leaves out stealing from it."""
     if not enabled(cfg):
         return ""
     t = _c(cfg)
@@ -209,7 +210,7 @@ def fact(cfg: dict) -> str:
                  f"the owner of a chest, at home and awake, sees who robs it with "
                  f"{float(t.get('owner_notice_chance', 0)):.0%} chance; a robbed person always finds the loss, "
                  "not always the thief")
-    if t.get("treasury"):
+    if t.get("treasury") and treasury:
         from . import governance
         where = "at a polity's town hall" if governance.polity_on(cfg) else "at the square"
         parts.append(f"steal target 'treasury' {where} takes the treasury's coins; the books still show them until "

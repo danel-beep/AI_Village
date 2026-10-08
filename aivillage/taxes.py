@@ -36,6 +36,7 @@ TREASURY = "treasury"
 TAXES = "feature:taxes"  # progress.DEFAULT_UNLOCKS: a town_hall
 COUNCIL_ORDERS = "feature:council_orders"
 progress.DEFAULT_UNLOCKS.setdefault(COUNCIL_ORDERS, {"building": "town_hall"})  # the council posts with a town hall
+progress.DEFAULT_UNLOCKS.setdefault("action:pay_bill", {"building": "town_hall"})  # tax and fine bills need a treasury
 
 
 def enabled(cfg: dict) -> bool:

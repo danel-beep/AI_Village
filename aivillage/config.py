@@ -29,6 +29,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # every turn (before 2026-10-08). A/B (scenarios/obs_changes.yaml): a turn 14-20% cheaper, failed actions
     # halved, no other difference beyond the A/A noise.
     "llm_obs": "changes",
+    # World facts in the villager's prompt (llm.world_facts): "open" = only the rules of what the village has opened
+    # (village stages), and one build verb instead of start_building/bring_materials/construct; "all" = every rule
+    # from the first hour and the three verbs (before 2026-10-08). A/B: scenarios/prompt_short.yaml.
+    "llm_facts": "open",
     # Own AIs (aivillage/remote.py): the first `seats` villagers are played by people's own AIs (Claude, ChatGPT,
     # Gemini, Codex...) connected over MCP. The village waits `wait_minutes` for each answer once an AI is
     # connected; `style` "owner" = the AI takes the villager's character from its owner, "self" = like any villager.

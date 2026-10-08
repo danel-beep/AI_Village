@@ -139,6 +139,7 @@ tests/test_presets.py
 tests/test_pricing.py
 tests/test_private_debts.py
 tests/test_progress.py
+tests/test_prompt_size.py
 tests/test_property.py
 tests/test_quick_fixes.py
 tests/test_record.py

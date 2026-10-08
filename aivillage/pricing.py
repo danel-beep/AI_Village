@@ -47,21 +47,32 @@ def _unit(world: World, item: str, side: str, held: int | None = None) -> float:
             * works.sell_factor(world, side) * stock_factor(world, item, held))
 
 
+def _unit_coins(world: World, item: str, side: str, low: int) -> int:
+    """Whole coins for one unit crossing between the trader holding `low` and `low + 1` of `item` (a sale to him
+    moves him up across it, a purchase from him down across it), at least 1. Both directions are priced at the
+    same stock, and the trader never pays for a unit more than he asks for it, so buying a unit and selling it
+    straight back never makes a coin, whatever crises or village works do to his prices."""
+    cfg = world.config
+    ask = max(1, _coins(cfg, _unit(world, item, "buy", low)))
+    if side == "buy":
+        return ask
+    return min(ask, max(1, _coins(cfg, _unit(world, item, "sell", low))))
+
+
 def price(world: World, item: str, side: str) -> int:
     """side "buy": what a villager pays the trader for one unit now; "sell": what the trader pays for one."""
-    return max(1, _coins(world.config, _unit(world, item, side)))
+    return total(world, item, side, 1)
 
 
 def total(world: World, item: str, side: str, qty: int) -> int:
-    """Coins for a lot of `qty`. With stock prices on, priced unit by unit as the trader's stock moves (each unit
-    a villager sells him adds to his stock, each unit he sells takes one away) and rounded once for the lot, at
-    least 1 coin: one big sale no longer dodges the price slide that the same units sold one by one would get."""
-    cfg = world.config
-    if qty == 1 or not (enabled(cfg) or cfg["trader_pricing"].get("nearest")):
-        return price(world, item, side) * qty
-    held = world.trader_stock.get(item, 0)
-    step = 1 if side == "sell" else -1
-    return max(1, _coins(cfg, sum(_unit(world, item, side, max(0, held + step * k)) for k in range(qty))))
+    """Coins for a lot of `qty`: unit by unit as the trader's stock moves (each unit a villager sells him adds to
+    his stock, each unit he sells takes one away), each unit in whole coins. A lot costs exactly what the same
+    units bought or sold one at a time would, so splitting or bundling a deal gains nothing (the audit found a
+    lot rounded once let a villager buy 2 berries for 1 coin and sell them back for 1 each)."""
+    held = world.trader_stock.get(item, 0) if enabled(world.config) else 0
+    if side == "sell":
+        return sum(_unit_coins(world, item, side, held + k) for k in range(qty))
+    return sum(_unit_coins(world, item, side, max(0, held - 1 - k)) for k in range(qty))
 
 
 def prices(world: World) -> dict:

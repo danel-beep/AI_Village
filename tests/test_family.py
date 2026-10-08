@@ -175,6 +175,7 @@ def test_fuzz_courtship_replay(tmp_path, seed):
 
 def test_unpaid_debt_hurts_the_lender(w):
     act(w, "Anna", "lend", to="Boris", coins=5, repay_coins=6, due_day=2)
+    act(w, "Boris", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     assert family.feeling(w, "Boris", "Anna") == 4
     while w.day < 4:
         engine.step(w, {})

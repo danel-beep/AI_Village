@@ -100,6 +100,8 @@ class Offer:
     # "I owe you later" part (debts.py, «Долги вещами»): on accept the sender owes these by due_day.
     i_owe: dict[str, int] = field(default_factory=dict)
     due_day: int = 0
+    # A loan offer (`lend`): on accept the receiver owes these coins by due_day.
+    you_owe: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

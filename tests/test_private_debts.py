@@ -49,6 +49,7 @@ def test_a_debt_is_seen_only_by_its_two_sides_and_their_spouses():
     w = make()
     w.kin.marriages["m1"] = Marriage("m1", ["Boris", "Clara"], w.agents["Boris"].home, 1)
     act(w, "Anna", "lend", to="Boris", coins=2, repay_coins=3, due_day=3)
+    act(w, "Boris", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     d = next(iter(w.debts.values()))
     assert [r["id"] for r in board(w, "Anna")] == [d.id] == [r["id"] for r in board(w, "Boris")]
     assert [r["id"] for r in board(w, "Clara")] == [d.id]  # Boris's wife
@@ -160,6 +161,7 @@ def test_food_owed_and_food_held_is_never_seized():
 def test_saves_with_and_without_debts_in_kind_keep_their_hash():
     w = make()
     act(w, "Anna", "lend", to="Boris", coins=2, repay_coins=3, due_day=3)
+    act(w, "Boris", "accept", offer_id=[*w.offers][-1])  # a loan starts when the borrower accepts
     ops.mint(w, w.agents["Anna"].inventory, "fish", 1)
     act(w, "Anna", "offer", to="Boris", give={"fish": 1}, want={"coins": 1})
     assert World.from_dict(w.to_dict()).hash() == w.hash()
@@ -192,3 +194,71 @@ def test_lean_winter_builder_bots_borrow_food_in_kind(tmp_path):
     rep = run_scenario("lean_winter", log=str(log), ai=[], days=1)
     assert rep["passed"]
     assert any('"kind": "iou"' in line for line in log.read_text().splitlines())
+
+
+def test_a_loan_is_only_an_offer_until_the_borrower_accepts_it():
+    """Audit B-6: lend(coins=1, repay_coins=1000000000) wrote a billion-coin debt on Boris without asking him."""
+    w = make()
+    anna, boris = w.agents["Anna"], w.agents["Boris"]
+    a0, b0 = anna.coins, boris.coins
+    ev = act(w, "Anna", "lend", to="Boris", coins=1, repay_coins=1000000000, due_day=2)
+    assert errors(ev) and "at most" in errors(ev)[0] and not w.offers and not w.debts
+    ev = act(w, "Anna", "lend", to="Boris", coins=1, repay_coins=400, due_day=2)
+    assert not errors(ev) and not w.debts and (anna.coins, boris.coins) == (a0, b0)
+    seen = engine.observe(w, "Boris", consume_inbox=False)["offers_to_you"]
+    assert seen[0]["give"] == {"coins": 1} and seen[0]["you_owe"] == {"coins": 400} and seen[0]["due_day"] == 2
+    assert heard(w, "Boris", "offers you a loan of 1 coins: you would owe 400 coins by day 2")
+    act(w, "Boris", "decline", offer_id=seen[0]["id"])
+    assert not w.offers and not w.debts and (anna.coins, boris.coins) == (a0, b0)
+    # a fair one, accepted: now the coins move and the debt is written
+    act(w, "Anna", "lend", to="Boris", coins=5, repay_coins=6, due_day=3)
+    ev = act(w, "Boris", "accept", offer_id=[*w.offers][-1])
+    lent = [e for e in ev if e.kind == "lend"]
+    assert lent and lent[0].actor == "Anna" and "Anna lent 5 coins to Boris; Boris must repay 6 by day 3" in lent[0].text
+    d = next(iter(w.debts.values()))
+    assert (d.lender, d.borrower, d.coins_owed, d.due_day) == ("Anna", "Boris", 6, 3)
+    assert (anna.coins, boris.coins) == (a0 - 5, b0 + 5)
+
+
+def test_a_loan_offer_falls_through_when_the_lender_no_longer_can_or_the_day_has_come():
+    w = make()
+    anna = w.agents["Anna"]
+    act(w, "Anna", "lend", to="Boris", coins=anna.coins, repay_coins=anna.coins + 1, due_day=3)
+    ops.burn_coins(w, anna, 1)  # spent before Boris answered
+    ev = act(w, "Boris", "accept", offer_id=[*w.offers][-1])
+    assert errors(ev) and "no longer has" in errors(ev)[0] and not w.offers and not w.debts
+    act(w, "Anna", "lend", to="Boris", coins=1, repay_coins=2, due_day=2)
+    w.day = 2
+    ev = act(w, "Boris", "accept", offer_id=[*w.offers][-1])
+    assert errors(ev) and "has come" in errors(ev)[0] and not w.debts
+    act(w, "Anna", "lend", to="Boris", coins=1, repay_coins=2, due_day=5)
+    anna.status = "dead"
+    ev = act(w, "Boris", "accept", offer_id=[*w.offers][-1])
+    assert errors(ev) and not w.debts
+
+
+def test_loan_offers_survive_a_save():
+    w = make()
+    ops.mint(w, w.agents["Anna"].inventory, "fish", 1)
+    act(w, "Anna", "offer", to="Clara", give={"fish": 1}, want={"coins": 1})
+    act(w, "Anna", "lend", to="Boris", coins=2, repay_coins=3, due_day=4)
+    plain, loan = w.to_dict()["offers"].values()
+    assert not plain["you_owe"] and not plain["i_owe"]
+    assert loan["you_owe"] == {"coins": 3} and loan["due_day"] == 4 and not loan["i_owe"]
+    back = World.from_dict(w.to_dict())
+    assert back.to_dict() == w.to_dict()
+    act(back, "Boris", "accept", offer_id=loan["id"])
+    assert next(iter(back.debts.values())).coins_owed == 3
+
+
+def test_invariants_catch_a_broken_listing_or_offer():
+    from aivillage.invariants import InvariantError
+    from aivillage.state import Offer, Sale
+    w = make()
+    w.sales["sale_x"] = Sale("sale_x", "Anna", {"bread": -1}, 3, 99)
+    with pytest.raises(InvariantError, match="sale sale_x"):
+        check(w)
+    del w.sales["sale_x"]
+    w.offers["offer_x"] = Offer("offer_x", "Anna", "Boris", {"coins": 1}, {}, 99, due_day=3, you_owe={"coins": 0})
+    with pytest.raises(InvariantError, match="offer offer_x"):
+        check(w)
