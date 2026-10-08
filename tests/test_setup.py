@@ -276,3 +276,31 @@ def test_luna_and_haiku_half_each_from_the_start_screen(tmp_path, monkeypatch):
     own = remote.models_for(w.config, mix)
     assert list(own.values()).count("mcp") == 2
     assert sorted(m for m in own.values() if m != "mcp") == sorted(mix * 2)
+
+
+def test_villains_per_model_from_the_start_screen(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from aivillage import llm, server
+    from aivillage.run import llm_agents, villains_meta
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert knobs.to_run({})["override"]["villains"] == 0  # none unless asked
+    assert "villains" in knobs.SIMPLE and "villains" in knobs.MAIN
+    assert "villain" not in llm.CHARACTERS  # «Случайный у каждого» never makes a villain
+
+    got = {}
+    monkeypatch.setattr(server, "make_sim", lambda world, **kw: got.update(world=world, **kw) or MagicMock())
+    monkeypatch.setattr(llm, "check", lambda *a, **k: {"ok": True})
+    Host(None, str(tmp_path / "runs"), setup=True).start({"brains": "llm", "models": "luna_haiku", "villagers": 6,
+                                                           "villains": 1})
+    w = got["world"]
+    assert w.config["villains"] == 1 and w.config["characters"] == "off"
+    agents = llm_agents(w, got["models"])
+    bad = villains_meta(type("Decide", (), {"agents": agents})())["villains"]
+    assert sorted(bad.values()) == sorted(knobs.MODEL_MIXES["luna_haiku"])  # one villain on each model
+    for n, ag in agents.items():  # villains even with characters off; everyone else neutral
+        assert ag.character == (llm.VILLAIN_CHARACTER if n in bad else "")
+    w.config["villains"] = 0
+    assert villains_meta(type("Decide", (), {"agents": llm_agents(w, got["models"])})()) == {}  # header unchanged

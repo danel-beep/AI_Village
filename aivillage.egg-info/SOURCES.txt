@@ -35,6 +35,7 @@ aivillage/labor.py
 aivillage/land.py
 aivillage/launcher.py
 aivillage/llm.py
+aivillage/logio.py
 aivillage/luxury.py
 aivillage/mapgen.py
 aivillage/market.py
@@ -98,6 +99,7 @@ tests/test_crafting.py
 tests/test_crafts_bots.py
 tests/test_crises.py
 tests/test_danger.py
+tests/test_data_money.py
 tests/test_debts.py
 tests/test_dice.py
 tests/test_dilemmas.py
@@ -115,11 +117,13 @@ tests/test_honors.py
 tests/test_keys.py
 tests/test_lab.py
 tests/test_labor.py
+tests/test_launcher_update.py
 tests/test_laws.py
 tests/test_lives.py
 tests/test_llm.py
 tests/test_llm_memory.py
 tests/test_llm_prompt.py
+tests/test_logio.py
 tests/test_luxury.py
 tests/test_mapgen.py
 tests/test_market.py
@@ -156,6 +160,7 @@ tests/test_server.py
 tests/test_session.py
 tests/test_settle.py
 tests/test_setup.py
+tests/test_shards.py
 tests/test_sim.py
 tests/test_sound.py
 tests/test_spoilage.py
