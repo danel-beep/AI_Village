@@ -13,7 +13,6 @@
 ## В работе
 
 Волна 1 плана после аудита (`/mnt/project-files/reports/audit-prompt/sravnenie-i-plan.md`), зоны не пересекаются:
-- Честный CI: `.github/workflows/tests.yml`, `pyproject.toml`.
 - Ответы и речь моделей (парсер JSON, речь как JSON): `llm.py` (`parse_json_object`, `turn_line`, `remember_turn`).
 - Сохранность данных и денег: `saves.py`, `server.py` (load, budget), `run.py` (`view`), `budget.py`.
 - Честные измерения: `social_metrics.py`, `metrics.py`, `lab.py`, заголовок лога в `run.py`.
@@ -26,6 +25,7 @@
 ## Последние изменения
 
 - Дыры в правилах: заём только с согласия должника, партия у торговца стоит как поштучно, `actions.py`/`pricing.py` (PR #151).
+- Честный CI: ставит `.[live,dev]` и node, Python 3.11/3.12, `pytest -n 4`; пропуск теста валит проверку (`tests/conftest.py`, PR #148).
 - Короткие документы: этот файл, `docs/modules.md`, карта «задача → файлы» в ARCHITECTURE.
 - Стартовый экран: меню, «Простой» и «Расширенный», экран загрузки (PR #144).
 - Живой разговор: жители в одном месте говорят по очереди, `talk.py` (PR #130).
@@ -39,7 +39,6 @@
 - Кражи с последствиями, `theft.py` (PR #135).
 - Настоящая опасность в «С нуля», `threats.py` (PR #129).
 - Казна с тратами, `taxes.py`/`polity.py`/`merchant.py` (PR #132); опыт E0 «мэр и полная казна» (PR #133).
-- «Эфир» части 1 и 2: повтор как передача, часы судьбы (PR #128, #131).
 
 ## Дальше
 
