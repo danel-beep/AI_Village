@@ -17,11 +17,15 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
+        # the suite is split in two halves by file cost (tests/conftest.py, tests/durations.json)
+        shard: ["1/2", "2/2"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -30,6 +34,7 @@ jobs:
       - run: python -m pytest -n 4 -ra
         env:
           AIV_NO_SKIPS: "1"
+          AIV_SHARD: ${{ matrix.shard }}
 
   lock:
     # uv.lock pins the exact packages the desktop launcher installs (`uv run --frozen`);
@@ -54,3 +59,11 @@ jobs:
       - run: |
           git tag -f stable "$GITHUB_SHA"
           git push -f origin refs/tags/stable
+
+  # one stable check name for branch protection and auto-merge: green only when every shard and the lock check are
+  tests-ok:
+    if: always()
+    needs: [pytest, lock]
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.pytest.result }}" = success && test "${{ needs.lock.result }}" = success
