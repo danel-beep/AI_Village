@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Iterable
 
+from . import logio
 from .llm import Client, Usage, make_client
 
 DEFAULT_MODEL = "openai/gpt-6-luna"
@@ -128,7 +129,7 @@ def sidecar_path(log: str | Path, lang: str) -> Path:
 
 def translate_log(log: str | Path, translator: Translator, out: str | Path | None = None) -> Path:
     with open(log) as f:
-        texts = collect_texts(json.loads(line) for line in f if line.strip())
+        texts = collect_texts(logio.parse(f))
     done = translator.translate(texts)
     out = Path(out) if out else sidecar_path(log, translator.lang)
     out.write_text(json.dumps({"type": "translation", "lang": translator.lang,
