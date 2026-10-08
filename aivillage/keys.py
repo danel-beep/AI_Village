@@ -3,7 +3,7 @@
 One JSON file, `<home>/settings.json` (home: env AIVILLAGE_HOME, else ~/AIVillage):
 
     {"provider": "auto|openai|openrouter", "model": "openai/gpt-6-luna",
-     "openai_key": "sk-...", "openrouter_key": "sk-or-...", "parallel": 16}
+     "openai_key": "sk-...", "openrouter_key": "sk-or-...", "parallel": 16, "openai_tier": "flex|default"}
 
 Values in the file win over environment variables (OPENAI_API_KEY, OPENROUTER_API_KEY,
 AIVILLAGE_PROVIDER, AIVILLAGE_MODEL), so a key changed in the viewer's settings panel takes
@@ -19,9 +19,10 @@ import threading
 from pathlib import Path
 
 PROVIDERS = ("auto", "openai", "openrouter")
-FIELDS = ("provider", "model", "openai_key", "openrouter_key", "parallel")
+FIELDS = ("provider", "model", "openai_key", "openrouter_key", "parallel", "openai_tier")
 ENV = {"openai_key": "OPENAI_API_KEY", "openrouter_key": "OPENROUTER_API_KEY",
-       "provider": "AIVILLAGE_PROVIDER", "model": "AIVILLAGE_MODEL", "parallel": "AIVILLAGE_MAX_PARALLEL"}
+       "provider": "AIVILLAGE_PROVIDER", "model": "AIVILLAGE_MODEL", "parallel": "AIVILLAGE_MAX_PARALLEL",
+       "openai_tier": "AIVILLAGE_OPENAI_TIER"}
 
 _lock = threading.Lock()
 _cache: dict[str, tuple[float, dict]] = {}
@@ -78,6 +79,8 @@ def save(changes: dict, h: Path | None = None) -> dict:
             data[k] = v
     if data.get("provider") not in (None, *PROVIDERS):
         raise ValueError(f"provider must be one of {PROVIDERS}")
+    if data.get("openai_tier") not in (None, "flex", "default"):
+        raise ValueError("openai_tier must be flex or default")
     if "parallel" in data:
         data["parallel"] = max(1, min(64, int(data["parallel"])))
     h.mkdir(parents=True, exist_ok=True)
@@ -121,7 +124,8 @@ def mask(key: str | None) -> str:
 def public(h: Path | None = None) -> dict:
     """Settings for the viewer: keys masked, plus where each value came from."""
     saved = load(h)
-    out: dict = {"provider": provider(h), "model": get("model", h) or "", "parallel": get("parallel", h) or ""}
+    out: dict = {"provider": provider(h), "model": get("model", h) or "", "parallel": get("parallel", h) or "",
+                 "openai_tier": get("openai_tier", h) or "flex"}
     for k in ("openai_key", "openrouter_key"):
         v = get(k, h)
         out[k] = {"set": bool(v), "masked": mask(v), "from": "file" if saved.get(k) else ("env" if v else "")}

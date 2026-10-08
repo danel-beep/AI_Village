@@ -3,7 +3,7 @@
 import json
 
 from aivillage import engine
-from aivillage.llm import CACHE_POINT, DAY_LOG_LINES, LLMAgent, Usage, wire
+from aivillage.llm import CACHE_SPLIT, CACHE_POINT, DAY_LOG_LINES, LLMAgent, Usage, wire
 from aivillage.run import llm_agents
 
 
@@ -63,9 +63,11 @@ def test_villagers_share_the_start_of_the_system_prompt():
     agents = llm_agents(w, ["stub"])
     heads = set()
     for name, ag in agents.items():
-        system = ag.messages(engine.observe(w, name, consume_inbox=False))[0]["content"]
+        msg = ag.messages(engine.observe(w, name, consume_inbox=False))[0]
+        system = msg["content"]
         cut = system.index(f"You are {name}, a ")
         assert cut > len(system) // 2  # the villager's own part is at the end
+        assert msg[CACHE_SPLIT] == cut - 2  # ...and is cached apart from the world part ("\n\n" before it)
         heads.add(system[:cut])
     assert len(heads) == 1
     assert {ag.client.cache_key for ag in agents.values()} == {f"aivillage-{n}" for n in agents}
@@ -81,6 +83,19 @@ def test_cache_point_on_the_wire():
     for m in claude:
         assert m["content"] == [{"type": "text", "text": m["content"][0]["text"], "cache_control": {"type": "ephemeral"}}]
     assert wire([{"role": "user", "content": "obs"}], "anthropic") == [{"role": "user", "content": "obs"}]
+
+
+def test_world_part_of_the_system_prompt_is_cached_apart():
+    """The world text before "You are <name>" is the same for every villager and all day: it gets its own cache
+    point, so a new memory in the morning (or another villager, on Claude) does not pay for it again."""
+    msgs = [{"role": "system", "content": "world. You are Anna, a cook. memory", CACHE_SPLIT: 6},
+            {"role": "user", "content": "obs"}]
+    for mode, mark in ((True, {"prompt_cache_breakpoint": {"mode": "explicit"}}),
+                       ("anthropic", {"cache_control": {"type": "ephemeral"}})):
+        sent = wire(msgs, mode)[0]
+        assert sent == {"role": "system", "content": [{"type": "text", "text": "world.", **mark},
+                                                      {"type": "text", "text": " You are Anna, a cook. memory"}]}
+    assert wire(msgs, False)[0] == {"role": "system", "content": "world. You are Anna, a cook. memory"}
 
 
 def test_usage_counts_cached_tokens():
