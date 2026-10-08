@@ -7,7 +7,7 @@ inside the last tick of the day. So tick -> (day, hour, minute) is plain arithme
 from __future__ import annotations
 
 ALLOWED = (15, 20, 30, 60)
-RUN_DEFAULT = 15  # what the CLI, the live server and the launcher use; engine tests keep config's 60
+RUN_DEFAULT = 15  # what the CLI and the live server use; engine tests keep config's 60
 
 
 def tick_minutes(cfg: dict) -> int:

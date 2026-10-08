@@ -78,7 +78,7 @@ def around(recs: list[dict], tick: int | None, hours: int) -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Read a problem report made by the viewer or the launcher.")
+    p = argparse.ArgumentParser(description="Read a problem report made by the viewer.")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("show")
     s.add_argument("zip")

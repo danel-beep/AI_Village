@@ -1,4 +1,4 @@
-// Start screen (injected by aivillage/server.py when it runs with --setup, i.e. from the launcher).
+// Start screen (injected by aivillage/server.py when it runs with --setup: the public website, aivillage/web.py).
 // Before a village runs: a title menu (new village, continue a save, experiments, past villages) over the map;
 // "Новая деревня" is a form drawn from GET /api/setup (aivillage/knobs.py) in two views: «Простой» (knobs.SIMPLE,
 // the default) and «Расширенный» (every knob). "▶ Играть" posts the answers to /api/start and reloads into the

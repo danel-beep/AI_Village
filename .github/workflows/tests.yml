@@ -36,20 +36,10 @@ jobs:
           AIV_NO_SKIPS: "1"
           AIV_SHARD: ${{ matrix.shard }}
 
-  lock:
-    # uv.lock pins the exact packages the desktop launcher installs (`uv run --frozen`);
-    # it must match pyproject.toml, or the launcher would refuse to start.
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: uv lock --check
-
   stable-tag:
-    # The launcher downloads the `stable` tag, so players only get commits whose tests passed.
+    # The public website deploys the `stable` tag (site-deploy.yml), so players only get commits whose tests passed.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [pytest, lock]
+    needs: [pytest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -60,10 +50,10 @@ jobs:
           git tag -f stable "$GITHUB_SHA"
           git push -f origin refs/tags/stable
 
-  # one stable check name for branch protection and auto-merge: green only when every shard and the lock check are
+  # one stable check name for branch protection and auto-merge: green only when every shard is
   tests-ok:
     if: always()
-    needs: [pytest, lock]
+    needs: [pytest]
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.pytest.result }}" = success && test "${{ needs.lock.result }}" = success
+      - run: test "${{ needs.pytest.result }}" = success

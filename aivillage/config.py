@@ -41,7 +41,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # connected; `style` "owner" = the AI takes the villager's character from its owner, "self" = like any villager.
     "own_ai": {"seats": 0, "wait_minutes": 5, "style": "owner"},
     # Time: one tick = tick_minutes game minutes (clock.py). Agents act from day_start to day_end, then
-    # night runs. 60 is the old hourly mode the engine tests use; the CLI, live server and launcher run 15.
+    # night runs. 60 is the old hourly mode the engine tests use; the CLI and live server run 15.
     "day_start_hour": 6,
     "day_end_hour": 22,
     "tick_minutes": 60,

@@ -631,7 +631,7 @@ class LabJob:
 
 
 class Host:
-    """The app's current village. With `setup` (the launcher), there is none until the start screen's
+    """The app's current village. With `setup` (the website, aivillage/web.py), there is none until the start screen's
     "Play" (`POST /api/start`), and "New village" (`POST /api/stop`) goes back to the start screen."""
 
     def __init__(self, sim: LiveSim | None = None, runs_dir: str | None = None, reports_dir: str | None = None,
