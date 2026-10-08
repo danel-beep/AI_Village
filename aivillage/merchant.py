@@ -30,6 +30,7 @@ from .registry import ACTIONS, ActionError
 from .state import Agent, World
 
 UNLOCK = "feature:trader"
+progress.DEFAULT_UNLOCKS.setdefault("action:buy_from_merchant", {"building": "market_square"})  # he comes with it
 
 
 def _c(cfg: dict) -> dict:
