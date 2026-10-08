@@ -21,6 +21,7 @@ from typing import Callable, Iterable
 from . import animals, clock, construction, crafting, crises, engine, explore, graves, hire, honors, labor, land, mapgen, merchant, modes, plots, pricing, remote, settle, talk, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
+from .logio import ViewDeltas, read_log  # noqa: F401  (read_log: the public reader, re-exported)
 from .state import World
 
 LOG_VERSION = 1
@@ -35,10 +36,11 @@ class JsonlLog:
         if path:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             self.f = open(path, "a" if append else "w", encoding="utf-8")
+        self.deltas = ViewDeltas()  # tick views as deltas (aivillage/logio.py); an appended run starts whole
 
     def write(self, rec: dict) -> None:
         if self.f:
-            self.f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            self.f.write(json.dumps(self.deltas.compact(rec), ensure_ascii=False) + "\n")
             self.f.flush()  # a problem report can zip the log mid-run
 
     def close(self) -> None:
@@ -215,13 +217,6 @@ def market_prices(world: World) -> dict:
     """What the NPC trader charges ("buy") and pays ("sell") now, same as actions._price (pricing.py)."""
     return {item: [pricing.price(world, item, "buy"), pricing.price(world, item, "sell")]
             for item, info in world.config["items"].items() if info.get("tradable", True)}
-
-
-def read_log(path: str | Path) -> Iterable[dict]:
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                yield json.loads(line)
 
 
 def replay(path: str | Path) -> World:
