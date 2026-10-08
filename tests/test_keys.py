@@ -111,6 +111,7 @@ def test_openai_flex_tier_half_price_and_busy_falls_back(monkeypatch):
 
     seen = fake_openai(monkeypatch, handler)
     monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    monkeypatch.setenv("AIVILLAGE_OPENAI_TIER", "flex")
     c = llm.OpenAIClient("openai/gpt-6-luna", api_key=OA)
     full = (600 * 0.10 + 400 * 0.01 + 200 * 0.50) / 1e6
     _, usage = c.complete([{"role": "user", "content": "hi"}])
@@ -211,3 +212,10 @@ def test_villagers_sample_alike_on_every_route(monkeypatch):
     assert all("temperature" not in body for _, _, body in seen)
     llm.OpenRouterClient("google/x", api_key="or-key", temperature=0.2).complete([{"role": "user", "content": "hi"}])
     assert seen[-1][2]["temperature"] == 0.2
+
+
+def test_openai_normal_tier_unless_flex_is_chosen(monkeypatch):
+    monkeypatch.delenv("AIVILLAGE_OPENAI_TIER", raising=False)
+    assert llm.OpenAIClient.tier() == "default"
+    monkeypatch.setenv("AIVILLAGE_OPENAI_TIER", "flex")
+    assert llm.OpenAIClient.tier() == "flex"

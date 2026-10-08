@@ -494,7 +494,8 @@ MODEL_PRICES = {**OPENAI_PRICES, **{f"openai/{k}": v for k, v in OPENAI_PRICES.i
 OPENAI_PARALLEL = 16
 # OpenAI's "flex" tier: the same model and answers at half the price, but slower (~10 s a call instead of ~3 s) and
 # now and then busy (HTTP 429 "Flex does not have sufficient resources"); such a call is sent again at the normal
-# price at once. Settings field `openai_tier` ("flex" | "default", env AIVILLAGE_OPENAI_TIER), flex when not set.
+# price at once. Settings field `openai_tier` ("flex" | "default", env AIVILLAGE_OPENAI_TIER); the normal tier when
+# not set (Danel 2026-10-08: flex only when chosen, waiting ~10 s a turn is too slow).
 OPENAI_TIERS = ("flex", "default")
 FLEX_PRICE_SHARE = 0.5
 # OpenAI limits tokens per minute (a new key: 200k, ~40 village turns). When a reply says less than this
@@ -579,8 +580,8 @@ class OpenAIClient(Client):
 
     @staticmethod
     def tier() -> str:
-        t = (keys.get("openai_tier") or "flex").lower()
-        return t if t in OPENAI_TIERS else "flex"
+        t = (keys.get("openai_tier") or "default").lower()
+        return t if t in OPENAI_TIERS else "default"
 
     def _post(self, messages: list[dict], tier: str = "default") -> tuple[str, dict]:
         body = {"model": self.name, "messages": wire(messages, True), "max_completion_tokens": self.max_tokens,
