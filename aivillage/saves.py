@@ -74,7 +74,8 @@ def _set_bot_state(bot, state: dict) -> None:
 def _agent_state(ag) -> dict:
     out = {"model": getattr(ag.client, "model", "stub"), "notes": ag.notes, "usage": asdict(ag.usage),
            "recent": list(ag.recent), "people": dict(ag.people), "diary": list(ag.diary),
-           "day_log": list(ag.day_log), "turns": list(ag.turns), "villagers": sorted(ag.villagers),
+           "day_log": list(ag.day_log), "turns": list(ag.turns), "shown": dict(ag.shown),
+           "villagers": sorted(ag.villagers),
            "goals": {"about_me": ag.about_me, "wants": ag.wants, "plan": ag.plan, "introduced": ag.introduced},
            "kept": list(ag.kept), "record": ag.record, "record_day": ag.record_day}
     if hasattr(ag.client, "bot"):  # StubClient answers with a bot: keep its state too
@@ -100,6 +101,7 @@ def decider(world: World, snap: dict):
         ag.notes, ag.recent, ag.people = a["notes"], list(a["recent"]), dict(a["people"])
         ag.diary, ag.day_log, ag.villagers = list(a["diary"]), list(a["day_log"]), set(a["villagers"])
         ag.turns = list(a.get("turns") or [])  # saves before the day conversation: start a fresh one
+        ag.shown = dict(a.get("shown") or {})  # what those turns showed of the world ("llm_obs: changes")
         ag.usage = Usage(**a["usage"])
         g = a.get("goals") or {}  # saves made before own goals: no intro mid-game, the first night asks instead
         ag.about_me, ag.wants, ag.plan = g.get("about_me", ""), g.get("wants", ""), g.get("plan", "")

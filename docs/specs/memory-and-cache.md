@@ -42,6 +42,15 @@ notes, last 3 actions, people, last diary) and the observation.
 - An explicit breakpoint on a system content part works the same as on a user message (measured).
 - Claude (`anthropic/*` via OpenRouter) caches nothing without `cache_control`: the client marks the same points.
   Writes cost 1.25x the input price, reads 0.1x; Claude's 5-minute window is long enough for one village day.
+- Observation mode (`llm_obs`, "day" memory only, default "changes" since 2026-10-08): fields outside
+  `llm.LIVE_FIELDS` (the board, map, land, wealth, government...) go into the turn's line, which stays in the cached
+  conversation, only when they differ from what today's conversation last showed (`LLMAgent.shown`, reset at night
+  and when old turns are dropped; null = gone). The current observation keeps time, you, here, news, what was said
+  to you, offers and available actions, and names the rest ("as last shown above: ..."). A/B
+  (`scenarios/obs_changes.yaml`, 12 runs, 2 maps, Luna and Haiku on mirrored seats, report
+  /mnt/project-files/reports/obs-changes-2026-10-08/all/lab.md): a turn 14% (Haiku) to 20% (Luna) cheaper,
+  failed actions 8.5% -> 4.0% (Haiku, 611 vs 302 turns) and 1.6% -> 0.6% (Luna), wealth growth a little higher,
+  nothing else beyond the A/A noise.
 - OpenAI's `service_tier: "flex"` (default, settings field `openai_tier`): half price, ~10 s a call instead of ~3 s,
   about one call in five answered "busy" (429) and sent again at once at the normal price. Same model, same answers.
 

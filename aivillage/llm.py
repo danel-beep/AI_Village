@@ -149,6 +149,16 @@ CACHE_POINT = "cache_point"
 # the other villagers reuse it instead of paying for it again.
 CACHE_SPLIT = "cache_split"
 DAY_DIARIES = 3  # "day" mode: diary entries of the last days shown (in the cached part of the prompt)
+# Observation modes (config `llm_obs`, "day" memory only; docs/specs/memory-and-cache.md):
+#   "full":    every turn ends with the whole observation.
+#   "changes": fields outside LIVE_FIELDS (the board, the map, land, wealth, government...) are sent only when they
+#              differ from what today's conversation last showed, inside that turn's line, which stays in the cached
+#              part; the current observation keeps only LIVE_FIELDS and names the rest.
+OBS_MODES = ("full", "changes")
+DEFAULT_OBS = "changes"  # A/B 2026-10-08: −14–20% a turn, fewer failed actions
+LIVE_FIELDS = frozenset({"time", "you", "here", "news", "said_to_you", "last_error", "available_actions",
+                         "offers_to_you", "your_offers", "fires", "animals_here", "last_seen", "work_today",
+                         "dice_challenges_to_you", "can_start_building_here"})
 
 
 def wire(messages: list[dict], breakpoints: bool | str) -> list[dict]:
@@ -730,6 +740,7 @@ class StubClient(Client):
             return json.dumps({"about_me": f"I am {self.bot.name}.", "wants": "A quiet life.",
                                "today": "Work and eat."}), {"prompt_tokens": 100, "completion_tokens": 30}
         obs = json.loads(messages[-1]["content"].split("\n", 1)[1])
+        obs.setdefault("board", {})  # `llm_obs: changes` leaves it in the earlier turns
         obs.setdefault("offers_to_you", [])
         obs.setdefault("your_offers", [])
         obs.setdefault("fires", [])
@@ -790,6 +801,19 @@ def parse_json_object(text: str, key: str) -> dict | None:
     return None
 
 
+def split_obs(o: dict) -> tuple[dict, dict]:
+    """A compact observation as (live part, the rest by field: "explored", "board.villagers", ...)."""
+    live, rest = {}, {}
+    for k, v in o.items():
+        if k == "board" and isinstance(v, dict):
+            rest.update({f"board.{k2}": v2 for k2, v2 in v.items()})
+        elif k in LIVE_FIELDS:
+            live[k] = v
+        else:
+            rest[k] = v
+    return live, rest
+
+
 def compact_obs(obs: dict) -> dict:
     """Drop what the agent does not need every hour, to save tokens."""
     o = json.loads(json.dumps(obs))
@@ -831,6 +855,9 @@ class LLMAgent:
     introduced: bool = False
     memory: str = DEFAULT_MEMORY  # MEMORY_MODES
     turns: list[dict] = field(default_factory=list)  # "day" mode: today's turns as chat messages
+    obs_mode: str = DEFAULT_OBS  # OBS_MODES
+    shown: dict = field(default_factory=dict)  # "changes": non-live fields as today's conversation last showed them
+    _pending: tuple | None = None  # "changes": (turn line, fields) of the turn being asked, kept once it is answered
     record: dict | None = None  # reputation.record: the book of deeds as of the day's first turn (None: no book)
     record_day: int | None = None
     kept: list[dict] = field(default_factory=list)  # [{"day", "text"}]: what it chose at night to remember for long
@@ -883,12 +910,22 @@ class LLMAgent:
         if self.memory == "day":
             # Stable all day first (world, self, earlier days), then today's turns, then only what is new.
             system = self.system_message(obs, "\n\nYour memory of earlier days: " + json.dumps(self.long_memory()))
-            user = ("Observation (your notes: " + json.dumps(self.notes or "none") + "):\n"
-                    + json.dumps(compact_obs(obs)))
+            seen, line = compact_obs(obs), self.turn_line(obs)
+            head = "Observation (your notes: " + json.dumps(self.notes or "none")
+            if self.obs_mode == "changes":
+                seen, rest = split_obs(seen)
+                changed = {k: v for k, v in rest.items() if k not in self.shown or self.shown[k] != v}
+                changed |= {k: None for k in self.shown if k not in rest}
+                if changed:
+                    line += "\nWorld (shown again only when it changes; null = gone): " + json.dumps(changed)
+                self._pending = (line, rest)
+                if rest:
+                    head += "; as last shown above: " + ", ".join(sorted(rest))
+            user = head + "):\n" + json.dumps(seen)
             # The cache point marks where the next turn's prompt stops matching this one (only the full
             # observation is replaced); without it the cache would hold only the system prompt.
             return [system, *self.turns,
-                    {"role": "user", "content": self.turn_line(obs), CACHE_POINT: True},
+                    {"role": "user", "content": line, CACHE_POINT: True},
                     {"role": "user", "content": user}]
         memory = self.long_memory() | {"notes": self.notes or "none", "your_last_actions": self.recent}
         user = "Observation (your memory: " + json.dumps(memory) + "):\n" + json.dumps(compact_obs(obs))
@@ -910,10 +947,14 @@ class LLMAgent:
 
     def remember_in_day(self, obs: dict, dec: dict) -> None:
         reply = {k: dec[k] for k in ("thought", "action", "say") if dec.get(k)}
-        self.turns += [{"role": "user", "content": self.turn_line(obs)},
+        line = self.turn_line(obs)
+        if self._pending:  # "changes": the line as it was sent, world fields included; they are shown now
+            (line, self.shown), self._pending = self._pending, None
+        self.turns += [{"role": "user", "content": line},
                        {"role": "assistant", "content": json.dumps(reply)}]
         if len(self.turns) > 2 * DAY_TURNS:
             del self.turns[: 2 * (DAY_TURNS // 2)]
+            self.shown = {}  # what the dropped turns showed is shown again
 
     def introduce(self, obs: dict) -> dict | None:
         """Before the first turn: the villager writes who it is, what it wants and what it means to do today,
@@ -1017,7 +1058,7 @@ class LLMAgent:
     def reflect(self, day: int) -> dict | None:
         """Night: write a diary entry and update memory about people. Returns the entry, or None if the
         agent did nothing today or the model failed (memory is then left as it was)."""
-        self.turns = []  # a new day starts a new conversation; the diary carries this one over
+        self.turns, self.shown = [], {}  # a new day starts a new conversation; the diary carries this one over
         if not self.day_log:
             return None
         log, self.day_log = self.day_log, []
