@@ -19,6 +19,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from . import logio
 from .clock import per_hour
 from .summary import digest, ticks_of
 
@@ -63,7 +64,7 @@ def read_report(path: str | Path) -> tuple[dict, list[dict]]:
         meta = json.loads(z.read("report.json"))
         recs = []
         if "run.jsonl" in z.namelist():
-            recs = [json.loads(ln) for ln in z.read("run.jsonl").decode("utf-8").splitlines() if ln.strip()]
+            recs = list(logio.parse(z.read("run.jsonl").decode("utf-8").splitlines()))
     return meta, recs
 
 

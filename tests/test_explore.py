@@ -8,7 +8,7 @@ from aivillage import engine, explore
 from aivillage.llm import world_facts
 from aivillage.ops import Ctx
 from aivillage.registry import ACTIONS, ActionError
-from aivillage.run import bots_decider, replay, run
+from aivillage.run import bots_decider, read_log, replay, run
 
 CFG = {"seed": 1, "crises": {"enabled": False}, "explore": {"enabled": True}}
 
@@ -73,8 +73,7 @@ def test_bots_run_and_replay(tmp_path):
     log = tmp_path / "run.jsonl"
     run(w, bots_decider(w, ["random", "worker", "thief"], 3), days=2, log_path=log)
     assert replay(log).hash() == w.hash()
-    import json
-    ticks = [json.loads(line) for line in log.read_text().splitlines() if '"type": "tick"' in line]
+    ticks = [r for r in read_log(log) if r["type"] == "tick"]
     assert all("known" in t["view"] for t in ticks)
     assert len(ticks[-1]["view"]["known"]) >= len(ticks[0]["view"]["known"])
 
