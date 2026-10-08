@@ -32,8 +32,8 @@ LOG_VERSION = 2  # 2: every World field in the dict and hash, `preset` in the co
 
 @functools.lru_cache(maxsize=1)
 def code_version() -> dict:
-    """Which code played a log: the git commit when run from a checkout (None from the launcher's download) and a
-    hash of the package sources, which also tells two downloads apart. Rules and prompts live in the code."""
+    """Which code played a log: the git commit (from a checkout, or the one the website was built from:
+    RAILWAY_GIT_COMMIT_SHA) and a hash of the package sources. Rules and prompts live in the code."""
     pkg = Path(__file__).resolve().parent
     h = hashlib.sha256()
     for p in sorted(pkg.rglob("*.py")):
@@ -43,6 +43,7 @@ def code_version() -> dict:
                                 timeout=5).stdout.strip() or None
     except (OSError, subprocess.SubprocessError):
         commit = None
+    commit = commit or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or None
     return {"commit": commit, "source": h.hexdigest()[:16]}
 
 # decide(name, observation) -> decision

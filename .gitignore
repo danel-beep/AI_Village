@@ -2,6 +2,5 @@ __pycache__/
 *.pyc
 /runs/
 .pytest_cache/
-desktop/build_info.json
 /build/
 /dist/
