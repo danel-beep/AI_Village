@@ -18,7 +18,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import animals, clock, construction, crafting, crises, engine, explore, graves, hire, honors, labor, land, mapgen, modes, plots, pricing, remote, settle, threats, tiles, transport, works
+from . import animals, clock, construction, crafting, crises, engine, explore, graves, hire, honors, labor, land, mapgen, merchant, modes, plots, pricing, remote, settle, threats, tiles, transport, works
 from .bots import BOT_TYPES
 from .invariants import check
 from .state import World
@@ -157,6 +157,7 @@ def view(world: World) -> dict:
             "plots": plots.view(world),
             "crises": crises.view(world),  # active world crises (crises.py)
             "threats": threats.view(world),  # raids, beasts, travelers here or warned (threats.py)
+            **({"merchant": m} if (m := merchant.view(world)) else {}),  # merchant.py: here and his stock left
             **animals.view(world),  # animals.py: herds per place and open hunt parties (animals on)
             **transport.view(world),  # transport.py: riding and pack animals, wild ones per place (transport on)
             "graves": graves.view(world),  # graves.py: who is buried where
@@ -370,7 +371,7 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         | transport.hidden_actions(world.config) \
         | hire.hidden_actions(world.config) | construction.hidden_actions(world.config) \
         | land.hidden_actions(world.config) | settle.hidden_actions(world.config) \
-        | crafting.hidden_actions(world.config)
+        | crafting.hidden_actions(world.config) | merchant.hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")

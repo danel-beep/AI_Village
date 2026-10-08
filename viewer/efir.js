@@ -12,8 +12,11 @@ const Efir = (() => {
   const NOTE = 6, QUIET_X = 4, QUIET_LOOK = 12, PRE = 4;
   let F = null, mode = '';
   const make = () => Foresight.create((k, d) => Camera.score(k, d));
-  function reset() { F = make(); last = null; }
-  function add(k) { if (!F) F = make(); F.add(ticks, k); }
+  // «Часы судьбы» (viewer/fate.js): amber clocks from the rules, in live games too.
+  let G = null;
+  const makeFate = () => window.Fate ? Fate.create((typeof header !== 'undefined' && header && header.config) || {}) : null;
+  function reset() { F = make(); G = makeFate(); last = null; }
+  function add(k) { if (!F) F = make(); if (!G) G = makeFate(); F.add(ticks, k); if (G) G.add(ticks, k); }
   const on = () => F && typeof live !== 'undefined' && !live && ticks.length > 1 && Camera.directorOn() && !(window.Clip && Clip.busy());
   const pace = speed => Math.max(.1, Math.min(2, 2 / speed));   // 1 at the default speed (2); the slider still skims
   const speedNow = () => +((document.getElementById('speed') || {}).value || 2);
@@ -81,10 +84,17 @@ const Efir = (() => {
     body.cinema.awake #bar, body.cinema #bar:has(:focus-visible) { opacity:1; pointer-events:auto }
     body.cinema :is(#cam-tools, #god-toggle, #hl-btn, #rp-bar, #ra-btn, #st-toggle, #ss-end) { transition:opacity .35s }
     body.cinema:not(.awake) :is(#cam-tools, #god-toggle, #hl-btn, #rp-bar, #ra-btn, #st-toggle, #ss-end) { opacity:0; pointer-events:none }
+    #efir-fate { position:absolute; left:8px; z-index:6; pointer-events:none; display:flex; flex-direction:column; gap:3px;
+      max-width:min(420px, calc(50% - 150px)); font:600 12px/1.3 system-ui, sans-serif }
+    #efir-fate span { background:rgba(20,22,26,.85); color:#f6e7c1; border-left:3px solid #e8a93a; padding:3px 8px 3px 6px;
+      border-radius:0 5px 5px 0; box-shadow:0 1px 6px rgba(0,0,0,.35) }
+    #efir-fate span.hot { border-left-color:#e5604d }
+    @media (max-width: 700px) { #efir-fate { max-width:calc(100% - 16px); font-size:11px } }
     #efir-btn[aria-pressed=true] { background:#f2c14e; color:#1d2321 }`;
   document.head.appendChild(css);
   const plate = document.createElement('div'); plate.id = 'efir-cd'; plate.hidden = true;
   plate.innerHTML = '<div class="row"><span class="what"></span><span class="t"></span></div><div class="why"></div><div class="bar"><i></i></div>';
+  const fate = document.createElement('div'); fate.id = 'efir-fate'; fate.hidden = true;
   const ff = document.createElement('div'); ff.id = 'efir-ff'; ff.hidden = true; ff.textContent = '⏩ Тихие часы';
   const $ = s => plate.querySelector(s);
   const set = (el, v) => { if (el.textContent !== v) el.textContent = v; };
@@ -131,9 +141,32 @@ const Efir = (() => {
     return best;
   }
 
+  // The amber clocks, top left of the map: replay and live alike, hidden while a clip is being made.
+  const season = d => window.SeasonLayer && typeof header !== 'undefined' ? SeasonLayer.seasonOf(header, d) : null;
+  let fateKey = '';
+  function clocks(cv) {
+    const rows = G && ticks.length && !(window.Clip && Clip.busy()) ? G.lines(ticks, i, { tr, item, seasonOf: season }) : [];
+    fate.hidden = !rows.length; if (!rows.length) { fateKey = ''; return; }
+    // below the floating ⭐ Highlights button and the live badge when they sit over the map's top-left corner
+    let top = (cv ? cv.offsetTop : 0) + 8;
+    const map = fate.parentElement;
+    for (const el of [document.getElementById('hl-btn'), document.getElementById('live-badge')]) {
+      if (!el || !map || !el.getClientRects().length) continue;
+      const r = el.getBoundingClientRect(), m = map.getBoundingClientRect();
+      if (r.left < m.left + 200 && r.bottom > m.top) top = Math.max(top, r.bottom - m.top + 6);
+    }
+    fate.style.top = top + 'px'; fate.style.left = (cv ? Math.max(0, cv.offsetLeft) : 0) + 8 + 'px';
+    const key = rows.map(r => r.icon + r.text).join('\n'); if (key === fateKey) return; fateKey = key;
+    fate.replaceChildren(...rows.map(r => {
+      const el = document.createElement('span'); el.textContent = `${r.icon} ${r.text}`;
+      if (r.score >= 75) el.className = 'hot'; return el;
+    }));
+  }
+
   function frame() {
     const map = document.getElementById('map'), cv = document.getElementById('c');
-    if (map && !plate.parentElement) { map.appendChild(plate); map.appendChild(ff); }
+    if (map && !plate.parentElement) { map.appendChild(plate); map.appendChild(ff); map.appendChild(fate); }
+    clocks(cv);
     if (!on()) { plate.hidden = true; ff.hidden = true; if (F && typeof Camera !== 'undefined') Camera.ahead(null); return; }
     const top = (cv ? cv.offsetTop : 0) + 8; plate.style.top = top + 'px'; ff.style.top = top + 'px';
     const p = pace(speedNow()), cd = current(p);
@@ -196,6 +229,6 @@ const Efir = (() => {
   function addButton() { const bar = document.getElementById('bar'), log = document.getElementById('logbtn'); if (bar && !btn.parentElement) bar.insertBefore(btn, log); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addButton); else addButton();
 
-  return { reset, add, tick, frame, setCinema, cinema: () => cinema, mode: () => mode, foresight: () => F };
+  return { reset, add, tick, frame, setCinema, cinema: () => cinema, mode: () => mode, foresight: () => F, fate: () => G };
 })();
 window.Efir = Efir;

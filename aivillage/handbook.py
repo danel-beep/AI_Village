@@ -49,7 +49,7 @@ MODULE_TOPIC = {
     "transport": "Body and time",
     "illness": "People and family", "dice": "Trade and money",
     "debts": "Trade and money", "market": "Trade and money", "taxes": "Village affairs", "places": "Gathering and making", "chronicle": "Talk and news", "honors": "Talk and news",
-    "construction": "Home, chests and land", "settle": "Home, chests and land", "crafting": "Gathering and making", "hire": "Trade and money",
+    "construction": "Home, chests and land", "settle": "Home, chests and land", "crafting": "Gathering and making", "hire": "Trade and money", "merchant": "Trade and money",
 }
 
 

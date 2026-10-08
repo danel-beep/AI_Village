@@ -38,8 +38,9 @@ TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enab
 LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant", "title")
 ELECTIONS = "feature:elections"  # progress.DEFAULT_UNLOCKS: a town_hall
 # The village-wide government's actions; with polities on each polity governs itself instead (polity.py).
+# fund_project stays: a polity's treasury holder pays with it (works.holder).
 REPLACED = ("run_for_mayor", "vote", "propose_law", "vote_law", "embezzle", "audit_treasury", "treasury_order",
-            "fund_project", "demand_debt", "rule_debt")
+            "demand_debt", "rule_debt")
 
 
 def opens_when(cfg: dict, key: str) -> str:

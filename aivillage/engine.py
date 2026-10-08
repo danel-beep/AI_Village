@@ -12,7 +12,7 @@ from typing import Any
 
 from . import actions as _actions  # noqa: F401  (registers actions)
 from . import god as _god  # noqa: F401  (registers god events)
-from . import (addressed, animals, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
+from . import (addressed, animals, merchant, chronicle, honors, luxury, clock, conflict, construction, crafting, crises, debts, dice, explore, family, governance, graves, handbook, hire, illness, polity,
                labor, land, mapgen, market, modes, ops, places, plots, pricing, progress, reputation, seasons, settle, spoilage,
                taxes, theft, threats, tiles, transport, works)
 from .actions import step_move, work_hour
@@ -183,6 +183,7 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
     obs.update(explore.observe(world, name))
     obs.update(settle.observe(world, name))
     obs.update(addressed.observe(world, name))
+    obs.update(merchant.observe(world, name))
     if governance.enabled(cfg):
         obs["government"] = governance.observe(world, name)
     if consume_inbox:
@@ -484,7 +485,7 @@ def night(ctx: Ctx) -> None:
     for a in w.agents.values():
         if a.status != "active":
             continue
-        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"] - seasons.night_hunger(cfg, w.day))
+        a.satiety = max(0, a.satiety - cfg["satiety_loss_night"] - seasons.night_hunger(cfg, w.day, a.inventory))
         if a.satiety == 0:
             a.health = max(0, a.health - cfg["starving_health_loss_night"])
         elif (a.location == a.home and w.day >= a.evicted_until_day
@@ -500,6 +501,7 @@ def night(ctx: Ctx) -> None:
     governance.new_day(ctx)
     crises.new_day(ctx, rng_for(w, "crises"))
     threats.new_day(ctx, rng_for(w, "threats"))
+    merchant.new_day(ctx, rng_for(w, "merchant"))
     illness.new_day(ctx, rng_for(w, "illness"))
     for loc in w.locations.values():
         spec = cfg["locations"].get(loc.id, {}).get("resources", {})

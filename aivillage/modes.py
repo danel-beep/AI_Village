@@ -212,7 +212,11 @@ MODES["survival"] = {
                                               "animals": {"enabled": True},
                                               # each town hall founds a polity (polity.py), so a
                                               # second one may stand at any common place
-                                              "polity": {"enabled": True},
+                                              # treasury: a small minted seed each dawn, and things to spend
+                                              # coins on (Danel 2026-10-08): wages, fund_project, the merchant
+                                              "polity": {"enabled": True, "income_per_member_per_day": 1},
+                                              "merchant": {"enabled": True},
+                                              "illness": {"cure_items": ["honey", "milk", "fish_soup", "medicine"]},
                                               "construction": {"enabled": True,
                                                                "catalog": {"town_hall": {"at": []}}},
                                               "transport": {"enabled": True},

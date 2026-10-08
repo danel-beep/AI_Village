@@ -461,6 +461,16 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "Казна у мэра. Пропажу видно при проверке казны на площади или при смене мэра."},
     {"key": "audit_on_handover", "path": "treasury.audit_on_handover", "group": "Стройки и казна", "type": "toggle",
      "label": "Пересчёт казны при смене мэра"},
+    {"key": "treasury_seed", "path": "polity.income_per_member_per_day", "group": "Стройки и казна", "type": "range",
+     "label": "Затравка казны государства", "min": 0, "max": 3, "step": 1, "unit": " мон. в день на жителя",
+     "hint": "Каждое утро в казну государства, у которого уже выбрана форма правления и есть хотя бы двое, "
+             "появляются новые монеты: столько на каждого жителя. 0: казна пополняется только налогами и подарками. "
+             "Рекомендуем 1.", "hide_if": {"polities": [False]}},
+    {"key": "merchant", "path": "merchant.enabled", "group": "Стройки и казна", "type": "toggle",
+     "label": "Проезжий купец",
+     "hint": "После появления рынка время от времени (в случайный день) на пару дней приезжает купец. Он продаёт то, "
+             "что в деревне не сделать: шубу (зимняя ночь меньше морит голодом), стальные топор и кирку, лекарство. "
+             "Деньги уезжают вместе с ним. Тот, у кого казна, может купить на деньги казны, все это увидят."},
 
     # --- fires ---
     {"key": "allow_arson", "action": "set_fire", "group": "Пожары и заказы", "type": "toggle",
@@ -569,8 +579,8 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
     ("💰 Деньги и налоги", "Монеты на старте, налоги, казна, государства и неравенство.",
      ["unfairness", "start_coins", "law_enforcement", "tax_amount", "tax_every_days", "sales_pct", "wealth_pct",
       "burn_pct", "tax_board", "eviction_days", "polities"]),
-    ("🏛 Общие стройки и казна", "Стройки всей деревней и может ли мэр запустить руку в казну.",
-     ["works", "works_council", "embezzle", "audit_on_handover", "steal_treasury"]),
+    ("🏛 Общие стройки и казна", "Стройки всей деревней, на что тратится казна и может ли её хранитель запустить в неё руку.",
+     ["works", "works_council", "embezzle", "audit_on_handover", "steal_treasury", "treasury_seed", "merchant"]),
     ("🤝 Долги", "Можно ли взыскивать долги силой и пени за просрочку.",
      ["debt_collection", "debt_auto_collect", "debt_seize_pct", "debt_collect_fee", "debt_late_fee"]),
     ("❤️ Голод, здоровье и смерть", "Как быстро хочется есть и что бывает с обессилевшим.",

@@ -411,12 +411,36 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "expel_days": 7,  # an expelled villager may not join that polity again for this many days
         # tax laws: income_tax and wealth_tax in percent, tax_every in days (polity.py)
         "limits": {"tax": [0, 50], "income_tax": [0, 50], "wealth_tax": [0, 20], "tax_every": [1, 14],
-                   "grant": [1, 500], "fine": [1, 200]},
+                   "grant": [1, 500], "fine": [1, 200], "wage": [0, 10]},
         "max_name_len": 30,
         # The treasury holder (ruler; most voted councillor; an assembly's treasurer) can take coins unnoticed
         # (polity_embezzle) until polity_audit at the town hall or, with audit_on_handover, a change of holder.
         "embezzle": True,
         "audit_on_handover": True,
+        # Treasury income and spending (Danel 2026-10-08: first what money is for, minted coins only a small seed).
+        # Each dawn a polity with a form and at least 2 living members gets this many coins per member into its
+        # treasury (0 = off). Law `wage` (limits below): coins per hour a member works on a common building or a
+        # village project, paid from the treasury while it has coins. The holder can also fund_project and buy
+        # from the merchant (merchant.py) with treasury coins.
+        "income_per_member_per_day": 0,
+        "spent_shown": 6,  # members see this many latest treasury spends
+    },
+    # A merchant passing through (aivillage/merchant.py, off by default; on in «С нуля»): once the trader has
+    # come (progress `feature:trader`) he arrives at `place` every `gap_days` (seeded random) for `stay_days`
+    # and sells goods nobody in the village can make, at fixed prices, `stock` per 5 villagers each visit.
+    # Coins paid to him leave the village. Goods missing from the item table are skipped.
+    "merchant": {
+        "enabled": False,
+        "place": "market",
+        "first_gap_days": [1, 3],
+        "gap_days": [4, 7],
+        "stay_days": 2,
+        "goods": {
+            "fur_cloak": {"price": 30, "stock": 2},
+            "steel_axe": {"price": 45, "stock": 1},
+            "steel_pick": {"price": 48, "stock": 1},
+            "medicine": {"price": 12, "stock": 3},
+        },
     },
     # Friendship, marriage and inheritance (aivillage/family.py). Feelings are directed scores
     # (what A feels about B), clamped to [-max, max]; events listed in "on_event" move them.
@@ -787,7 +811,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "smoked_meat": {"value": 9, "food": 35},
             # weapons and armor (combat.gear, conflict.py)
             "bow": {"value": 10}, "sword": {"value": 40}, "leather_armor": {"value": 25}, "iron_armor": {"value": 60},
-            "clothes": {"value": 26},
+            # warmth: a winter night costs this much less satiety to whoever carries it (seasons.night_hunger)
+            "clothes": {"value": 26, "warmth": 5},
+            # only the passing merchant sells these (merchant.py); the trader does not deal in them
+            "fur_cloak": {"value": 30, "warmth": 8, "tradable": False},
+            "steel_axe": {"value": 45, "tradable": False}, "steel_pick": {"value": 48, "tradable": False},
+            "medicine": {"value": 12, "tradable": False},
         },
         # inputs -> output; `building`: a workshop of that kind must stand where the crafter is (None = by hand,
         # anywhere); `more_at` {kind: output}: the same recipe gives more at that workshop; `hours`: per batch (0 = the whole action fits in one hour).
@@ -829,6 +858,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "iron_pick": {"fits": ["stone", "ore", "clay", "gold"], "multiplier": 2.5, "hours": 40},
             "fishing_rod": {"fits": ["fish"], "multiplier": 2, "hours": 20},
             "hoe": {"fits": ["grain"], "multiplier": 1, "hours": 30},
+            # the merchant's (merchant.py): nobody in the village can forge steel
+            "steel_axe": {"fits": ["wood"], "multiplier": 3, "hours": 80},
+            "steel_pick": {"fits": ["stone", "ore", "clay", "gold"], "multiplier": 3, "hours": 80},
         },
         # resources nobody gathers with bare hands
         "needs_tool": ["ore", "gold"],
