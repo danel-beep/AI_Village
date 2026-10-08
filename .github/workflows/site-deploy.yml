@@ -1,0 +1,51 @@
+name: site-deploy
+
+# The public website (docs/site.md) runs the `site-live` branch on Railway, which redeploys on every push to it.
+# An update restarts every game on the site, so this moves `site-live` to main only when no village plays there
+# (/healthz "playing": 0), or when the update has waited 12 hours (games resume from their last autosave).
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-deploy
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE_URL: https://ai-village.up.railway.app
+      MAX_WAIT_HOURS: "12"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Move site-live to main when the site is idle
+        run: |
+          git fetch -q origin main site-live || true
+          if ! git rev-parse -q --verify origin/site-live >/dev/null; then
+            echo "site-live does not exist yet: creating it"; git push origin origin/main:refs/heads/site-live; exit 0
+          fi
+          behind=$(git rev-list --count origin/site-live..origin/main)
+          if [ "$behind" = 0 ]; then echo "site is up to date"; exit 0; fi
+          if ! git merge-base --is-ancestor origin/site-live origin/main; then
+            echo "::warning::site-live is not behind main (someone pushed to it directly); not touching it"; exit 0
+          fi
+          oldest=$(git log --reverse --format=%ct origin/site-live..origin/main | head -1)
+          age=$(( $(date +%s) - oldest ))
+          playing=$(curl -fsS --max-time 20 "$SITE_URL/healthz" | jq -r .playing || echo unknown)
+          echo "behind by $behind commits, oldest waiting $((age / 60)) min, villages playing: $playing"
+          if [ "$playing" = 0 ] || [ "$playing" = unknown ] || [ "$age" -gt $(( MAX_WAIT_HOURS * 3600 )) ]; then
+            git push origin origin/main:refs/heads/site-live
+          else
+            echo "villages are playing: the update waits for the next check"
+          fi
