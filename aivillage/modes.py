@@ -1,268 +1,150 @@
-"""Economy modes: named presets of world rules that push villagers toward peace or toward conflict.
+"""The world of «С нуля» and the presets on top of it.
 
-The villagers' prompt is the same in every mode; only the numbers and rules of the world change
-(and the rules cheat sheet in the prompt shows those numbers as facts). Pick one with `mode:` in a
-run config, `--mode` on the command line, or the app's start screen.
+«С нуля» is the one way the game is played (Danel 2026-10-08): the villagers build the village themselves, it climbs
+stages (camp, hamlet, village, town; progress.py), nobody has a profession. The old economy modes (the ready
+«Обычный» village, «Мирный», «Дефицит», «Долговая яма», «Золотая лихорадка», «Беззаконие») are gone.
 
-A mode is a partial world config (merged over `config.DEFAULT_CONFIG`, under the run config's own
-`world:` overrides) plus actions it switches off. The chosen mode is recorded in the log header as
-`config.economy_mode`, so metrics can tell runs apart.
+A preset (`presets/<name>.yaml`) is «С нуля» plus start-screen knob values (`knobs:`, keys and values as in
+aivillage/knobs.py, e.g. the start stage or «Еды в мире»), optional config the screen does not show (`world:`) and
+actions switched off (`disabled:`). Pick one with `preset:` in a run config, `--preset` on the command line or the
+«Пресет» list on the app's start screen. The villagers' prompt is the same under every preset; only the numbers and
+rules of the world change. The log header carries the preset name as `config.preset` (and, from the start screen,
+every knob's final value as `start_knobs`), so runs can be compared.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from .config import _merge
 
+# The ready-village economy «С нуля» is built on: professions and trade places, taxes, the trader's stock prices,
+# council orders, the chronicle and the honor board. No longer a choice of its own; tests of those mechanics
+# start from it, and «С нуля» switches professions off at every start stage (labor.mastery).
+TRADES: dict[str, Any] = {
+        # the trader sells at most one tool a day (per 5 villagers): tools come from the smith
+        # one purse per trade at the trader: the miner's stone, ore and gold share 12 coins a day per 5
+        # villagers (economy audit: three item limits made miners 4.5x richer); a laborer who lost a place
+        # gathers berries and wood instead of starving
+        "labor": {"enabled": True, "trader_sells_per_day": {"tool": 1}, "trader_coins_per_trade": 12,
+                  "laborer_goods": ["berries", "wood"]},
+        # a finished project's coins go to those who built it, by contribution (not 20 to everyone)
+        "works": {"reward_split": "contribution"},
+        # wild berries belong to the farmer's trade too: everyone else eats what neighbours grow and catch
+        "professions": {"farmer": ["grain", "berries"]},
+        # cooking needs firewood: grain is not edible raw, so bread needs a woodcutter too
+        "recipes": {"bread": {"inputs": {"grain": 2, "wood": 1}}, "fish_soup": {"inputs": {"fish": 2, "wood": 1}}},
+        # gold pays at most ~2x other work: cheaper, and the trader pays less the more he holds;
+        # it has uses (a ring at the smithy, a level-3 house)
+        "items": {"gold": {"value": 12}},
+        "trader_pricing": {"stock_prices": True, "nearest": True},
+        # food partly scarce (Danel, 2026-10-06: «частично дефицитная, как в жизни»): the economy audit found
+        # 2.2-3.5x the food needed; a garden bed gives 4 grain (+2 for a farmer) instead of 6 (+3)
+        "plots": {"house_upgrade": {"3": {"items": {"gold": 2}}},
+                  "buildings": {"garden_bed": {"yield": 4, "profession_bonus": 2}}},
+        # tools wear out in two to three days of work; everyone starts with one, then buys from the smith
+        "start_items": {"tool": 1},
+        "tool_durability_hours": 14,
+        # tax by income and wealth instead of a flat 20 (taxes.py); council orders pay the goods
+        # and take part deliveries
+        "tax_amount": 10,
+        "taxes": {"enabled": True},
+        # council orders pay the goods' value (1.0x, was 1.6x: one order was worth 10-20 days of a fisher's sales)
+        "council_orders": {"enabled": True, "reward_mult": 1.0},
 
-def _food(garden: int, fish: tuple[int, int], berries: tuple[int, int]) -> dict:
-    """Grain per garden bed harvest (there is no common field) and (max, nightly regen) of the wild food;
-    the stock starts full. Returns world overrides for "plots" and "locations"."""
-    def r(mx: int, regen: int) -> dict:
-        return {"start": mx, "max": mx, "regen": regen}
-    return {
-        "plots": {"buildings": {"garden_bed": {"yield": garden}}},
-        "locations": {"river": {"resources": {"fish": r(*fish)}},
-                      "forest": {"resources": {"berries": r(*berries)}}},
+        # limited places per trade: no work at your trade for 3 days frees your place (places.py)
+        "places": {"enabled": True},
+        # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
+        "chronicle": {"enabled": True},
+        # a public honor board: notes of praise by villagers, titles by law (honors.py)
+        "honors": {"enabled": True},
+        # feasts and goods on view: things worth having beyond food (luxury.py, wants research idea 3)
+        "luxury": {"enabled": True},
     }
 
-
-MODES: dict[str, dict[str, Any]] = {
-    "standard": {
-        "title": "Свободный",
-        "about": "Старые правила: каждый может добывать всё, налог плоский. Точка отсчёта для сравнения.",
-        "world": {},
-    },
-    "crafts": {
-        "title": "Обычный",
-        "about": "Каждый добывает только своё: рыбу ловит рыбак, лес рубит лесоруб, зерно и ягоды собирает фермер, "
-                 "камень, руду и золото копает шахтёр; общая только вода, так что еду остальные берут у соседей. Работать можно 6 часов в день, мастерство растёт "
-                 "с часами работы. Хлеб и уха готовятся на дровах. Торговец каждый день покупает и продаёт понемногу, на всю деревню, и на товары одного ремесла тратит не больше определённой суммы. Грядка даёт немного, еды впритык. "
-                 "Цены у торговца падают, когда у него много товара. Инструмент изнашивается за 14 часов работы, у всех есть "
-                 "один на старте, дальше их делает кузнец. Остальное как в обычном режиме.",
-        "world": {
-            # the trader sells at most one tool a day (per 5 villagers): tools come from the smith
-            # one purse per trade at the trader: the miner's stone, ore and gold share 12 coins a day per 5
-            # villagers (economy audit: three item limits made miners 4.5x richer); a laborer who lost a place
-            # gathers berries and wood instead of starving
-            "labor": {"enabled": True, "trader_sells_per_day": {"tool": 1}, "trader_coins_per_trade": 12,
-                      "laborer_goods": ["berries", "wood"]},
-            # a finished project's coins go to those who built it, by contribution (not 20 to everyone)
-            "works": {"reward_split": "contribution"},
-            # wild berries belong to the farmer's trade too: everyone else eats what neighbours grow and catch
-            "professions": {"farmer": ["grain", "berries"]},
-            # cooking needs firewood: grain is not edible raw, so bread needs a woodcutter too
-            "recipes": {"bread": {"inputs": {"grain": 2, "wood": 1}}, "fish_soup": {"inputs": {"fish": 2, "wood": 1}}},
-            # gold pays at most ~2x other work: cheaper, and the trader pays less the more he holds;
-            # it has uses (a ring at the smithy, a level-3 house)
-            "items": {"gold": {"value": 12}},
-            "trader_pricing": {"stock_prices": True, "nearest": True},
-            # food partly scarce (Danel, 2026-10-06: «частично дефицитная, как в жизни»): the economy audit found
-            # 2.2-3.5x the food needed; a garden bed gives 4 grain (+2 for a farmer) instead of 6 (+3)
-            "plots": {"house_upgrade": {"3": {"items": {"gold": 2}}},
-                      "buildings": {"garden_bed": {"yield": 4, "profession_bonus": 2}}},
-            # tools wear out in two to three days of work; everyone starts with one, then buys from the smith
-            "start_items": {"tool": 1},
-            "tool_durability_hours": 14,
-            # tax by income and wealth instead of a flat 20 (taxes.py); council orders pay the goods
-            # and take part deliveries
-            "tax_amount": 10,
-            "taxes": {"enabled": True},
-            # council orders pay the goods' value (1.0x, was 1.6x: one order was worth 10-20 days of a fisher's sales)
-            "council_orders": {"enabled": True, "reward_mult": 1.0},
-
-            # limited places per trade: no work at your trade for 3 days frees your place (places.py)
-            "places": {"enabled": True},
-            # everyone's rough wealth is visible; a public chronicle every 7 days (chronicle.py)
-            "chronicle": {"enabled": True},
-            # a public honor board: notes of praise by villagers, titles by law (honors.py)
-            "honors": {"enabled": True},
-            # feasts and goods on view: things worth having beyond food (luxury.py, wants research idea 3)
-            "luxury": {"enabled": True},
-        },
-    },
-    "peaceful": {
-        "title": "Мирный",
-        "about": "Грядки и природа дают больше еды, налог вдвое ниже, больше денег на старте; "
-                 "кражу почти всегда замечают и она редко удаётся, драк и поджогов нет.",
-        "world": {
-            "map": {"unfairness": 0.1},  # start fairness of the generated village (mapgen.py)
-            "start_coins": 40,
-            "tax_amount": 10,
-            **_food(garden=9, fish=(60, 16), berries=(30, 10)),
-            "steal_notice_chance": 0.9,
-            "steal_awake_target_success": 0.2,
-            "max_steal_qty": 1,
-            # rare, mild crises
-            "crises": {"chance_per_day": 0.2, "gap_days": 3, "max_quiet_days": 8,
-                       "kinds": {"rats": {"eat": 0.3}, "crop_failure": {"keep": 0.6, "garden_share": 0.25}}},
-        },
-        "disabled": ["attack", "set_fire"],
-    },
-    "scarcity": {
-        "title": "Дефицит",
-        "about": "Грядка даёт вдвое меньше зерна, рыбы и ягод мало, у торговца еда очень дорогая, "
-                 "все начинают полуголодными.",
-        "world": {
-            "map": {"unfairness": 0.6},  # start fairness of the generated village (mapgen.py)
-            "start_coins": 15,
-            "satiety_start": 50,
-            "npc_sell_ratio": 2.5,
-            **_food(garden=3, fish=(15, 3), berries=(6, 2)),
-            # food is already short: crises come often and hit food first
-            "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
-                       "kinds": {"caravan": {"weight": 1}, "rats": {"weight": 3}}},
-        },
-    },
-    "debt": {
-        "title": "Долговая яма",
-        "about": "Налог 12 монет каждые 2 дня (вдвое тяжелее обычного), мало денег на старте, за неуплату выгоняют "
-                 "из дома на 3 дня. Без займов не выжить; просроченный долг растёт на 10% за ночь и взыскивается каждую ночь.",
-        "world": {
-            "map": {"unfairness": 0.6},  # start fairness of the generated village (mapgen.py)
-            "start_coins": 10,
-            "tax_every_days": 2,
-            "tax_amount": 12,
-            "eviction_days": 3,
-            "debts": {"late_fee_pct": 10},  # an unpaid debt grows 10% a night
-            # money is the problem: price spikes and caravans matter more than lost food
-            "crises": {"kinds": {"shortage": {"weight": 3}, "caravan": {"weight": 3}}},
-        },
-    },
-    "gold_rush": {
-        "title": "Золотая лихорадка",
-        "about": "Каждый день на доске один огромный заказ на 150 монет, получает только первый. "
-                 "Руда редкая и дорогая, в шахте вдвое больше золота, инструменты и замки делает только кузнец.",
-        "world": {
-            "map": {"unfairness": 0.7},  # start fairness of the generated village (mapgen.py)
-            "start_coins": 10,
-            "order_every_days": 1,
-            "order_ttl_days": 2,
-            "order_templates": [
-                {"needs": {"tool": 1, "ore": 3}, "reward": 150},
-                {"needs": {"lock": 1, "ore": 3}, "reward": 150},
-            ],
-            "items": {"ore": {"value": 10}},
-            "locations": {"mine": {"resources": {"ore": {"start": 8, "max": 8, "regen": 3},
-                                                 "gold": {"start": 48, "max": 48}}}},
-            # caravans buy ore and tools dear
-            "crises": {"kinds": {"caravan": {"weight": 4, "items": ["ore", "tool", "lock"]}}},
-        },
-    },
-    "lawless": {
-        "title": "Беззаконие",
-        "about": "Кража удаётся почти всегда, свидетели замечают её редко, за раз можно унести "
-                 "10 вещей, замков нет, жаловаться на воров некому, долги никто не взыскивает.",
-        "world": {
-            "map": {"unfairness": 0.5},  # start fairness of the generated village (mapgen.py)
-            "steal_notice_chance": 0.05,
-            "steal_awake_target_success": 0.9,
-            "max_steal_qty": 10,
-            # want gives thieves a motive: frequent crises, rats hit most houses
-            "crises": {"chance_per_day": 0.6, "gap_days": 0, "max_quiet_days": 2,
-                       "kinds": {"rats": {"weight": 3, "share": 0.6}}},
-            "debts": {"auto_collect": False},  # nobody collects debts
-            "theft": {"enabled": True},  # stores in view, thieves hide in the dark (theft.py)
-        },
-        "disabled": ["install_lock", "report_theft", "demand_debt", "rule_debt"],
-    },
-}
-
 # «С нуля»: the village is built by its villagers and climbs stages (progress.py). A start at hamlet or later
-# is the ready village of «Обычный»; a camp start empties it (bare_start below).
-MODES["survival"] = {
-    "title": "С нуля",
-    "about": "Деревню строят сами жители. На старте нет домов, денег, рынка и кузницы: всё добывается "
-             "руками, карманы пустые. Профессий нет вовсе: каждый может всё, но мастерство растёт отдельно по "
-             "каждому делу (рыбалка, поле, кузня, охота...) от практики, а в день успеваешь немного, так что "
-             "выгоднее делать одно дело много и меняться. Чем больше дом, тем больше даёт своё хозяйство. "
-             "Инструменты делают сами: каменные руками, железные в кузнице; руду голыми руками не добыть. Деревня растёт по стадиям (лагерь, хутор, деревня, посёлок) по тому, что в ней "
-             "построено, и с каждой стадией открываются новые дела. Можно начать со стадии повыше: тогда старт "
-             "как в «Обычном».",
-    "world": _merge(MODES["crafts"]["world"], {"progress": {"enabled": True,
-                                                           # bandits find the village from the hamlet stage,
-                                                           # not only the town (villain run: 0 raids in 50 days)
-                                                           "unlocks": {"feature:raids": {"stage": "hamlet"}}},
-                                              "bare_start": {"enabled": True},
-                                              # danger at a random moment: 4 to 10 calm days between, never more in a
-                                              # row (Danel 2026-10-08), mostly announced ahead; bandits also
-                                              # take what lies ready in the yard
-                                              "threats": {"first_day": 4, "warn_chance": 0.8,
-                                                          "hostile": {"max_gap_days": 10, "min_gap_days": 4},
-                                                          # raids and beasts beaten only together
-                                                          # (Danel 2026-10-08): on 6 villagers one
-                                                          # defender never wins, 3 with spear and
-                                                          # leather ~85%, 3 bare-handed ~10%;
-                                                          # stronger as the village arms itself
-                                                          "arms": {"enabled": True},
-                                                          "kinds": {"raid": {"yard_share": 0.5, "hall_share": 0.4,
-                                                                             "hp": 200, "attack": 5,
-                                                                             "damage_die": 10},
-                                                                    "beast": {"hp": 170, "attack": 5,
-                                                                              "damage_die": 10}}},
-                                              # the hospital is no free meal; others see who is wounded
-                                              "hospital_discharge": {"satiety": 30},
-                                              "wounded_seen_below": 40,
-                                              # no professions at any start stage (Danel 2026-10-08): mastery
-                                              # per kind of work, a bigger house a better household (labor.py)
-                                              "labor": {"mastery": {"enabled": True}},
-                                              "settle": {"enabled": True},
-                                              # face-to-face talk: one after another at a place,
-                                              # an answer within the same quarter-hour, and being spoken
-                                              # to pauses the job (talk.py; live A/B Luna+Haiku 3/3
-                                              # 2026-10-08: replies within a tick 6-17% -> 44%,
-                                              # talks of 3+ lines 2-4% -> 14%)
-                                              "talk": {"turn_taking": True, "interrupt_pause": True},
-                                              # pace (progression audit R3, Danel 2026-10-06 «подгоняй
-                                              # настройки»): 2 units an hour by hand instead of 1; builder
-                                              # bots reach the town on d10-12 instead of d14-18
-                                              "work_base_yield": 2,
-                                              # the camp lives off beds before any trade: they keep the old
-                                              # yield, so the pace of the climb stays where it was tuned
-                                              "plots": {"buildings": {"garden_bed": {"yield": 6,
-                                                                                     "profession_bonus": 3}}},
-                                              "animals": {"enabled": True},
-                                              # each town hall founds a polity (polity.py), so a
-                                              # second one may stand at any common place
-                                              # treasury: a small minted seed each dawn, and things to spend
-                                              # coins on (Danel 2026-10-08): wages, fund_project, the merchant
-                                              "polity": {"enabled": True, "income_per_member_per_day": 1},
-                                              "merchant": {"enabled": True},
-                                              "illness": {"cure_items": ["honey", "milk", "fish_soup", "medicine"]},
-                                              "construction": {"enabled": True,
-                                                               "catalog": {"town_hall": {"at": []}}},
-                                              "transport": {"enabled": True},
-                                              # something to steal and a chance not to be seen (theft.py),
-                                              # land goes to whoever comes first, no court (land.py),
-                                              # winter nights cost more food (seasons.py)
-                                              "theft": {"enabled": True},
-                                              # "I owe you later" in kind: the hungry can borrow food
-                                              # against a promise (debts.py, plan item 5)
-                                              "debts": {"in_kind": True},
-                                              # a book of deeds instead of a reputation score: good deeds never
-                                              # erase bad ones; each night the villager picks what to keep for
-                                              # long (reputation.py, llm.py; Danel 2026-10-08)
-                                              "reputation": {"record": True},
-                                              "land": {"claim": "first"},
-                                              "seasons": {"night_hunger": {"winter": 10}},
-                                              "hire": {"enabled": True},
-                                              "explore": {"enabled": True},
-                                              "crafting": {"enabled": True, "secrets": {"enabled": True}},
-                                              # clay for bricks a short walk away on every map (the clay hills
-                                              # of a large map are far): a clay bank at the mine
-                                              # and wild grain in the forest: there is no field and no trader
-                                              # before the market square, so garden beds need seed from somewhere
-                                              "locations": {"mine": {"resources": {"clay": {
-                                                  "start": 20, "max": 20, "regen": 8, "slots": 3}}},
-                                                            "forest": {"resources": {"grain": {
-                                                  "start": 12, "max": 12, "regen": 4, "slots": 3}}}}}),
-}
+# is the ready village; a camp start empties it (bare_start below).
+WORLD: dict[str, Any] = _merge(TRADES, {
+    # bandits find the village from the hamlet stage, not only the town (villain run: 0 raids in 50 days)
+    "progress": {"enabled": True, "unlocks": {"feature:raids": {"stage": "hamlet"}}},
+    "bare_start": {"enabled": True},
+    # danger at a random moment: 4 to 10 calm days between, never more in a row (Danel 2026-10-08), mostly
+    # announced ahead; bandits also take what lies ready in the yard
+    "threats": {"first_day": 4, "warn_chance": 0.8,
+                "hostile": {"max_gap_days": 10, "min_gap_days": 4},
+                # raids and beasts beaten only together (Danel 2026-10-08): on 6 villagers one defender never
+                # wins, 3 with spear and leather ~85%, 3 bare-handed ~10%; stronger as the village arms itself
+                "arms": {"enabled": True},
+                "kinds": {"raid": {"yard_share": 0.5, "hall_share": 0.4, "hp": 200, "attack": 5, "damage_die": 10},
+                          "beast": {"hp": 170, "attack": 5, "damage_die": 10}}},
+    # the hospital is no free meal; others see who is wounded
+    "hospital_discharge": {"satiety": 30},
+    "wounded_seen_below": 40,
+    # no professions at any start stage (Danel 2026-10-08): mastery per kind of work, a bigger house a better
+    # household (labor.py)
+    "labor": {"mastery": {"enabled": True}},
+    "settle": {"enabled": True},
+    # face-to-face talk: one after another at a place, an answer within the same quarter-hour, and being spoken to
+    # pauses the job (talk.py; live A/B Luna+Haiku 3/3 2026-10-08: replies within a tick 6-17% -> 44%,
+    # talks of 3+ lines 2-4% -> 14%)
+    "talk": {"turn_taking": True, "interrupt_pause": True},
+    # pace (progression audit R3, Danel 2026-10-06 «подгоняй настройки»): 2 units an hour by hand instead of 1;
+    # builder bots reach the town on d10-12 instead of d14-18
+    "work_base_yield": 2,
+    # the camp lives off beds before any trade: they keep the old yield, so the pace of the climb stays where it
+    # was tuned
+    "plots": {"buildings": {"garden_bed": {"yield": 6, "profession_bonus": 3}}},
+    "animals": {"enabled": True},
+    # each town hall founds a polity (polity.py), so a second one may stand at any common place; treasury: a small
+    # minted seed each dawn, and things to spend coins on (Danel 2026-10-08): wages, fund_project, the merchant
+    "polity": {"enabled": True, "income_per_member_per_day": 1},
+    "merchant": {"enabled": True},
+    "illness": {"cure_items": ["honey", "milk", "fish_soup", "medicine"]},
+    "construction": {"enabled": True, "catalog": {"town_hall": {"at": []}}},
+    "transport": {"enabled": True},
+    # something to steal and a chance not to be seen (theft.py), land goes to whoever comes first, no court
+    # (land.py), winter nights cost more food (seasons.py)
+    "theft": {"enabled": True},
+    # "I owe you later" in kind: the hungry can borrow food against a promise (debts.py, plan item 5)
+    "debts": {"in_kind": True},
+    # a book of deeds instead of a reputation score: good deeds never erase bad ones; each night the villager
+    # picks what to keep for long (reputation.py, llm.py; Danel 2026-10-08)
+    "reputation": {"record": True},
+    "land": {"claim": "first"},
+    "seasons": {"night_hunger": {"winter": 10}},
+    "hire": {"enabled": True},
+    "explore": {"enabled": True},
+    "crafting": {"enabled": True, "secrets": {"enabled": True}},
+    # clay for bricks a short walk away on every map (the clay hills of a large map are far): a clay bank at the
+    # mine; and wild grain in the forest: there is no field and no trader before the market square, so garden
+    # beds need seed from somewhere
+    "locations": {"mine": {"resources": {"clay": {"start": 20, "max": 20, "regen": 8, "slots": 3}}},
+                  "forest": {"resources": {"grain": {"start": 12, "max": 12, "regen": 4, "slots": 3}}}},
+})
 
-# «С нуля» is what a new village starts in (Danel 2026-10-08); «Обычный» (crafts) stays a choice.
-DEFAULT_MODE = "survival"
+DIR = Path(__file__).resolve().parent.parent / "presets"
+DEFAULT_PRESET = "normal"
 
-# Rules every run starts with (under the mode's own settings), while the bare engine default stays off so
+
+def _load() -> dict[str, dict[str, Any]]:
+    """presets/*.yaml by name, in their `order`."""
+    out = {}
+    for p in DIR.glob("*.yaml"):
+        d = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        unknown = set(d) - {"title", "about", "order", "knobs", "world", "disabled"}
+        if unknown or not d.get("title"):
+            raise ValueError(f"presets/{p.name}: needs a title; unknown keys {sorted(unknown)}")
+        out[p.stem] = {"title": d["title"], "about": d.get("about", ""), "order": d.get("order", 99),
+                       "knobs": d.get("knobs") or {}, "world": d.get("world") or {}, "disabled": d.get("disabled") or []}
+    return dict(sorted(out.items(), key=lambda kv: (kv[1]["order"], kv[0])))
+
+
+PRESETS: dict[str, dict[str, Any]] = _load()
+
+# Rules every run starts with (under «С нуля» and the preset), while the bare engine default stays off so
 # engine tests can leave villagers idle for days: one hospital stay, the second collapse is death.
 RUN_DEFAULTS: dict[str, Any] = {"lives": 2}
 
@@ -317,15 +199,13 @@ def bare_start(cfg: dict) -> None:
     b["applied"] = True
 
 
-# Food the world gives, chosen on its own on top of any mode (start screen «Еды в мире»): «Дефицит» is a whole
-# mode with the ready village, so «С нуля» with little food needs this (Danel's run 2026-10-06).
-FOOD_SUPPLY = ("mode", "scarce")
+# Food the world gives (start screen «Еды в мире», the «Суровый» preset): as tuned, or scarce.
+FOOD_SUPPLY = ("normal", "scarce")
 WILD_FOOD = ("fish", "berries", "grain")  # wild food at map places (grain: the forest's wild grain in «С нуля»)
 
 
 def scarce_food(cfg: dict) -> dict:
-    """World overrides that make the food of a full config `cfg` scarce, like «Дефицит» does to the standard
-    world: a garden bed gives half its grain, wild fish, berries and grain stand at half and regrow at 40%,
+    """World overrides that make the food of a full config `cfg` scarce: a garden bed gives half its grain, wild fish, berries and grain stand at half and regrow at 40%,
     the trader's food costs at least 2.5x what he pays, everyone starts at most half fed."""
     bed = cfg["plots"]["buildings"]["garden_bed"]
     locs: dict = {}
@@ -342,26 +222,47 @@ def scarce_food(cfg: dict) -> dict:
             "food_supply": "scarce"}
 
 
-def check(mode: str) -> None:
-    if mode not in MODES:
-        raise ValueError(f"unknown economy mode '{mode}' (have: {', '.join(MODES)})")
+# Titles of the removed economy modes, so the past-villages list can still name an old log's rules.
+OLD_MODES = {"survival": "С нуля", "crafts": "Обычный (старый)", "standard": "Свободный", "peaceful": "Мирный",
+             "scarcity": "Дефицит", "debt": "Долговая яма", "gold_rush": "Золотая лихорадка", "lawless": "Беззаконие"}
 
 
-def world_override(mode: str, world: dict | None = None) -> dict:
-    """The mode's world settings with `world` (the run config's own overrides) on top."""
-    check(mode)
-    out = _merge(_merge(RUN_DEFAULTS, MODES[mode]["world"]), world or {})
-    out["economy_mode"] = mode
+def title(cfg: dict) -> str:
+    """What a log's config was played under: the preset's title, or an old log's economy mode."""
+    if cfg.get("preset") in PRESETS:
+        return PRESETS[cfg["preset"]]["title"]
+    mode = cfg.get("economy_mode") or "crafts"  # logs from before the survival default
+    return OLD_MODES.get(mode, mode)
+
+
+def check(preset: str) -> None:
+    if preset not in PRESETS:
+        raise ValueError(f"unknown preset '{preset}' (have: {', '.join(PRESETS)})")
+
+
+def base_override(world: dict | None = None) -> dict:
+    """«С нуля» with no preset, `world` (the run config's own overrides) on top."""
+    return _merge(_merge(RUN_DEFAULTS, WORLD), world or {})
+
+
+def trades_override(world: dict | None = None) -> dict:
+    """The ready village of TRADES with no stages, professions on (tests of professions, trade places, taxes and
+    the trader's stock prices), `world` on top. Not a way to play."""
+    return _merge(_merge(RUN_DEFAULTS, TRADES), world or {})
+
+
+def world_override(preset: str = DEFAULT_PRESET, world: dict | None = None) -> dict:
+    """«С нуля» with the preset's settings (its knob values turned into config, its actions off as
+    `disabled_actions`) and `world` (the run config's own overrides) on top."""
+    from . import knobs
+    check(preset)
+    out = _merge(knobs.preset_override(preset), world or {})
+    out["preset"] = preset
     return out
 
 
-def unfairness(mode: str) -> float:
-    """Start unfairness of the generated village in this mode (config default when the mode sets none)."""
-    from .config import DEFAULT_CONFIG
-    check(mode)
-    return MODES[mode]["world"].get("map", {}).get("unfairness", DEFAULT_CONFIG["map"]["unfairness"])
-
-
-def disabled(mode: str) -> list[str]:
-    check(mode)
-    return list(MODES[mode].get("disabled", []))
+def disabled(preset: str) -> list[str]:
+    """Actions the preset switches off (its `disabled:` and its action knobs set off)."""
+    from . import knobs
+    check(preset)
+    return list(knobs.preset_override(preset).get("disabled_actions", []))

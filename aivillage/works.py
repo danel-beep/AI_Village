@@ -293,7 +293,7 @@ def reward_pool(w: World, reward: int) -> int:
 
 def reward_shares(w: World, p: Project, reward: int) -> dict[str, int]:
     """Coins each villager gets when `p` is done. "everyone" (default): `reward` to every living villager.
-    "contribution" (`works.reward_split`, the crafts mode): the same pool (`reward` x the living) shared by what
+    "contribution" (`works.reward_split`, modes.TRADES): the same pool (`reward` x the living) shared by what
     each one gave (items, coins and hours, as counted in `contributors`); the idle get nothing (economy audit:
     a bridge paid 20 to each of 6-7 villagers out of 10 who never brought a log)."""
     alive = {n for n, o in w.agents.items() if o.status != "dead"}

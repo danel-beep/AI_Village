@@ -1,7 +1,7 @@
 """The trader's prices: base value x ratio x crises x village works x his stock (config block `trader_pricing`).
 
 The final live runs showed one good (gold) paying ~7x any other work: the trader bought any amount at a
-fixed price. With `trader_pricing.stock_prices` on (the "crafts" mode turns it on) the trader remembers how much of
+fixed price. With `trader_pricing.stock_prices` on (modes.TRADES turns it on) the trader remembers how much of
 each good villagers sold him lately (`World.trader_stock`); every unit he holds lowers both his buying and
 his selling price of that good by `drop_per_unit` (scaled to the population), down to `floor` of the base.
 Each dawn he keeps only `keep_per_day` of his stock (he ships the rest away), so a glut wears off in a day
@@ -33,7 +33,7 @@ def stock_factor(world: World, item: str, held: int | None = None) -> float:
 
 
 def _coins(cfg: dict, x: float) -> int:
-    """Whole coins. With `trader_pricing.nearest` (the crafts mode) the nearest coin, halves up, so a good worth 3
+    """Whole coins. With `trader_pricing.nearest` (modes.TRADES) the nearest coin, halves up, so a good worth 3
     sells for 2 (1.5) instead of 1; off (the old modes keep their numbers) cut down as before."""
     if cfg.get("trader_pricing", {}).get("nearest"):
         return int(math.floor(x + 0.5 + 1e-9))

@@ -1,4 +1,4 @@
-"""Trade places (config block `places`; on in the crafts mode), after the jobs in The Escapist.
+"""Trade places (config block `places`; on in modes.TRADES), after the jobs in The Escapist.
 
 Each profession has a limited number of places: ceil(`spare` x villagers x the profession's share of
 `population.profession_weights`), a few more than villagers in total. Rules, nothing else:

@@ -4,11 +4,11 @@ place while buying ore, a laborer may gather berries and wood (crafts mode)."""
 from aivillage import engine, labor, ops, works
 from aivillage.invariants import check
 from aivillage.llm import world_facts
-from aivillage.modes import world_override
+from aivillage.modes import trades_override
 
 
 def crafts_world(**extra):
-    return engine.new_world({**world_override("crafts"), "seed": 1, "crises": {"enabled": False}, **extra})
+    return engine.new_world({**trades_override(), "seed": 1, "crises": {"enabled": False}, **extra})
 
 
 def act(w, name, action, **args):

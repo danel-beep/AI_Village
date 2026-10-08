@@ -27,7 +27,7 @@ Start from this map; per-module details are in `docs/modules.md` (read only the 
 | Task | Files |
 |---|---|
 | Core rules, actions | `engine.py` (`step`, `observe`, `end_of_hour`, `night`, `WAKE_RULES`), `actions.py`, `ops.py`, `state.py`, `invariants.py`, `registry.py` |
-| Numbers, game modes | `config.py`, `modes.py` («С нуля» = `survival`, default), `knobs.py` (settings shown in the app), `runconfig.py` |
+| Numbers, presets | `config.py`, `modes.py` + `presets/*.yaml` (the one «С нуля» world, presets on top), `knobs.py` (settings shown in the app), `runconfig.py` |
 | Villager prompt and model calls | `llm.py` (`SYSTEM`, `world_facts`, JSON parsing, memory, cache), `handbook.py`, `talk.py`, `addressed.py`, `budget.py`, `keys.py` |
 | Bots | `bots.py` |
 | Run loop, log, snapshot | `run.py` (`view`, `llm_agents`, log header), `saves.py`, `session.py`, `population.py`, `scenario.py` + `scenarios/*.yaml` |

@@ -16,7 +16,7 @@ def world(**over):
 
 
 def survival(stage="camp", **extra):
-    return engine.new_world(modes.world_override("survival", {"seed": 3, **QUIET,
+    return engine.new_world(modes.world_override("normal", {"seed": 3, **QUIET,
                                                               "progress": {"start_stage": stage}, **extra}))
 
 
@@ -41,10 +41,10 @@ def hostile_days(w):
 def test_raids_open_at_the_hamlet_in_survival_and_at_the_town_elsewhere():
     assert not progress.unlocked(survival("camp"), threats.RAIDS)
     assert progress.unlocked(survival("hamlet"), threats.RAIDS)
-    cfg = modes.world_override("crafts", {"progress": {"enabled": True, "start_stage": "village"}})
+    cfg = modes.trades_override({"progress": {"enabled": True, "start_stage": "village"}})
     assert not progress.unlocked(engine.new_world(cfg), threats.RAIDS)
     assert "bandits (once the village is a hamlet)" in world_facts(survival().config)
-    stage = knobs.to_run({"mode": "survival", "raids_from_stage": "village"})["override"]
+    stage = knobs.to_run({"preset": "normal", "raids_from_stage": "village"})["override"]
     assert stage["progress"]["unlocks"]["feature:raids"] == {"stage": "village"}
 
 
@@ -129,7 +129,7 @@ def test_discharge_reads_config_and_says_when_no_stays_are_left():
     out = [e for e in ev if e.kind == "discharged"][0]
     assert (a.health, a.satiety) == (50, 25)
     assert out.data.get("no_stays_left") and "next collapse is death" in out.text
-    assert modes.world_override("survival")["hospital_discharge"]["satiety"] == 30
+    assert modes.world_override("normal")["hospital_discharge"]["satiety"] == 30
     assert world().config["hospital_discharge"] == {"health": 60, "satiety": 60}
 
 
@@ -154,12 +154,12 @@ def test_prompt_states_the_gap_only_when_danger_can_come():
 
 def test_fair_preset_turns_the_guarantee_off():
     assert knobs.to_run({"chaos": "fair"})["override"]["threats"]["hostile"]["max_gap_days"] == 0
-    assert knobs.to_run({"mode": "survival"})["override"]["threats"]["hostile"]["max_gap_days"] == 10
+    assert knobs.to_run({"preset": "normal"})["override"]["threats"]["hostile"]["max_gap_days"] == 10
 
 
 def test_gap_run_replays_exactly(tmp_path):
     log = tmp_path / "run.jsonl"
-    w = engine.new_world(modes.world_override("survival", {"seed": 5, "progress": {"start_stage": "hamlet"},
+    w = engine.new_world(modes.world_override("normal", {"seed": 5, "progress": {"start_stage": "hamlet"},
                                                            **gap(4, raid=0.05, beast=0.05, traveler=0.2)}))
     run.run(w, bots_decider(w, ["worker", "thief", "random"], 5), days=8, log_path=log)
     assert replay(log).hash() == w.hash()
@@ -185,7 +185,7 @@ def test_raiders_grow_with_the_villages_best_arms():
 
 def _fight(seed, k, weapon=None, armor=None, tick=15, kind="raid"):
     """k villagers with this gear wait at the target house for a warned raid and defend while health >= 30."""
-    w = engine.new_world(modes.world_override("survival", {"seed": seed, **QUIET, "lives": 2, "tick_minutes": tick,
+    w = engine.new_world(modes.world_override("normal", {"seed": seed, **QUIET, "lives": 2, "tick_minutes": tick,
                                                            "progress": {"start_stage": "hamlet"},
                                                            "population": {"size": 6}}))
     names = sorted(w.agents)

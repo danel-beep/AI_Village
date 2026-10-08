@@ -39,7 +39,7 @@ def js(*names):
 
 
 def survival():
-    return make_config(modes.world_override("survival"))
+    return make_config(modes.world_override("normal"))
 
 
 @node

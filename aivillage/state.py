@@ -98,7 +98,6 @@ class Offer:
     want: dict[str, int]
     expires_tick: int
     # "I owe you later" part (debts.py, «Долги вещами»): on accept the sender owes these by due_day.
-    # Left out of the dict when empty, so old saves, logs and hashes stay the same.
     i_owe: dict[str, int] = field(default_factory=dict)
     due_day: int = 0
 
@@ -334,36 +333,7 @@ class World:
 
     # ---- serialization ----
     def to_dict(self) -> dict:
-        d = asdict(self)
-        if not d["animals"]:  # animals off: same dict and hash as before the field existed (old logs, saves)
-            del d["animals"]
-        if not d["polities"]:  # polities off or none founded: same dict and hash as before the field existed
-            del d["polities"]
-        if not d["transport"]:  # transport off: same dict and hash as before the field existed
-            del d["transport"]
-        for p in d["governance"]["proposals"].values():  # only title laws have a text: same hash as before
-            if p.get("text") is None:
-                del p["text"]
-        if not d["honors"]:  # honor board off or empty: same dict and hash as before the field existed
-            del d["honors"]
-        if not d["hire"]:  # hiring off or unused: same dict and hash as before the field existed
-            del d["hire"]
-        if not d["settle"]:  # no camp start: same dict and hash as before the field existed
-            del d["settle"]
-        if not d["addressed"]:  # nothing said to anyone yet: same dict and hash as before the field existed
-            del d["addressed"]
-        if not d["merchant"]:  # merchant off or not come yet: same dict and hash as before the field existed
-            del d["merchant"]
-        for o in d["offers"].values():  # plain offers and coin debts: same dict and hash as before
-            if not o["i_owe"]:
-                del o["i_owe"], o["due_day"]
-        for x in d["debts"].values():
-            if not x["items_owed"]:
-                del x["items_owed"]
-        for ag in d["agents"].values():  # no time owed: same dict and hash as before the field existed
-            if not ag["time_debt"]:
-                del ag["time_debt"]
-        return d
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "World":

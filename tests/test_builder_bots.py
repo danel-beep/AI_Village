@@ -7,7 +7,7 @@ from aivillage.run import bots_decider, replay, run
 
 
 def survival(n=6, seed=2, **extra):
-    return engine.new_world(modes.world_override("survival", {"seed": seed, "population": {"size": n},
+    return engine.new_world(modes.world_override("normal", {"seed": seed, "population": {"size": n},
                                                               "map": {"procedural": True}, "tick_minutes": 15, **extra}))
 
 
@@ -22,7 +22,7 @@ def test_builders_climb_from_camp_and_replay(tmp_path):
 
 
 def test_builder_is_a_worker_outside_survival():
-    w = engine.new_world(modes.world_override("crafts", {"seed": 1}))
+    w = engine.new_world(modes.trades_override({"seed": 1}))
     name = sorted(w.agents)[0]
     obs = engine.observe(w, name, consume_inbox=False)
     assert "building_sites" not in obs

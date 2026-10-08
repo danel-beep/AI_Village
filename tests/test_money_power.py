@@ -3,7 +3,8 @@ taxes and council orders with a town hall, random raids at the town stage. «О�
 
 from contextlib import contextmanager
 
-from aivillage import engine, modes, ops, progress
+import worlds
+from aivillage import engine, ops, progress
 from aivillage.invariants import check
 from aivillage.llm import world_facts
 
@@ -13,9 +14,8 @@ RAIDY = {"threats": {"first_day": 1, "max_active": 1,
                                "traveler": {"per_day": 1.0, "scout_chance": 1.0}}}}
 
 
-def world(stage="camp", mode="survival", **extra):
-    return engine.new_world(modes.world_override(mode, {"seed": 3, **QUIET, "progress": {"start_stage": stage},
-                                                        **extra}))
+def world(stage="camp", kind="normal", **extra):
+    return engine.new_world(worlds.override(kind, {"seed": 3, **QUIET, "progress": {"start_stage": stage}, **extra}))
 
 
 def step(w):
@@ -106,12 +106,12 @@ def test_prompt_says_when_each_opens():
     assert "Government (once a town_hall stands in the village):" in world_facts(world(polity={"enabled": False}).config)
     assert "The trader (once a market_square stands in the village)" in facts
     assert "bandits (once the village is a hamlet)" in facts  # «С нуля»: raids from the hamlet
-    plain = world_facts(world(mode="crafts").config)
+    plain = world_facts(world(kind="trades").config)
     assert "(once " not in plain
 
 
-def test_ordinary_mode_unchanged():
-    w = world(mode="crafts")
+def test_ready_village_without_stages_unchanged():
+    w = world(kind="trades")
     name = next(iter(w.agents))
     obs = engine.observe(w, name, consume_inbox=False)
     assert obs["board"]["trader_prices"] and "trader_today" in obs

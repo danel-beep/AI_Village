@@ -6,11 +6,11 @@ from aivillage import engine, knobs, ops, plots
 from aivillage.config import make_config
 from aivillage.invariants import check
 from aivillage.llm import world_facts
-from aivillage.modes import world_override
+from aivillage.modes import trades_override
 
 
 def crafts_world(**extra):
-    return engine.new_world({**world_override("crafts"), "seed": 1, "crises": {"enabled": False}, **extra})
+    return engine.new_world({**trades_override(), "seed": 1, "crises": {"enabled": False}, **extra})
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def test_trader_pays_less_the_more_he_holds(w):
     assert w.trader_stock["stone"] == 5
     assert price(w, "gold", "sell") == before  # other goods keep their price
     later = engine.observe(w, "Anna")["board"]["trader_prices"]["stone"]
-    assert later["buy"] < make_config(world_override("crafts"))["items"]["stone"]["value"] * 1.5
+    assert later["buy"] < make_config(trades_override())["items"]["stone"]["value"] * 1.5
     # the glut wears off overnight
     until_morning(w)
     assert w.trader_stock["stone"] == 2
@@ -125,11 +125,10 @@ def test_gold_has_uses(w):
 
 
 def test_facts_and_knobs():
-    facts = world_facts(make_config(world_override("crafts")))
+    facts = world_facts(make_config(trades_override()))
     assert "trader's prices follow his stock" in facts and "wears out after 14 hours" in facts
-    d = knobs.mode_defaults("crafts")
+    d = knobs.preset_defaults("normal")
     assert d["stock_prices"] is True and d["tool_hours"] == 14 and d["start_tool"] == 1 and d["gold_value"] == 12
-    assert knobs.mode_defaults("standard")["stock_prices"] is False
 
 
 def test_save_keeps_trader_stock(w):

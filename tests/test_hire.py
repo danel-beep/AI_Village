@@ -42,18 +42,21 @@ def only_job(w):
 
 def test_off_by_default_and_in_the_ordinary_mode():
     w = engine.new_world({"seed": 1})
-    assert not hire.enabled(w.config) and "hire" not in w.to_dict()
+    assert not hire.enabled(w.config) and not w.hire
     assert errors(act(w, "Anna", "offer_job", to="Clara", task="wood", hours=2, wage={"coins": 4}))
-    assert not hire.enabled(engine.new_world(modes.world_override("crafts", {"seed": 1})).config)
-    assert hire.enabled(engine.new_world(modes.world_override("survival", {"seed": 1})).config)
+    assert not hire.enabled(engine.new_world(modes.trades_override({"seed": 1})).config)
+    assert hire.enabled(engine.new_world(modes.world_override("normal", {"seed": 1})).config)
 
 
 def test_ordinary_prompt_has_no_hiring():
     from aivillage import runconfig
     from aivillage.run import llm_agents
-    for mode, shown in (("crafts", False), ("survival", True)):
-        over = runconfig.RunConfig(mode=mode, characters="off").world_override()
-        if mode == "survival":
+    import worlds
+    for kind, shown in (("trades", False), ("normal", True)):
+        over = runconfig.RunConfig(characters="off").world_override()
+        if kind == "trades":
+            over = worlds.override("trades", {k: over[k] for k in ("seed", "characters")})
+        else:
             over["progress"] = {**over.get("progress", {}), "start_stage": "town"}
         w = engine.new_world(over)
         a = next(iter(llm_agents(w, {n: "stub" for n in w.agents}).values()))
@@ -209,14 +212,14 @@ def test_outsider_worker_gathers_for_coins():
 
 
 def test_survival_opens_jobs_at_hamlet_and_outsiders_with_the_town_hall():
-    camp = engine.new_world(modes.world_override("survival", {"seed": 1}))
+    camp = engine.new_world(modes.world_override("normal", {"seed": 1}))
     a = camp.agents["Anna"]
     a.busy_until = 0
     assert not progress.unlocked(camp, "action:offer_job")
     assert "offer_job" not in engine.observe(camp, "Anna")["available_actions"]
-    hamlet = engine.new_world(modes.world_override("survival", {"seed": 1, "progress": {"start_stage": "hamlet"}}))
+    hamlet = engine.new_world(modes.world_override("normal", {"seed": 1, "progress": {"start_stage": "hamlet"}}))
     assert progress.unlocked(hamlet, "action:offer_job") and not progress.unlocked(hamlet, "action:hire_npc")
-    town = engine.new_world(modes.world_override("survival", {"seed": 1, "progress": {"start_stage": "town"}}))
+    town = engine.new_world(modes.world_override("normal", {"seed": 1, "progress": {"start_stage": "town"}}))
     assert progress.unlocked(town, "action:hire_npc")
 
 
@@ -232,7 +235,7 @@ def test_texts_are_neutral():
 
 
 def test_bots_in_survival_with_hiring_replay(tmp_path):
-    w = engine.new_world(modes.world_override("survival", {"seed": 3, "progress": {"start_stage": "town"},
+    w = engine.new_world(modes.world_override("normal", {"seed": 3, "progress": {"start_stage": "town"},
                                                            "population": {"size": 6}}))
     log = tmp_path / "h.jsonl"
     run(w, bots_decider(w, ["random", "builder", "thief"], 3), 3, None, log, check_every_tick=True)

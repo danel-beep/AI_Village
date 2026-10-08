@@ -1,5 +1,5 @@
 // Buildings of the «С нуля» mode on the map (aivillage/construction.py), drawn with viewer/buildart.js.
-// Only when the run has `construction.enabled`; «Обычный» and older logs are drawn exactly as before.
+// Only when the run has `construction.enabled`; older logs are drawn exactly as before.
 // - Houses come from view.plots[home].house: level 1..3 look different (sticks and thatch, logs and shingles,
 //   stone and tiles); level 0 is bare ground, or a shelter once one is built in the yard.
 // - Other yard buildings (view.plots[home].buildings with a level: workbench, granary, smokehouse, smithy) stand

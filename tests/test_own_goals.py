@@ -2,12 +2,13 @@
 
 import json
 
-from aivillage import engine, llm, runconfig, saves, scorecard
+import worlds
+from aivillage import engine, llm, saves, scorecard
 from aivillage.run import llm_agents, night_reflection, run
 
 
-def stub_village(tmp_path, **rc):
-    w = engine.new_world(runconfig.RunConfig(mode="standard", **rc).world_override())
+def stub_village(tmp_path, world=None):
+    w = engine.new_world(worlds.override("plain", {"seed": 1, **(world or {})}))
     agents = llm_agents(w, {n: "stub" for n in w.agents})
 
     def decide(name, obs):
@@ -32,7 +33,7 @@ def test_intro_before_first_turn_and_wants_every_night(tmp_path):
 
 
 def test_own_words_come_first_in_memory_and_night_prompt_asks(tmp_path):
-    w = engine.new_world(runconfig.RunConfig(mode="standard").world_override())
+    w = engine.new_world(worlds.override("plain", {"seed": 1}))
     a = next(iter(llm_agents(w, {n: "stub" for n in w.agents}).values()))
     a.wants, a.plan = "Build a bigger house.", "Cut wood."
     a.memory = "fresh"

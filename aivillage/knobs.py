@@ -7,14 +7,15 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
      "label": "Случайные пожары", "min": 0, "max": 100, "step": 5, "scale": 0.01, "unit": "%"}
 
 - `path`: dotted key in the world config (config.DEFAULT_CONFIG). The default comes from the chosen
-  economy mode (so switching the mode moves the slider), and the value lands in the run's world override.
+  preset («С нуля» with the preset's values, modes.py; switching the preset moves the slider), and the value lands
+  in the run's world override.
   A knob whose path is not in DEFAULT_CONFIG yet is hidden, so knobs can be listed before their feature lands.
-- no `path`: a run option handled in `to_run()` (villagers, days, mode, pace, ...).
+- no `path`: a run option handled in `to_run()` (villagers, days, preset, pace, ...).
 - `action`: a toggle that switches one action on or off (off = added to `disabled_actions`); its default
-  follows the mode, like `path` knobs.
+  follows the preset, like `path` knobs.
 - `also`: more config paths that get the same value as `path`.
 - `scale`: config value = slider value * scale (percent sliders: 0.01).
-- `only`: "llm" or "bots" shows the knob for that kind of village only; `mode`: shown in that economy mode only.
+- `only`: "llm" or "bots" shows the knob for that kind of village only.
 - `group`: fallback section title. Where a knob shows is set by MAIN (always on top) and SECTIONS (folded
   sections) below KNOBS; add a new knob's key there. `hint` (or HINTS) is the plain-word line under it.
 - `hide_if`: {knob key: [values]}: hidden while every listed knob's value is in its list (tax rates with
@@ -22,7 +23,7 @@ The viewer's start screen (viewer/setup.js) draws itself from `schema()`, so a n
 - `roster` (not a knob): optional list of {name, profession, character} from "Жители по одному".
 - `type`: "range" (slider), "choice" (buttons; `options` = [[value, label], ...]), "toggle", "number".
 - `sets` (on a choice): {option: {knob key: slider value}}, a preset. Picking the option moves those sliders;
-  missing answers take the preset value before the mode default (the "Сколько случайностей" knob).
+  missing answers take that value before the preset's (the "Сколько случайностей" knob).
 """
 
 from __future__ import annotations
@@ -120,35 +121,32 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Разговор прерывает дело",
      "hint": "Если к занятому жителю обратились рядом (шёпот, предложение, его имя вслух), он отвечает в следующий "
              "ход, а недоделанное время дела доделывает после ответа. Выкл.: отвечает, когда закончит дело. "
-             "В «С нуля» включено."},
+             "Включено по умолчанию."},
     {"key": "summaries", "group": "Деревня", "type": "toggle", "label": "Сводки «Что произошло?» и хайлайты от ИИ",
      "only": "llm", "default": True, "hint": "Пересказ каждого дня, около $0.0003 за день."},
 
     # --- rules ---
-    {"key": "mode", "group": "Правила", "type": "choice", "label": "Режим экономики", "default": modes.DEFAULT_MODE,
-     "options": [[m, v["title"]] for m, v in modes.MODES.items()],
-     "about": {m: v["about"] for m, v in modes.MODES.items()},
-     "hint": "Режим двигает ползунки ниже. Подсказка жителям одна и та же во всех режимах. Выбирается один режим: "
-             "«С нуля» (пустая поляна, жители строят деревню сами) и «Дефицит» (готовая деревня, мало еды) "
-             "разные. Чтобы начать с нуля при нехватке еды, выберите «С нуля» и ниже «Еды в мире: мало»."},
-    {"key": "start_stage", "path": "progress.start_stage", "group": "Правила", "type": "choice", "mode": "survival",
+    {"key": "preset", "group": "Правила", "type": "choice", "label": "Пресет", "default": modes.DEFAULT_PRESET,
+     "options": [[p, v["title"]] for p, v in modes.PRESETS.items()],
+     "about": {p: v["about"] for p, v in modes.PRESETS.items()},
+     "hint": "Игра всегда «С нуля»; пресет выставляет стадию старта и ползунки ниже, любой можно потом подвинуть "
+             "вручную. Подсказка жителям одна и та же во всех пресетах."},
+    {"key": "start_stage", "path": "progress.start_stage", "group": "Правила", "type": "choice",
      "label": "С какой стадии начать", "options": [["camp", "🔥 Лагерь (с нуля)"], ["hamlet", "🛖 Хутор"],
                                                   ["village", "🏘 Деревня"], ["town", "🏰 Посёлок"]],
      "hint": "Лагерь: ни домов, ни денег, ни профессий. Со стадии повыше всё, что нужно для неё, уже построено "
-             "и открыто, старт как в «Обычном»."},
-    {"key": "food", "group": "Правила", "type": "choice", "label": "Еды в мире", "default": "mode",
-     "options": [["mode", "🍞 Как в режиме"], ["scarce", "🥖 Мало, как в «Дефиците»"]],
-     "hide_if": {"mode": ["scarcity"]},
+             "и открыто."},
+    {"key": "food", "group": "Правила", "type": "choice", "label": "Еды в мире", "default": "normal",
+     "options": [["normal", "🍞 Как задумано"], ["scarce", "🥖 Мало"]],
      "hint": "«Мало»: грядка даёт вдвое меньше зерна, рыбы, ягод и дикого зерна вдвое меньше и они медленно "
-             "отрастают, еда у торговца дорогая, все начинают полуголодными. Работает с любым режимом, например "
-             "«С нуля» с нехваткой еды. Дерево, камень и руда не меняются."},
+             "отрастают, еда у торговца дорогая, все начинают полуголодными. Дерево, камень и руда не меняются."},
     {"key": "unfairness", "path": "map.unfairness", "group": "Правила", "type": "range", "scale": 0.1,
      "label": "Нечестный старт", "min": 0, "max": 10, "step": 1,
      "hint": "0: у всех одинаковые участки, деньги и дорога до работы. 10: у кого-то большой участок и "
              "запасы, у кого-то клочок земли и пустой карман."},
     {"key": "start_coins", "path": "start_coins", "group": "Правила", "type": "range", "label": "Монет на старте",
-     "min": 0, "max": 200, "step": 5, "hide_if": {"mode": ["survival"], "start_stage": ["camp", "hamlet"]},
-     "hint": "В «С нуля» монеты появляются с рынком (стадия «Деревня»): при старте с лагеря или хутора их нет ни у кого."},
+     "min": 0, "max": 200, "step": 5, "hide_if": {"start_stage": ["camp", "hamlet"]},
+     "hint": "Монеты появляются с рынком (стадия «Деревня»): при старте с лагеря или хутора их нет ни у кого."},
     {"key": "tax_amount", "path": "tax_amount", "group": "Правила", "type": "range", "label": "Налог на землю",
      "min": 0, "max": 100, "step": 5, "unit": " мон.", "hide_if": NO_WORLD_TAX,
      "hint": "Сколько монет каждый житель платит в казну в налоговый день. Староста может поменять законом."},
@@ -193,7 +191,7 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Дней в больнице", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "discharge_satiety", "path": "hospital_discharge.satiety", "group": "Правила", "type": "range",
      "label": "Сытость после больницы", "min": 10, "max": 100, "step": 5,
-     "hint": "С какой сытостью житель выходит из больницы. Рекомендуем 30 в «С нуля» (больница не бесплатный обед), 60 в «Обычном»."},
+     "hint": "С какой сытостью житель выходит из больницы. Рекомендуем 30: больница не бесплатный обед."},
     {"key": "seasons", "path": "seasons.enabled", "group": "Правила", "type": "toggle", "label": "Времена года",
      "hint": "Зимой грядки не засеять, что не дозрело, замерзает, ягод нет, рыбы меньше."},
     {"key": "season_days", "group": "Правила", "type": "choice", "label": "Длина сезона", "default": 0,
@@ -212,7 +210,7 @@ KNOBS: list[dict[str, Any]] = [
     # --- division of labour (aivillage/labor.py) ---
     {"key": "labor", "path": "labor.enabled", "group": "Ремёсла", "type": "toggle", "label": "Каждый добывает только своё",
      "hint": "Рыбу ловит только рыбак, лес рубит лесоруб, зерно сеет фермер, камень, руду и золото копает шахтёр "
-             "(в режиме «Ремёсла» и ягоды собирает только фермер). Остальное жители берут друг у друга."},
+             "(и ягоды собирает только фермер). Остальное жители берут друг у друга. Работает, когда выключено «Без профессий»."},
     {"key": "trade_anywhere", "path": "labor.trade_anywhere", "group": "Ремёсла", "type": "toggle",
      "label": "Сделки и подарки на расстоянии",
      "hint": "Предложение обмена можно принять, а подарок отдать, не стоя рядом: товар доставят. Выключено: оба должны "
@@ -232,17 +230,17 @@ KNOBS: list[dict[str, Any]] = [
      "label": "Часов работы в день", "min": 0, "max": 12, "step": 1, "unit": " ч",
      "hint": "0: без ограничения. Работает, только когда включено «Каждый добывает только своё»."},
     {"key": "no_professions", "path": "labor.mastery.enabled", "group": "Ремёсла", "type": "toggle",
-     "label": "Без профессий", "mode": "survival",
+     "label": "Без профессий",
      "hint": "Каждый может всё. Мастерство растёт отдельно по каждому делу (рыбалка, поле, кузня, охота...) от "
              "практики: больше в час, больше вещей с поделки. Дело, заброшенное на несколько дней, понемногу "
-             "забывается. Выключено: профессии и места по ремёслам, как в «Обычном»."},
+             "забывается. Выключено: у каждого своя профессия и место по ремеслу."},
     {"key": "mastery_bonus", "path": "labor.mastery.gather_bonus", "group": "Ремёсла", "type": "range",
      "label": "Прибавка за уровень мастерства дела", "min": 0, "max": 3, "step": 1, "unit": " в час",
-     "mode": "survival", "hide_if": {"no_professions": [False]},
+     "hide_if": {"no_professions": [False]},
      "hint": "Сколько больше добываешь в час за каждый из 5 уровней мастерства этого дела."},
     {"key": "house_bonus", "path": "labor.mastery.house_bonus_pct", "group": "Ремёсла", "type": "range",
      "label": "Хозяйство от размера дома", "min": 0, "max": 50, "step": 5, "unit": "% за уровень дома",
-     "mode": "survival", "hide_if": {"no_professions": [False]},
+     "hide_if": {"no_professions": [False]},
      "hint": "Насколько больше дают свой двор (грядки, животные) и то, что делаешь дома или в своей мастерской, "
              "за каждый уровень дома."},
     {"key": "skill_bonus", "path": "labor.skill_bonus", "group": "Ремёсла", "type": "range",
@@ -381,7 +379,7 @@ KNOBS: list[dict[str, Any]] = [
      "hint": "С 20 вещами житель идёт обычным шагом, с большим грузом каждая дорога вдвое дольше. Лошадь (быстрее) "
              "и осёл (везёт больше) ловятся в дикой природе или покупаются у торговца; телега делается на верстаке. "
              "Животное кормят сеном или зерном, иначе оно слабеет и убегает. Его можно одолжить, отдать или увести. "
-             "В «С нуля» открывается со стадии «деревня»."},
+             "Открывается со стадии «деревня»."},
     {"key": "dice", "path": "dice.enabled", "group": "Азарт", "type": "toggle", "label": "Кости на деньги",
      "hint": "На площади жители могут играть в кости на монеты и проигрываться в долг."},
     {"key": "dice_max_stake", "path": "dice.max_stake", "group": "Азарт", "type": "range",
@@ -437,7 +435,7 @@ KNOBS: list[dict[str, Any]] = [
      "options": [["fair", "⚖️ Честно (всё 0)"], ["normal", "🎲 Обычно"], ["chaos", "🌪 Хаос"]],
      "about": {"fair": "Ничего не случается само: ни пожаров, ни болезней, ни набегов, ни кризисов. Только то, "
                        "что сделают жители и вы в режиме бога.",
-               "normal": "Рекомендуемые шансы: иногда путник, редко набег или зверь, кризисы по режиму экономики.",
+               "normal": "Рекомендуемые шансы: иногда путник, редко набег или зверь, кризисы как задумано.",
                "chaos": "Беды почти каждый день: пожары, болезни, набеги, звери, кризисы."},
      "hint": "Кнопка выставляет ползунки ниже; любой можно потом подвинуть вручную.",
      "sets": {"fair": {"random_fire": 0, "sickness_chance": 0, "raid_chance": 0, "beast_chance": 0,
@@ -464,11 +462,11 @@ KNOBS: list[dict[str, Any]] = [
     {"key": "scout_chance", "path": "threats.kinds.traveler.scout_chance", "group": "Случайные события",
      "type": "range", "scale": 0.01, "label": "Путник оказывается разведчиком", "min": 0, "max": 100, "step": 5,
      "unit": "%", "hint": "Рекомендуем 30%. Если его не прогнать, через день-два без предупреждения придут бандиты. "
-                          "В «С нуля» разведчики приходят только когда бандиты уже могут прийти (см. этап ниже)."},
+                          "Разведчики приходят только когда бандиты уже могут прийти (см. этап ниже)."},
     {"key": "raids_from_stage", "path": "progress.unlocks.feature:raids.stage", "group": "Случайные события",
      "type": "choice", "label": "Бандиты приходят с этапа",
      "options": [["camp", "Сразу (лагерь)"], ["hamlet", "Хутор"], ["village", "Деревня"], ["town", "Посёлок"]],
-     "hint": "Только для «С нуля»: до этого этапа набегов сами по себе нет. Рекомендуем хутор. Бог может "
+     "hint": "До этого этапа набегов сами по себе нет. Рекомендуем хутор. Бог может "
              "прислать набег когда угодно."},
     {"key": "hostile_max_gap", "path": "threats.hostile.max_gap_days", "group": "Случайные события",
      "type": "range", "label": "Бандиты или зверь не реже чем раз в", "min": 0, "max": 30, "step": 1,
@@ -476,7 +474,7 @@ KNOBS: list[dict[str, Any]] = [
                              "0: только шансы выше. Рекомендуем 10."},
     {"key": "threat_warn", "path": "threats.warn_chance", "group": "Случайные события", "type": "range",
      "scale": 0.01, "label": "Набег или зверь объявлены заранее", "min": 0, "max": 100, "step": 10, "unit": "%",
-     "hint": "Рекомендуем 50% (в «С нуля» 80%). Остальные приходят внезапно."},
+     "hint": "Рекомендуем 80%. Остальные приходят внезапно."},
     {"key": "threat_warn_days", "path": "threats.warn_days", "group": "Случайные события", "type": "range",
      "label": "За сколько дней предупреждают", "min": 1, "max": 7, "step": 1, "unit": " дн."},
     {"key": "illness_spread", "path": "illness.spread_chance", "group": "Случайные события", "type": "range",
@@ -538,7 +536,7 @@ KNOBS: list[dict[str, Any]] = [
              "туда дойдёт. Рассказать другим можно словами или письмом. На карте неразведанное под туманом."},
     {"key": "settle", "path": "settle.enabled", "group": "Карта и скорость", "type": "toggle",
      "label": "Место под дом выбирают сами",
-     "hint": "Только в «С нуля» со старта «Лагерь». Включено: на старте пустая поляна, все ночуют у лагеря, каждый сам "
+     "hint": "Только при старте с «Лагеря». Включено: на старте пустая поляна, все ночуют у лагеря, каждый сам "
              "занимает свободное место под дом у леса, реки, шахты или где захочет (кто первый). Дорог нет: тропы "
              "протаптываются там, где ходят, и становятся дорогами. Выключено: дома стоят заранее."},
     {"key": "settle_spread", "path": "settle.spread_bonus", "group": "Карта и скорость", "type": "range",
@@ -608,9 +606,9 @@ HINTS = {
 # SIMPLE: all the «Простой» view shows (the default view); «Расширенный» shows MAIN and every section.
 # RETIRED: kept in to_run() and in the config (old saved forms, the lab, scenarios), never on the screen: switches
 # back to an older, dearer or worse way that nobody should pick by hand (Danel 2026-10-08).
-SIMPLE = ["brains", "bot_mix", "start_stage", "villagers", "days", "daily_budget", "chaos"]
+SIMPLE = ["brains", "bot_mix", "preset", "start_stage", "villagers", "days", "daily_budget", "chaos"]
 RETIRED = {"llm_memory", "llm_obs", "fixed_map"}
-MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days", "daily_budget"]
+MAIN = ["brains", "bot_mix", "preset", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, свои цели, разговоры и что жители видят друг о друге.",
      ["characters", "own_goals", "craft_hint", "summaries", "luxury", "hungry_seen_below",
@@ -766,20 +764,82 @@ def _to_ui(knob: dict, value: Any) -> Any:
     return value
 
 
-def mode_defaults(mode: str) -> dict[str, Any]:
-    """Slider positions for `mode`: the effective config value of every path knob."""
-    cfg = make_config(modes.world_override(mode))
-    off = set(modes.disabled(mode))
+def _apply(override: dict, values: dict, knobs: dict[str, dict]) -> dict:
+    """`override` with knob `values` (screen units, already cleaned) set: config paths, actions on or off and
+    «Еды в мире» (applied last, over the whole config). Changes `override` in place and returns it."""
+    for key, v in values.items():
+        k = knobs[key]
+        if "path" in k:
+            if k.get("scale") and not isinstance(v, bool):
+                v = round(v * k["scale"], 6)
+            for path in [k["path"], *k.get("also", [])]:
+                _set(override, path, v)
+        elif "action" in k:
+            off = set(override.get("disabled_actions", [])) - {k["action"]}
+            override["disabled_actions"] = sorted(off if v else off | {k["action"]})
+    if values.get("food") == "scarce":
+        override = _merge(override, modes.scarce_food(make_config(override)))
+    return override
+
+
+def _base(preset: str) -> dict:
+    """«С нуля» with the preset's own config (`world`) and actions off (`disabled`), before its knob values."""
+    p = modes.PRESETS[preset]
+    override = copy.deepcopy(modes.base_override(p["world"]))
+    if p["disabled"]:
+        override["disabled_actions"] = sorted(set(override.get("disabled_actions", [])) | set(p["disabled"]))
+    return override
+
+
+def preset_override(preset: str, food: bool = True) -> dict:
+    """World override of a preset: «С нуля», the preset's `world` and `disabled`, then its knob values.
+    food=False leaves «Еды в мире» out (the sliders show the world before it; to_run applies it once)."""
+    modes.check(preset)
+    knobs = {k["key"]: k for k in KNOBS}
+    values = modes.PRESETS[preset]["knobs"]
+    unknown = set(values) - set(knobs)
+    if unknown:
+        raise ValueError(f"presets/{preset}.yaml: unknown knobs {sorted(unknown)}")
+    return _apply(_base(preset), {key: _clean(knobs[key], v) for key, v in values.items()
+                                  if food or key != "food"}, knobs)
+
+
+def follow_keys() -> list[str]:
+    """Knobs without a config path that some preset sets («Еды в мире»): they move with the preset too."""
+    path = {k["key"] for k in KNOBS if "path" in k or "action" in k}
+    return sorted({key for p in modes.PRESETS.values() for key in p["knobs"]} - path)
+
+
+def preset_defaults(preset: str) -> dict[str, Any]:
+    """Slider positions for `preset`: the effective config value of every path knob, actions on or off, and the
+    preset's own value (else the knob default) of the follow_keys knobs."""
+    override = preset_override(preset, food=False)
+    cfg = make_config(override)
+    off = set(override.get("disabled_actions", []))
     out = {k["key"]: _to_ui(k, _get(cfg, k["path"])) for k in active() if "path" in k}
     out.update({k["key"]: k["action"] not in off for k in active() if "action" in k})
+    by_key = {k["key"]: k for k in KNOBS}
+    for key in follow_keys():
+        out[key] = modes.PRESETS[preset]["knobs"].get(key, by_key[key].get("default"))
     return out
+
+
+def changed(header: dict) -> dict[str, Any]:
+    """Start-screen knobs of a log (header `start_knobs`) set away from its preset, for reports. {} for runs
+    not started from the screen."""
+    vals, preset = header.get("start_knobs") or {}, (header.get("config") or {}).get("preset")
+    if not vals or preset not in modes.PRESETS:
+        return {}
+    by_key = {k["key"]: k for k in KNOBS}
+    base = {**{key: k.get("default") for key, k in by_key.items()}, **preset_defaults(preset), **_sets(by_key, vals)}
+    return {key: v for key, v in vals.items() if key in base and v != base[key] and key != "preset"}
 
 
 def schema() -> dict:
     ordered, sections = layout(active())
     return {"knobs": ordered, "sections": sections, "characters": characters(), "professions": sorted(DEFAULT_CONFIG["professions"]),
             "defaults": {k["key"]: k.get("default") for k in active() if "path" not in k and "action" not in k},
-            "mode_defaults": {m: mode_defaults(m) for m in modes.MODES}}
+            "preset_defaults": {p: preset_defaults(p) for p in modes.PRESETS}, "follow": follow_keys()}
 
 
 def _clean(knob: dict, value: Any) -> Any:
@@ -802,8 +862,8 @@ def _clean(knob: dict, value: Any) -> Any:
     return v
 
 
-def _preset(knobs: dict, opts: dict) -> dict:
-    """Slider values of the chosen "sets" knob (the random-events preset); they sit between mode and hand."""
+def _sets(knobs: dict, opts: dict) -> dict:
+    """Slider values of the chosen "sets" knob (the random-events choice); they sit between preset and hand."""
     out: dict = {}
     for key, k in knobs.items():
         if k.get("sets"):
@@ -814,35 +874,24 @@ def _preset(knobs: dict, opts: dict) -> dict:
 def to_run(opts: dict) -> dict:
     """Start-screen answers -> what the server needs: world `override`, `decide` kind, days, pace, seed.
 
-    Missing answers take the knob default (mode default for config knobs). Raises ValueError on bad input."""
+    Missing answers take the knob default (the preset's value for config knobs). Raises ValueError on bad input.
+    The override carries the preset name (`preset`); `values` (every knob's final value) go into the log header as
+    `start_knobs`, not into the world config (pace and the like would change the world's hash)."""
     opts = dict(opts)
     rows = opts.pop("roster", None)
     knobs = {k["key"]: k for k in active()}
     unknown = set(opts) - set(knobs)
     if unknown:
         raise ValueError(f"неизвестные настройки: {', '.join(sorted(unknown))}")
-    mode = _clean(knobs["mode"], opts.get("mode", modes.DEFAULT_MODE))
-    by_mode = {**mode_defaults(mode), **_preset(knobs, opts)}
+    preset = _clean(knobs["preset"], opts.get("preset", modes.DEFAULT_PRESET))
+    by_preset = {**preset_defaults(preset), **_sets(knobs, opts)}
     val = {}
     for key, k in knobs.items():
-        raw = opts.get(key, by_mode.get(key, k.get("default")))
+        raw = opts.get(key, by_preset.get(key, k.get("default")))
         val[key] = _clean(k, raw)
 
-    override = copy.deepcopy(modes.world_override(mode))
-    if modes.disabled(mode):
-        override["disabled_actions"] = modes.disabled(mode)
-    for key, k in knobs.items():
-        if "path" in k:
-            v = val[key]
-            if k.get("scale") and not isinstance(v, bool):
-                v = round(v * k["scale"], 6)
-            for path in [k["path"], *k.get("also", [])]:
-                _set(override, path, v)
-        elif "action" in k:
-            off = set(override.get("disabled_actions", [])) - {k["action"]}
-            override["disabled_actions"] = sorted(off if val[key] else off | {k["action"]})
-    if val["food"] == "scarce" and mode != "scarcity":
-        override = _merge(override, modes.scarce_food(make_config(override)))
+    override = _apply(_base(preset), {key: v for key, v in val.items() if "path" in knobs[key]
+                                      or "action" in knobs[key] or key == "food"}, knobs)
     override["population"] = {"size": val["villagers"], "always": list(ALWAYS)}
     override["characters"] = val["characters"]
     # Villagers set one by one; population.py fills up to `villagers` if the list is shorter. Without a
@@ -855,7 +904,8 @@ def to_run(opts: dict) -> dict:
             cal.update(start=val["season_start"], offset_days=0)
         for k, v in cal.items():
             _set(override, f"seasons.{k}", v)
-    return {"override": override, "mode": mode, "llm": val["brains"] == "llm",
+    override["preset"] = preset
+    return {"override": override, "preset": preset, "llm": val["brains"] == "llm",
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
             "seed": val["seed"], "tick_minutes": val["tick_minutes"], "summaries": val["summaries"],
             "daily_budget": val["daily_budget"], "values": val}

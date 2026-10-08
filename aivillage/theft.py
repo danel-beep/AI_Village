@@ -1,6 +1,6 @@
 """What there is to steal and who sees it: stores in view, the dark, the owner at home, the treasury.
 
-Config block `theft` (off by default, so «Обычный» is unchanged; on in «С нуля» and «Беззаконие»):
+Config block `theft` (off by default; on in «С нуля»):
 
 - `see_stores`: standing somewhere you see the coins and food in other people's chests there and in the
   pockets of the people next to you (`here.chests[].coins/food`, `here.people[].coins/food`), not only your own.

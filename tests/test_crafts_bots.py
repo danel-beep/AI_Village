@@ -9,7 +9,7 @@ from aivillage.run import bots_decider, replay, run
 
 
 def test_crafts_bots_trade_food_and_stay_fed(tmp_path):
-    w = engine.new_world(modes.world_override("crafts", {"seed": 1, "population": {"size": 10},
+    w = engine.new_world(modes.trades_override({"seed": 1, "population": {"size": 10},
                                                          "map": {"procedural": True}, "tick_minutes": 15}))
     seen = Counter()
     log = tmp_path / "c.jsonl"

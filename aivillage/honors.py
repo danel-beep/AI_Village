@@ -1,4 +1,4 @@
-"""The honor board: a public board of praise and titles (config block `honors`; on in the crafts and «С нуля» modes).
+"""The honor board: a public board of praise and titles (config block `honors`; on in modes.TRADES and «С нуля»).
 
 The world sets no criteria of merit. Two ways to stand out, both written by the villagers themselves:
 

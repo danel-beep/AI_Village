@@ -3,7 +3,7 @@
 A scenario (`scenarios/<name>.yaml`) is a cheap, repeatable test of one situation (a hungry villager asks for
 food, two villagers build a smithy together, someone does not pay the tax). It says:
 
-- `config`: an ordinary run config (aivillage/runconfig.py: mode, villagers, seed, world overrides);
+- `config`: an ordinary run config (aivillage/runconfig.py: preset, villagers, seed, world overrides);
 - `warmup`: optionally play bots for N days first, so the world is lived-in (fields worked, houses built);
 - `world` / `villagers`: edits on top of that moment (satiety, items, coins, place, chest, mayor, laws, tax
   bills, building sites, feelings) and each villager's memory (about_me, wants, plan, notes, people, diary);
@@ -41,7 +41,7 @@ import hashlib
 import zipfile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import construction, engine, family, mapgen, polity, runconfig, saves
+from . import construction, engine, family, mapgen, modes, polity, runconfig, saves
 from .bots import BOT_TYPES
 from .invariants import check, holdings
 from .engine import rng_for
@@ -223,7 +223,7 @@ def listing(folder: str | Path | None = None) -> list[dict]:
         except ScenarioError:
             continue
         out.append({"name": p.stem, "title": s.title, "about": s.about, "days": s.play.days,
-                    "warmup_days": s.warmup.days, "ai": s.play.ai, "mode": s.config.get("mode"),
+                    "warmup_days": s.warmup.days, "ai": s.play.ai, "preset": s.config.get("preset", modes.DEFAULT_PRESET),
                     "lab": s.is_lab, "arms": [a.name for a in s.arms], "replicates": s.play.replicates,
                     "models": s.play.seating.models if s.play.seating else [], "from_save": s.from_save})
     return out
@@ -286,7 +286,7 @@ def _name(world: World, name: str, where: str) -> str:
 
 def _polity(world: World, e: PolityEdit) -> None:
     if not polity.enabled(world.config):
-        raise ScenarioError("world.polity: polities are off in this mode")
+        raise ScenarioError("world.polity: polities are off in this world")
     if not world.polities:
         halls = polity.halls(world)
         if not halls:
@@ -373,7 +373,7 @@ def edit(world: World, scn: Scenario | Arm) -> None:
     for s in e.sites:
         a = world.agents[_name(world, s.by, "world.sites")]
         if not construction.enabled(cfg):
-            raise ScenarioError("world.sites: building sites are off in this mode")
+            raise ScenarioError("world.sites: building sites are off in this world")
         ctx = Ctx(world, rng_for(world, "scenario"))
         try:
             construction.start_building(ctx, a, construction.StartArgs(kind=s.kind))
@@ -626,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.cmd == "list":
             for s in listing():
-                print(f"{s['name']:20} {s['title']} (mode {s['mode']}, warmup {s['warmup_days']} d, play {s['days']} d)")
+                print(f"{s['name']:20} {s['title']} (preset {s['preset']}, warmup {s['warmup_days']} d, play {s['days']} d)")
             return 0
         if a.cmd == "check":
             rep = report(a.log)

@@ -4,7 +4,7 @@ The first live run showed villagers live alone while food is easy; trades, gifts
 only under need. Crises bring need now and then, and unevenly (only some yards and chests are hit),
 so some villagers have something to sell and others a reason to ask, borrow or steal.
 
-All numbers are in config block `crises` (economy modes tune them). A crisis is a dict in
+All numbers are in config block `crises` (presets may tune them). A crisis is a dict in
 `world.crises`: {"id", "kind", "text", "start_day", "end_day", "frozen": {loc: [resource]},
 "prices": {item: {"buy"|"sell": factor}}}. It is active while start_day <= day < end_day.
 The engine calls `new_day` at dawn (before regrowth), asks `blocks_regrowth` in the regrowth loop and

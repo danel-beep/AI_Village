@@ -49,7 +49,7 @@ def test_log_names_brains_and_usage(tmp_path):
 
 
 def test_scorecard_rows_and_grouping(tmp_path):
-    logs = [_main(tmp_path, f"s{seed}", {"mode": "crafts", "days": 3, "seed": seed, "villagers": 6, "bot": "thief",
+    logs = [_main(tmp_path, f"s{seed}", {"preset": "village", "world": {"labor": {"mastery": {"enabled": False}}}, "days": 3, "seed": seed, "villagers": 6, "bot": "thief",
                                          "agents": [{"name": "Anna", "profession": "farmer", "bot": "worker"}]})
             for seed in (2, 3)]
     rep = scorecard.compute(logs)

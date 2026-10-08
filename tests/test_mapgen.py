@@ -123,10 +123,9 @@ def test_plot_start_for_the_plots_engine():
     assert kept["agents"][0]["plot_cells"] == 40  # an explicit start wins
 
 
-def test_economy_modes_set_start_unfairness():
+def test_run_config_start_unfairness_reaches_the_map():
     from aivillage import modes
-    assert modes.unfairness("peaceful") < modes.unfairness("standard") < modes.unfairness("gold_rush")
-    w = engine.new_world(mapgen.for_run(modes.world_override("scarcity")))
+    w = engine.new_world(mapgen.for_run(modes.world_override("normal", {"map": {"unfairness": 0.6}})))
     assert w.config["map"]["unfairness"] == 0.6 and "layout" in w.config["map"]
 
 

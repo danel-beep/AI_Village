@@ -45,14 +45,14 @@ def test_off_without_crafting_changes_nothing():
 
 
 def test_survival_mode_has_gear_and_recipes():
-    cfg = make_config(runconfig.RunConfig(mode="survival").world_override())
+    cfg = make_config(runconfig.RunConfig(preset="normal").world_override())
     assert conflict.gear_on(cfg)
     r = cfg["recipes"]
     assert r["spear"]["building"] == "workbench" and r["spear"]["profession"] is None
     assert r["bow"]["building"] == "workbench" and r["leather_armor"]["building"] == "workbench"
     assert r["sword"]["building"] == "smithy" and r["iron_armor"]["building"] == "smithy"
     assert {"bow", "sword", "leather_armor", "iron_armor"} <= set(cfg["items"])
-    assert not conflict.gear_on(make_config(modes.world_override("crafts")))
+    assert not conflict.gear_on(make_config(modes.trades_override()))
 
 
 def test_weapon_tiers(w):
@@ -116,7 +116,7 @@ def test_defend_uses_armor_and_weapon(w):
 
 
 def test_facts_are_neutral():
-    cfg = make_config(runconfig.RunConfig(mode="survival").world_override())
+    cfg = make_config(runconfig.RunConfig(preset="normal").world_override())
     lines = conflict.gear_facts(cfg)
     assert len(lines) == 3 and "bow +5" in lines[0] and "iron_armor -4" in lines[1]
     assert evaluative("\n".join(lines)) == []

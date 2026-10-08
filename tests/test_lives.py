@@ -21,8 +21,8 @@ def discharge(w, name):
 
 def test_runs_default_to_two_lives_and_the_engine_to_none():
     assert engine.new_world({"seed": 1}).config["lives"] == 0
-    for mode in modes.MODES:
-        assert engine.new_world(modes.world_override(mode, {"seed": 1})).config["lives"] == 2
+    for preset in modes.PRESETS:
+        assert engine.new_world(modes.world_override(preset, {"seed": 1})).config["lives"] == 2
 
 
 def test_second_collapse_is_death():

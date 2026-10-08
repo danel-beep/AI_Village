@@ -199,8 +199,8 @@ def test_tax_rate_laws(w):
 
 
 def test_crafts_mode_turns_taxes_on():
-    from aivillage.modes import world_override
-    w = engine.new_world({"seed": 1, **world_override("crafts")})
+    from aivillage.modes import trades_override, world_override
+    w = engine.new_world({"seed": 1, **trades_override()})
     assert taxes.enabled(w.config) and taxes.council_on(w.config) and w.config["tax_amount"] == 10
     facts = world_facts(w.config)
     assert "sales_tax" in facts and "Council orders pay 1.0x" in facts
@@ -208,9 +208,9 @@ def test_crafts_mode_turns_taxes_on():
 
 @pytest.mark.parametrize("seed", range(3))
 def test_fuzz_crafts_mode_with_taxes(seed):
-    from aivillage.modes import world_override
+    from aivillage.modes import trades_override, world_override
     from aivillage.run import bots_decider, run
-    w = engine.new_world({"seed": seed, **world_override("crafts")})
+    w = engine.new_world({"seed": seed, **trades_override()})
     run(w, bots_decider(w, ["random", "worker", "random"], seed), days=15)  # invariants every tick
     check(w)
     assert w.day == 16

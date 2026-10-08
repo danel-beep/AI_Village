@@ -1,5 +1,6 @@
 """In-app start screen: knobs (aivillage/knobs.py) and the server's --setup mode."""
 
+import json
 import time
 
 import pytest
@@ -8,13 +9,15 @@ from aivillage import knobs, modes
 from aivillage.config import DEFAULT_CONFIG
 
 
-def test_every_mode_has_a_slider_position_for_every_config_knob():
-    for m in modes.MODES:
-        d = knobs.mode_defaults(m)
-        assert set(d) == {k["key"] for k in knobs.active() if "path" in k or "action" in k}
-    assert knobs.mode_defaults("peaceful")["start_coins"] == 40
-    assert knobs.mode_defaults("peaceful")["unfairness"] == 1  # 0.1 on a 0..10 slider
-    assert knobs.mode_defaults("standard")["steal_notice_chance"] == round(DEFAULT_CONFIG["steal_notice_chance"] * 100)
+def test_every_preset_has_a_slider_position_for_every_config_knob():
+    for p in modes.PRESETS:
+        d = knobs.preset_defaults(p)
+        assert set(d) == {k["key"] for k in knobs.active() if "path" in k or "action" in k} | set(knobs.follow_keys())
+    assert knobs.follow_keys() == ["food"]
+    assert knobs.preset_defaults("normal")["unfairness"] == round(DEFAULT_CONFIG["map"]["unfairness"] * 10)
+    assert knobs.preset_defaults("lawless")["steal_notice_chance"] == 5
+    assert knobs.preset_defaults("normal")["steal_notice_chance"] == round(DEFAULT_CONFIG["steal_notice_chance"] * 100)
+    assert knobs.preset_defaults("harsh")["food"] == "scarce" and knobs.preset_defaults("normal")["food"] == "normal"
 
 
 def test_start_screen_layout_main_on_top_every_knob_placed_with_a_hint():
@@ -49,11 +52,11 @@ def test_a_knob_missing_from_the_layout_falls_back_to_its_group():
     assert ordered[-1]["key"] == "x" and ordered[-1]["section"] == "Новое" and sections[-1]["title"] == "Новое"
 
 
-def test_to_run_defaults_follow_the_mode_and_answers_win():
-    r = knobs.to_run({"mode": "peaceful"})
+def test_to_run_defaults_follow_the_preset_and_answers_win():
+    r = knobs.to_run({"preset": "village"})
     assert r["llm"] and r["days"] == 3 and r["override"]["population"] == {"size": 5, "always": ["Boris"]}
-    assert r["override"]["start_coins"] == 40 and r["override"]["map"] == {"unfairness": 0.1, "procedural": True, "size": "normal"}
-    r = knobs.to_run({"mode": "lawless", "brains": "bots", "start_coins": 7, "steal_notice_chance": 25,
+    assert r["override"]["progress"]["start_stage"] == "village" and r["override"]["preset"] == "village"
+    r = knobs.to_run({"preset": "lawless", "brains": "bots", "start_coins": 7, "steal_notice_chance": 25,
                       "unfairness": 10, "seasons": False, "fixed_map": True, "villagers": 999})
     o = r["override"]
     assert o["start_coins"] == 7 and o["steal_notice_chance"] == 0.25 and o["map"]["unfairness"] == 1.0
@@ -67,7 +70,7 @@ def test_bad_answers_are_refused():
     with pytest.raises(ValueError):
         knobs.to_run({"no_such_knob": 1})
     with pytest.raises(ValueError):
-        knobs.to_run({"mode": "chaos"})
+        knobs.to_run({"preset": "chaos"})
     with pytest.raises(ValueError):
         knobs.to_run({"seed": "abc"})
 
@@ -80,17 +83,18 @@ def test_knobs_for_features_not_in_config_are_hidden(monkeypatch):
 
 def test_world_from_start_screen_has_the_settings():
     from aivillage import engine
-    r = knobs.to_run({"brains": "bots", "mode": "crafts", "villagers": 7, "start_coins": 55, "tax_amount": 5})
+    r = knobs.to_run({"brains": "bots", "preset": "village", "villagers": 7, "start_coins": 55, "tax_amount": 5,
+                      "polities": False})
     w = engine.new_world({**r["override"], "seed": 4})
     assert len(w.agents) == 7 and w.config["tax_amount"] == 5 and w.config["start_coins"] == 55
 
 
 
-def test_little_food_goes_with_any_mode_and_keeps_the_camp_start():
-    """«Еды в мире: мало» on «С нуля»: still an empty camp, with the food of «Дефицит» (Danel's run 2026-10-06)."""
+def test_little_food_keeps_the_camp_start():
+    """«Еды в мире: мало» on «С нуля»: still an empty camp, with little food (Danel's run 2026-10-06)."""
     from aivillage import engine
-    base = knobs.to_run({"brains": "bots", "mode": "survival", "start_stage": "camp"})["override"]
-    r = knobs.to_run({"brains": "bots", "mode": "survival", "start_stage": "camp", "food": "scarce"})
+    base = knobs.to_run({"brains": "bots", "preset": "normal", "start_stage": "camp"})["override"]
+    r = knobs.to_run({"brains": "bots", "preset": "normal", "start_stage": "camp", "food": "scarce"})
     o = r["override"]
     assert o["food_supply"] == "scarce" and o["progress"]["start_stage"] == "camp"
     assert o["plots"]["buildings"]["garden_bed"]["yield"] == base["plots"]["buildings"]["garden_bed"]["yield"] // 2
@@ -102,8 +106,8 @@ def test_little_food_goes_with_any_mode_and_keeps_the_camp_start():
         for res, v in w.config["locations"][loc]["resources"].items():
             if res in modes.WILD_FOOD:
                 assert v["max"] == max(1, full[loc]["resources"][res]["max"] // 2)
-    # «Дефицит» is little food already: the answer changes nothing there
-    assert knobs.to_run({"mode": "scarcity", "food": "scarce"})["override"] == knobs.to_run({"mode": "scarcity"})["override"]
+    # «Суровый» has little food already: saying so again changes nothing
+    assert knobs.to_run({"preset": "harsh", "food": "scarce"})["override"] == knobs.to_run({"preset": "harsh"})["override"]
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -132,14 +136,17 @@ def test_setup_mode_start_stop_and_past_runs(tmp_path, monkeypatch):
     assert not info["running"] and info["can_restart"] and not info["has_key"]
     assert c.get("/api/status").status_code == 409
     assert c.post("/api/start", json={"brains": "llm"}).status_code == 400  # no key yet
-    assert c.post("/api/start", json={"brains": "bots", "mode": "nope"}).status_code == 400
+    assert c.post("/api/start", json={"brains": "bots", "preset": "nope"}).status_code == 400
     assert c.get("/api/runs").json()["runs"] == []
 
     r = c.post("/api/start", json={"brains": "bots", "villagers": 3, "days": 1, "pace": 0, "seed": 9,
-                                   "mode": "crafts", "start_coins": 33})
+                                   "preset": "village", "start_coins": 33})
     assert r.status_code == 200, r.text
     sim = host.sim
     wait(lambda: sim.finished)
+    with open(sim.log_path, encoding="utf-8") as f:
+        head = json.loads(f.readline())
+    assert head["config"]["preset"] == "village" and head["start_knobs"]["start_coins"] == 33  # for comparisons
     assert sim.header["config"]["start_coins"] == 33 and len(sim.world.agents) == 3
     page = c.get("/").text
     assert "src=\"/live.js\"" in page and "src=\"/setup.js\"" in page  # the "new village" button
@@ -213,14 +220,14 @@ def test_arson_fights_land_and_gold_knobs():
     gold = engine.new_world({**o, "seed": 2}).config["locations"]["mine"]["resources"]["gold"]
     assert gold["start"] == gold["max"] and 35 <= gold["start"] <= 70  # the map's unfairness nudges resources
     assert "set_fire" not in knobs.to_run({})["override"].get("disabled_actions", [])
-    assert knobs.mode_defaults("standard")["allow_arson"] is True
+    assert knobs.preset_defaults("normal")["allow_arson"] is True
 
 
 def test_app_village_always_has_boris_on_a_random_seat():
     from aivillage import engine
     seats, profs = set(), set()
     for seed in range(1, 21):
-        run = knobs.to_run({"seed": seed, "mode": "crafts"})  # a mode with professions (no camp start)
+        run = knobs.to_run({"seed": seed, "preset": "village", "no_professions": False})  # professions on, no camp start
         w = engine.new_world({**run["override"], "seed": seed})
         names = list(w.agents)
         assert names.count("Boris") == 1

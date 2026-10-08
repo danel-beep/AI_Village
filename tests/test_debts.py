@@ -151,9 +151,9 @@ def test_collection_off_hides_it_from_prompt_and_actions():
     assert errors(act(w, "Anna", "demand_debt", debt_id=only_debt(w).id))
 
 
-def test_lawless_mode_has_no_collection():
+def test_lawless_preset_has_no_collection():
     from aivillage import runconfig
-    cfg = engine.new_world(runconfig.parse({"mode": "lawless"}).world_override()).config
+    cfg = engine.new_world(runconfig.parse({"preset": "lawless"}).world_override()).config
     assert {"demand_debt", "rule_debt"} <= set(cfg["disabled_actions"])
 
 
@@ -261,7 +261,7 @@ def test_auto_collect_off_and_lawless_take_nothing():
     assert w.agents["Boris"].coins == 10
     assert "collected by the village" not in world_facts(w.config)
     from aivillage import runconfig
-    cfg = engine.new_world(runconfig.parse({"mode": "lawless"}).world_override()).config
+    cfg = engine.new_world(runconfig.parse({"preset": "lawless"}).world_override()).config
     assert not debts.auto_on(cfg) and "Nobody forces repayment" in world_facts(cfg)
 
 

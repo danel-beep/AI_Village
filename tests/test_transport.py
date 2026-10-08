@@ -60,7 +60,7 @@ def nights(w, n):
 
 def test_off_by_default_changes_nothing():
     w = engine.new_world({"seed": 1})
-    assert w.transport == {} and "transport" not in w.to_dict()
+    assert w.transport == {}
     assert transport.observe(w, "Anna") == {}
     assert transport.hidden_actions(w.config) >= {"catch_animal", "take_animal"}
     w.agents["Anna"].location = "forest"
@@ -214,12 +214,12 @@ def test_stable_needed_when_buildings_are_built():
 
 
 def test_opens_with_the_village_stage_in_survival():
-    camp = engine.new_world(runconfig.RunConfig(mode="survival", seed=2).world_override())
+    camp = engine.new_world(runconfig.RunConfig(preset="normal", seed=2).world_override())
     assert camp.transport and not transport.active(camp)  # no carry limit, no animals before the village
     name = sorted(camp.agents)[0]
     assert transport.observe(camp, name) == {}
     assert "catch_animal" not in engine.observe(camp, name, consume_inbox=False)["available_actions"]
-    ov = runconfig.RunConfig(mode="survival", seed=2).world_override()
+    ov = runconfig.RunConfig(preset="normal", seed=2).world_override()
     ov["progress"] = {**ov.get("progress", {}), "start_stage": "village"}
     vil = engine.new_world(ov)
     assert transport.active(vil)
@@ -227,7 +227,7 @@ def test_opens_with_the_village_stage_in_survival():
 
 
 def test_bots_runs_keep_invariants_replay_and_neutral_texts(tmp_path):
-    ov = runconfig.RunConfig(mode="survival", seed=3).world_override()
+    ov = runconfig.RunConfig(preset="normal", seed=3).world_override()
     ov["progress"] = {**ov.get("progress", {}), "start_stage": "village"}
     ov["transport"] = ON["transport"]
     w = engine.new_world(ov)

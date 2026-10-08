@@ -17,7 +17,7 @@ RULER = {"form": "ruler", "leader": lambda n: "Anna", "name": "Dale", "coin": "s
 def town(**extra):
     """«С нуля» at the town stage: a town hall (so a polity) and the market square stand; 40 coins each."""
     extra["polity"] = {"income_per_member_per_day": 0, **extra.get("polity", {})}
-    w = engine.new_world(modes.world_override("survival", {"seed": 5, **QUIET, "progress": {"start_stage": "town"},
+    w = engine.new_world(modes.world_override("normal", {"seed": 5, **QUIET, "progress": {"start_stage": "town"},
                                                            **extra}))
     for a in w.agents.values():
         ops.mint_coins(w, a, 40 - a.coins)
@@ -181,13 +181,12 @@ def test_holder_buys_from_the_merchant_with_treasury_coins_in_public():
 
 
 def test_no_merchant_before_the_trader_or_when_off():
-    w = engine.new_world(modes.world_override("survival", {"seed": 5, **QUIET}))  # camp start: no market yet
+    w = engine.new_world(modes.world_override("normal", {"seed": 5, **QUIET}))  # camp start: no market yet
     until(w, lambda: w.day == 12, limit=4000)
     assert merchant.here(w) is None and not w.merchant
     w = town(merchant={"enabled": False})
     until(w, lambda: w.day == 12, limit=4000)
     assert not w.merchant and "merchant" not in world_facts(w.config)
-    assert "merchant" not in w.to_dict()
 
 
 def test_a_fur_cloak_keeps_a_winter_night_warmer():
@@ -221,7 +220,7 @@ def test_facts_are_neutral_and_say_the_rules():
 
 
 def test_random_bots_with_merchant_and_treasury_replay(tmp_path):
-    w = engine.new_world(modes.world_override("survival", {"seed": 9, **QUIET, "progress": {"start_stage": "town"},
+    w = engine.new_world(modes.world_override("normal", {"seed": 9, **QUIET, "progress": {"start_stage": "town"},
                                                            "merchant": {"first_gap_days": [1, 1]}}))
     log = tmp_path / "fuzz.jsonl"
     run(w, bots_decider(w, ["random"], 3), days=6, log_path=log)

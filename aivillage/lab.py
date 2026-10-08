@@ -184,6 +184,7 @@ def _verdict(diff: float | None, noise: float | None) -> str:
 
 def compare(logs: list[str]) -> dict:
     """Arms and models from the logs of one experiment (`fork` in their headers)."""
+    from . import knobs, modes
     from .run import read_log
     runs, per_arm = [], {}
     for p in logs:
@@ -195,7 +196,8 @@ def compare(logs: list[str]) -> dict:
         alive = [s.get("status") != "dead" for s in (last.get("agents") or {}).values()]
         vals = {**SM.summary(sm), "survival": round(sum(alive) / len(alive), 3) if alive else None}
         runs.append({"log": p, "arm": fork["arm"], "replicate": fork.get("replicate"), "seed": fork.get("seed"),
-                     "override": fork.get("model_override"),
+                     "override": fork.get("model_override"), "preset": modes.title(head.get("config") or {}),
+                     "knobs": knobs.changed(head),
                      "seats": fork.get("seats") or {}, "brains": head.get("brains") or {}, "values": vals,
                      "social": sm})
         per_arm.setdefault(fork["arm"], []).append(runs[-1])
@@ -331,8 +333,10 @@ def markdown(rep: dict) -> str:
     lines += ["", "## Прогоны", ""]
     for r in rep["runs"]:
         seats = ", ".join(f"{n}: {m.split('/')[-1]}" for n, m in sorted(r["seats"].items()))
-        lines.append(f"- {r['arm']} r{r['replicate']} (сид {r['seed']}){': ' + seats if seats else ''}: "
-                     f"`{Path(r['log']).name}`")
+        preset = f", пресет «{r['preset']}»" if r.get("preset") else ""
+        changed = ", ".join(f"{k}={v}" for k, v in (r.get("knobs") or {}).items())
+        lines.append(f"- {r['arm']} r{r['replicate']} (сид {r['seed']}{preset}){': ' + seats if seats else ''}: "
+                     f"`{Path(r['log']).name}`" + (f"; ручки не как в пресете: {changed}" if changed else ""))
     return "\n".join(lines) + "\n"
 
 

@@ -511,7 +511,7 @@ class LiveSim:
 def make_sim(world: World, *, models: list[str] | None, bots: list[str], seed: int, days: int,
              log_path: str | None, pace: float = 1.0, summary_model: str | None = None,
              reports_dir: str | None = None, reveal_reports: bool = False,
-             view_lag_minutes: int = VIEW_LAG_MINUTES, daily_budget: float = 0.0) -> LiveSim:
+             view_lag_minutes: int = VIEW_LAG_MINUTES, daily_budget: float = 0.0, meta: dict | None = None) -> LiveSim:
     """Villager brains, nightly diaries and recaps around a fresh world (CLI and start screen alike)."""
     on_night = None
     if models:
@@ -524,7 +524,7 @@ def make_sim(world: World, *, models: list[str] | None, bots: list[str], seed: i
     sm = summary_model or ("default" if keys.has_any_key() else "off")
     summarizer = None if sm == "off" else Summarizer(make_client(sm), world.config)
     return LiveSim(world, decide, days, log_path, pace, on_night, summarizer, reports_dir, reveal_reports,
-                   view_lag_minutes, daily_budget=daily_budget)
+                   view_lag_minutes, meta=meta, daily_budget=daily_budget)
 
 
 class LabJob:
@@ -589,7 +589,8 @@ class Host:
             self.sim = make_sim(world, models=models, bots=run_opts["bots"],
                                 seed=seed, days=run_opts["days"], log_path=str(log), pace=run_opts["pace"],
                                 summary_model=sm, reports_dir=self.reports_dir,
-                                reveal_reports=self.reveal_reports, daily_budget=run_opts["daily_budget"])
+                                reveal_reports=self.reveal_reports, daily_budget=run_opts["daily_budget"],
+                                meta={"start_knobs": run_opts["values"]})  # every knob's value, for comparisons
             self.last = {**run_opts["values"], "seed": None}
             if opts.get("roster"):
                 self.last["roster"] = world.config["agents"]
@@ -1181,8 +1182,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bots", default="worker,worker,thief,worker,random")
     p.add_argument("--models", default=None, help="OpenRouter model ids (comma-separated) or 'stub'")
     p.add_argument("--agents", type=int, default=0, help="number of villagers (more than 5 get generated names; resources scale up)")
-    p.add_argument("--mode", default=modes.DEFAULT_MODE, choices=list(modes.MODES),
-                   help="economy mode (aivillage/modes.py)")
+    p.add_argument("--preset", default=modes.DEFAULT_PRESET, choices=list(modes.PRESETS),
+                   help="preset on top of «С нуля» (presets/*.yaml)")
     p.add_argument("--log", default="runs/live.jsonl", help="also write the replayable log here")
     p.add_argument("--pace", type=float, default=1.0, help="seconds per game hour (min wait; split over its ticks)")
     p.add_argument("--daily-budget", type=float, default=budget.DEFAULT_USD,
@@ -1216,9 +1217,7 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run(create_app(host=host), host=a.host, port=a.port, log_level="warning")
         return 0
 
-    override: dict = {**modes.world_override(a.mode), "seed": a.seed}
-    if modes.disabled(a.mode):
-        override["disabled_actions"] = modes.disabled(a.mode)
+    override: dict = {**modes.world_override(a.preset), "seed": a.seed}
     if a.agents:
         override["population"] = {"size": a.agents}
     with_tick_minutes(override, a.tick_minutes)
