@@ -99,6 +99,31 @@ def test_openai_client_request_cost_and_dropped_param(monkeypatch):
     assert len(seen) == 3  # the rejected parameter is remembered
 
 
+def test_openai_flex_tier_half_price_and_busy_falls_back(monkeypatch):
+    """Flex: the same model at half the price; when flex is busy the call goes at the normal price at once."""
+    def handler(req, body):
+        if body.get("service_tier") == "flex" and len(seen) == 1:
+            raise http_error(req, 429, {"message": "Flex does not have sufficient resources available to fulfill "
+                                                   "your request. You can try again later"})
+        reply = json.loads(ok().getvalue())
+        reply["service_tier"] = body.get("service_tier", "default")
+        return io.BytesIO(json.dumps(reply).encode())
+
+    seen = fake_openai(monkeypatch, handler)
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    c = llm.OpenAIClient("openai/gpt-6-luna", api_key=OA)
+    full = (600 * 0.10 + 400 * 0.01 + 200 * 0.50) / 1e6
+    _, usage = c.complete([{"role": "user", "content": "hi"}])
+    assert [b.get("service_tier") for _, _, b in seen] == ["flex", None] and usage["cost"] == pytest.approx(full)
+    _, usage = c.complete([{"role": "user", "content": "again"}])  # the next call tries flex again
+    assert seen[-1][2]["service_tier"] == "flex" and usage["cost"] == pytest.approx(full / 2)
+    keys.save({"openai_tier": "default"})  # settings panel: «Обычный»
+    c.complete([{"role": "user", "content": "x"}])
+    assert "service_tier" not in seen[-1][2]
+    with pytest.raises(ValueError):
+        keys.save({"openai_tier": "cheap"})
+
+
 @pytest.mark.parametrize("code,err", [(401, {"message": "Incorrect API key"}),
                                       (429, {"code": "insufficient_quota", "message": "You exceeded your quota"})])
 def test_fallback_switches_to_openrouter_for_good(monkeypatch, code, err):

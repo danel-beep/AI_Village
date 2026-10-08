@@ -847,7 +847,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     @app.post("/api/settings")
     def save_settings(body: dict, request: Request) -> dict:
         local_only(request)
-        changes = {k: body[k] for k in ("provider", "model", "parallel") if k in body}
+        changes = {k: body[k] for k in ("provider", "model", "parallel", "openai_tier") if k in body}
         for k in ("openai_key", "openrouter_key"):
             if (body.get(k) or "").strip():  # empty field = keep the saved key
                 changes[k] = body[k]

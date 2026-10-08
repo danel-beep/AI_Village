@@ -141,22 +141,36 @@ DAY_TURNS = 48  # turns kept in the day conversation; past it the older half is 
 # prompt and the whole last prompt, so the client marks it as an explicit breakpoint; Claude caches nothing by itself,
 # so it gets `cache_control` here and on the system prompt; other routes drop the key.
 CACHE_POINT = "cache_point"
+# A system message carrying this key (a character count) starts with that many characters of world text that are the
+# same for every villager and all day (handbook, world facts); the rest is the villager's own (name, memory). The
+# client caches the world part on its own, so a changed memory each morning, the first-day intro and (on Claude)
+# the other villagers reuse it instead of paying for it again.
+CACHE_SPLIT = "cache_split"
 DAY_DIARIES = 3  # "day" mode: diary entries of the last days shown (in the cached part of the prompt)
 
 
 def wire(messages: list[dict], breakpoints: bool | str) -> list[dict]:
-    """Messages as sent: CACHE_POINT becomes OpenAI's `prompt_cache_breakpoint` (True), Anthropic's `cache_control`
-    ("anthropic", which also marks the system prompt: Claude caches nothing unless asked), or is dropped (False)."""
+    """Messages as sent: CACHE_POINT and CACHE_SPLIT become OpenAI's `prompt_cache_breakpoint` (True), Anthropic's
+    `cache_control` ("anthropic", which also marks other system prompts: Claude caches nothing unless asked), or
+    are dropped (False)."""
     out = []
     for m in messages:
-        point = CACHE_POINT in m or (breakpoints == "anthropic" and m.get("role") == "system")
-        m = {k: v for k, v in m.items() if k != CACHE_POINT}
-        if point and breakpoints == "anthropic":
-            m["content"] = [{"type": "text", "text": m["content"], "cache_control": {"type": "ephemeral"}}]
+        split = m.get(CACHE_SPLIT)
+        point = CACHE_POINT in m or (breakpoints == "anthropic" and m.get("role") == "system" and not split)
+        m = {k: v for k, v in m.items() if k not in (CACHE_POINT, CACHE_SPLIT)}
+        if split and breakpoints:
+            m["content"] = [{"type": "text", "text": m["content"][:split], **_mark(breakpoints)},
+                            {"type": "text", "text": m["content"][split:]}]
         elif point and breakpoints:
-            m["content"] = [{"type": "text", "text": m["content"], "prompt_cache_breakpoint": {"mode": "explicit"}}]
+            m["content"] = [{"type": "text", "text": m["content"], **_mark(breakpoints)}]
         out.append(m)
     return out
+
+
+def _mark(breakpoints: bool | str) -> dict:
+    if breakpoints == "anthropic":
+        return {"cache_control": {"type": "ephemeral"}}
+    return {"prompt_cache_breakpoint": {"mode": "explicit"}}
 
 
 def world_facts(cfg: dict) -> str:
@@ -450,6 +464,11 @@ ANTHROPIC_PRICES = {"anthropic/claude-haiku-5.5": (0.10, 0.01, 0.50), "anthropic
 MODEL_PRICES = {**OPENAI_PRICES, **{f"openai/{k}": v for k, v in OPENAI_PRICES.items()}, **ANTHROPIC_PRICES}
 # OpenAI's per-minute limits are far above OpenRouter's ~4 parallel calls for Luna.
 OPENAI_PARALLEL = 16
+# OpenAI's "flex" tier: the same model and answers at half the price, but slower (~10 s a call instead of ~3 s) and
+# now and then busy (HTTP 429 "Flex does not have sufficient resources"); such a call is sent again at the normal
+# price at once. Settings field `openai_tier` ("flex" | "default", env AIVILLAGE_OPENAI_TIER), flex when not set.
+OPENAI_TIERS = ("flex", "default")
+FLEX_PRICE_SHARE = 0.5
 # OpenAI limits tokens per minute (a new key: 200k, ~40 village turns). When a reply says less than this
 # share is left, new calls wait for the budget to refill instead of collecting 429s.
 OPENAI_PACE_SHARE = 0.15
@@ -530,9 +549,16 @@ class OpenAIClient(Client):
     def key(self) -> str | None:
         return self.api_key or keys.get("openai_key")
 
-    def _post(self, messages: list[dict]) -> tuple[str, dict]:
+    @staticmethod
+    def tier() -> str:
+        t = (keys.get("openai_tier") or "flex").lower()
+        return t if t in OPENAI_TIERS else "flex"
+
+    def _post(self, messages: list[dict], tier: str = "default") -> tuple[str, dict]:
         body = {"model": self.name, "messages": wire(messages, True), "max_completion_tokens": self.max_tokens,
                 "response_format": {"type": "json_object"}, "reasoning_effort": self.effort}
+        if tier != "default":
+            body["service_tier"] = tier
         if self.temperature is not None:
             body["temperature"] = self.temperature
         if self.cache_key:
@@ -547,7 +573,7 @@ class OpenAIClient(Client):
                 data = json.load(r)
                 self._pace(gate, getattr(r, "headers", None))
         usage = dict(data.get("usage") or {})
-        usage["cost"] = token_cost(self.name, usage)
+        usage["cost"] = token_cost(self.name, usage) * (FLEX_PRICE_SHARE if data.get("service_tier") == "flex" else 1)
         usage["model"] = self.model
         return data["choices"][0]["message"]["content"] or "", usage
 
@@ -578,11 +604,15 @@ class OpenAIClient(Client):
     def complete(self, messages: list[dict]) -> tuple[str, dict]:
         last: Exception | None = None
         attempt, busy, hits = 0, 0.0, 0  # retries used on errors; seconds and count of 429s waited out
+        tier = self.tier()
         while attempt <= self.retries:
             try:
-                return self._post(messages)
+                return self._post(messages, tier)
             except urllib.error.HTTPError as e:
                 last, msg = e, self._error(e)
+                if tier != "default" and (e.code == 429 and "flex" in msg.lower() or e.code >= 500):
+                    tier = "default"  # flex is busy: this call goes at the normal price, the next tries flex again
+                    continue
                 if e.code in (401, 403):
                     raise ProviderDown(f"OpenAI: key rejected ({e.code}) {msg}") from e
                 if e.code == 404:
@@ -590,7 +620,8 @@ class OpenAIClient(Client):
                 if e.code == 429 and "insufficient_quota" in msg:
                     raise ProviderDown(f"OpenAI: no credit on the account ({msg})") from e
                 if e.code == 400:
-                    bad = [p for p in ("temperature", "reasoning_effort", "response_format", "prompt_cache_key") if p in msg]
+                    bad = [p for p in ("temperature", "reasoning_effort", "response_format", "prompt_cache_key",
+                                       "service_tier") if p in msg]
                     if bad and not set(bad) <= _UNSUPPORTED.get(self.name, set()):
                         _UNSUPPORTED.setdefault(self.name, set()).update(bad)
                         attempt += 1
@@ -609,6 +640,9 @@ class OpenAIClient(Client):
                 attempt += 1
             except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
                 last = e
+                if tier != "default":  # a flex call that hangs is not waited for twice
+                    tier = "default"
+                    continue
                 time.sleep(2 ** attempt)
                 attempt += 1
         raise RuntimeError(f"{self.model}: {last}")
@@ -809,6 +843,12 @@ class LLMAgent:
                              facts=self.facts or "(none)", goals=GOALS if self.own_goals else "",
                              character="\n" + self.character if self.character else "")
 
+    def system_message(self, obs: dict, extra: str = "") -> dict:
+        """The system prompt (+ `extra`) with CACHE_SPLIT where the villager's own part ("You are <name>") starts."""
+        text = self.system_prompt(obs)
+        own = text.rfind(f"\n\nYou are {self.name}, a {self.profession}.")
+        return {"role": "system", "content": text + extra, **({CACHE_SPLIT: own} if own > 0 else {})}
+
     def long_memory(self) -> dict:
         """What the villager carries from earlier days; changes only at night."""
         memory = {}
@@ -840,17 +880,17 @@ class LLMAgent:
     def messages(self, obs: dict) -> list[dict]:
         if self.memory == "day":
             # Stable all day first (world, self, earlier days), then today's turns, then only what is new.
-            system = self.system_prompt(obs) + "\n\nYour memory of earlier days: " + json.dumps(self.long_memory())
+            system = self.system_message(obs, "\n\nYour memory of earlier days: " + json.dumps(self.long_memory()))
             user = ("Observation (your notes: " + json.dumps(self.notes or "none") + "):\n"
                     + json.dumps(compact_obs(obs)))
             # The cache point marks where the next turn's prompt stops matching this one (only the full
             # observation is replaced); without it the cache would hold only the system prompt.
-            return [{"role": "system", "content": system}, *self.turns,
+            return [system, *self.turns,
                     {"role": "user", "content": self.turn_line(obs), CACHE_POINT: True},
                     {"role": "user", "content": user}]
         memory = self.long_memory() | {"notes": self.notes or "none", "your_last_actions": self.recent}
         user = "Observation (your memory: " + json.dumps(memory) + "):\n" + json.dumps(compact_obs(obs))
-        return [{"role": "system", "content": self.system_prompt(obs)}, {"role": "user", "content": user}]
+        return [self.system_message(obs), {"role": "user", "content": user}]
 
     @staticmethod
     def turn_line(obs: dict) -> str:
@@ -879,8 +919,7 @@ class LLMAgent:
         self.introduced = True
         user = INTRO.format(words=ABOUT_ME_WORDS) + "\nYour first observation:\n" + json.dumps(compact_obs(obs))
         try:
-            text, usage = self.client.complete([{"role": "system", "content": self.system_prompt(obs)},
-                                                {"role": "user", "content": user}])
+            text, usage = self.client.complete([self.system_message(obs), {"role": "user", "content": user}])
         except Exception:
             self.usage.failures += 1
             return None
