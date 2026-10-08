@@ -22,23 +22,44 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 
 Write-Host "Проверяю обновления игры..."
+# The previous version stays in app.prev: if a new one fails to start, the old one is run.
+$Prev = "$App.prev"
+$SumFile = Join-Path $HomeDir "app.sum"
 $Tmp = Join-Path $HomeDir ".download"
 Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Tmp | Out-Null
 try {
     $Zip = Join-Path $Tmp "game.zip"
     Invoke-WebRequest "https://codeload.github.com/$Repo/zip/refs/tags/stable" -OutFile $Zip -UseBasicParsing
-    Expand-Archive $Zip -DestinationPath $Tmp -Force
-    $New = Get-ChildItem $Tmp -Directory | Select-Object -First 1
-    Remove-Item -Recurse -Force $App -ErrorAction SilentlyContinue
-    Move-Item $New.FullName $App
+    $Sum = (Get-FileHash $Zip -Algorithm SHA256).Hash
+    $OldSum = if (Test-Path $SumFile) { (Get-Content $SumFile -Raw).Trim() } else { "" }
+    if (-not (Test-Path $App) -or $Sum -ne $OldSum) {
+        Expand-Archive $Zip -DestinationPath $Tmp -Force
+        $New = Get-ChildItem $Tmp -Directory | Select-Object -First 1
+        Remove-Item -Recurse -Force $Prev -ErrorAction SilentlyContinue
+        if (Test-Path $App) { Move-Item $App $Prev }
+        Move-Item $New.FullName $App
+        Set-Content $SumFile $Sum
+    }
 } catch {
     if (-not (Test-Path $App)) { Stop-WithPause "Не получилось скачать игру. Проверьте интернет и запустите ещё раз." }
     Write-Host "Нет связи с GitHub, запускаю версию, что уже есть."
 }
 Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 
-Set-Location $App
-$Frozen = @(); if (Test-Path "uv.lock") { $Frozen = @("--frozen") }
-uv run --quiet @Frozen --python 3.12 --extra live python -m aivillage.launcher --home $HomeDir
-if ($LASTEXITCODE -ne 0) { Read-Host "Нажмите Enter, чтобы закрыть окно" }
+function Start-Game($Dir) {
+    Set-Location $Dir
+    $Frozen = @(); if (Test-Path "uv.lock") { $Frozen = @("--frozen") }
+    uv run --quiet @Frozen --python 3.12 --extra live python -m aivillage.launcher --home $HomeDir
+}
+
+$Started = Get-Date
+Start-Game $App  # called as a statement so the game prints to the window; result in $LASTEXITCODE
+if ($LASTEXITCODE -eq 0) { exit 0 }
+# A crash in the first minute means the new version does not start: fall back to the previous one.
+if (((Get-Date) - $Started).TotalSeconds -lt 60 -and (Test-Path $Prev)) {
+    Write-Host "Новая версия не запустилась, запускаю прошлую."
+    Start-Game $Prev
+    if ($LASTEXITCODE -eq 0) { exit 0 }
+}
+Read-Host "Нажмите Enter, чтобы закрыть окно"

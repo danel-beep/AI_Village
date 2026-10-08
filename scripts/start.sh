@@ -20,18 +20,34 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 echo "Проверяю обновления игры..."
+# The previous version stays in app.prev: if a new one fails to start, the old one is run.
 TMP="$HOME_DIR/.download"
 rm -rf "$TMP" && mkdir -p "$TMP"
-if curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/tags/stable" | tar xz -C "$TMP" 2>/dev/null; then
-  rm -rf "$APP.old"; [ -d "$APP" ] && mv "$APP" "$APP.old"
-  mv "$TMP"/*/ "$APP" && rm -rf "$APP.old"
+if curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/tags/stable" -o "$TMP/game.tgz" \
+   && tar xzf "$TMP/game.tgz" -C "$TMP" 2>/dev/null; then
+  SUM=$(cksum < "$TMP/game.tgz")
+  if [ ! -d "$APP" ] || [ "$SUM" != "$(cat "$HOME_DIR/app.sum" 2>/dev/null)" ]; then
+    rm -rf "$APP.prev"; [ -d "$APP" ] && mv "$APP" "$APP.prev"
+    mv "$TMP"/*/ "$APP" && echo "$SUM" > "$HOME_DIR/app.sum"
+  fi
 elif [ ! -d "$APP" ]; then
-  echo "Не получилось скачать игру. Проверьте интернет и запустите ещё раз."; pause; exit 1
+  echo "Не получилось скачать игру. Проверьте интернет и запустите ещё раз."; rm -rf "$TMP"; pause; exit 1
 else
   echo "Нет связи с GitHub, запускаю версию, что уже есть."
 fi
 rm -rf "$TMP"
 
-cd "$APP" || exit 1
-FROZEN=""; [ -f uv.lock ] && FROZEN="--frozen"
-uv run --quiet $FROZEN --python 3.12 --extra live python -m aivillage.launcher --home "$HOME_DIR" || pause
+play() {
+  cd "$1" || return 1
+  FROZEN=""; [ -f uv.lock ] && FROZEN="--frozen"
+  uv run --quiet $FROZEN --python 3.12 --extra live python -m aivillage.launcher --home "$HOME_DIR"
+}
+
+STARTED=$(date +%s)
+play "$APP" && exit 0
+# A crash in the first minute means the new version does not start: fall back to the previous one.
+if [ $(( $(date +%s) - STARTED )) -lt 60 ] && [ -d "$APP.prev" ]; then
+  echo "Новая версия не запустилась, запускаю прошлую."
+  play "$APP.prev" && exit 0
+fi
+pause
