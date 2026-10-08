@@ -37,6 +37,21 @@ jobs:
           pyinstaller --noconfirm desktop/aivillage.spec
       - name: The built app starts the game (no window)
         run: '"dist/AI Village.app/Contents/MacOS/AI Village" --check --home "$RUNNER_TEMP/aivillage"'
+      - name: Screenshot of the real window (for a human to look at; never blocks)
+        if: matrix.arch == 'arm64'
+        continue-on-error: true
+        run: |
+          "dist/AI Village.app/Contents/MacOS/AI Village" --home "$RUNNER_TEMP/aivillage" &
+          sleep 45
+          screencapture -x window.png
+          kill %1 || true
+          sleep 5
+      - if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: window-screenshot
+          path: window.png
+          if-no-files-found: ignore
       - run: ditto -c -k --keepParent "dist/AI Village.app" "AI-Village-mac-${{ matrix.arch }}.zip"
       - uses: actions/upload-artifact@v4
         with:
