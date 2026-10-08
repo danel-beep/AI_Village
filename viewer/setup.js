@@ -122,9 +122,15 @@
   }
   window.VillageLoading = { start: goLoading, fail: e => { hideLoading(); return e; } };
 
-  // In a running village: keep the loading screen until the first game hour is on the map (viewer `ticks`).
+  // In a running village: keep the loading screen until the first game hour is on the map (viewer `ticks`) and the
+  // camera has framed it (viewer/camera.js), so the map never shows first and then jumps; at most 5 s for the camera.
+  let firstTick = 0;
   function waitForMap() {
-    const has = () => typeof ticks !== 'undefined' && ticks.length > 0;  // eslint-disable-line no-undef
+    const has = () => {
+      if (typeof ticks === 'undefined' || !ticks.length) return false;  // eslint-disable-line no-undef
+      firstTick = firstTick || Date.now();
+      return typeof Camera === 'undefined' || !Camera.ready || Camera.ready() || Date.now() - firstTick > 5000;  // eslint-disable-line no-undef
+    };
     const flagged = store.get(LOADING, true);
     if (has()) return hideLoading();
     const show = () => showLoading('Деревня просыпается', 'Жители осматриваются и думают над первым шагом. ' +
