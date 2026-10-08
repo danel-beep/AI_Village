@@ -9,116 +9,156 @@
 <meta property="og:description" content="Каждый житель — отдельная нейросеть. Смотрите, как ИИ разных компаний строят общество с нуля.">
 <meta property="og:image" content="img/hero.webp">
 <link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=PT+Sans:wght@400;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#141a14;--panel:#1d251c;--line:#2e3a2c;--ink:#eef3e8;--mute:#a9b7a2;--accent:#8bd450;--accent-ink:#13200b;--warm:#f2c14e}
+:root{--night:#1d2321;--night2:#262e2a;--ink:#2a1a0e;--cream:#fffbe8;--cream2:#f3ead0;--wood:#6b4226;--wood-d:#3b2412;--grass:#76b041;--grass-d:#4c7a24;--gold:#f2c14e;--red:#e4572e;--mute:#6f5a45;--sky:#cfe3d6;--px:4px}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-a{color:var(--accent)}
+body{margin:0;background:var(--night);color:var(--cream);font:18px/1.55 "PT Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--gold)}
 img,video{max-width:100%;height:auto;display:block}
-.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
-header.top{display:flex;align-items:center;justify-content:space-between;padding:14px 0}
-.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;color:var(--ink);text-decoration:none}
-.brand img{width:32px;height:32px;image-rendering:pixelated;border-radius:6px}
-nav a{color:var(--mute);text-decoration:none;margin-left:18px;font-size:15px}
-nav a:hover{color:var(--ink)}
-.hero{display:grid;grid-template-columns:1.05fr 1fr;gap:36px;align-items:center;padding:36px 0 48px}
-h1{font-size:46px;line-height:1.08;margin:0 0 16px;letter-spacing:-.5px}
-h1 span{color:var(--warm)}
-.lead{color:var(--mute);font-size:19px;margin:0 0 26px}
-.hero-img{border-radius:14px;border:1px solid var(--line);image-rendering:pixelated;box-shadow:0 20px 60px #0008}
-.btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:var(--accent-ink);font-weight:700;text-decoration:none;padding:13px 22px;border-radius:10px;border:0;font-size:17px;cursor:pointer}
-.btn:hover{filter:brightness(1.08)}
-.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
-.btns{display:flex;flex-wrap:wrap;gap:12px}
-.note{color:var(--mute);font-size:14px;margin-top:12px}
-section{padding:48px 0;border-top:1px solid var(--line)}
-h2{font-size:30px;margin:0 0 8px}
-.sub{color:var(--mute);margin:0 0 26px}
-.features{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
-.card h3{margin:0 0 6px;font-size:18px}
-.card p{margin:0;color:var(--mute);font-size:15px}
-.show{display:grid;grid-template-columns:300px 1fr;gap:22px;align-items:start}
-.show video{border-radius:12px;border:1px solid var(--line);width:100%}
-.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.px{image-rendering:pixelated;image-rendering:crisp-edges}
+h1,h2,h3,.btn,.brand,nav a,.pix,.copy,details summary,.gallery figcaption,.tag{font-family:"Press Start 2P",system-ui,monospace;letter-spacing:0;font-weight:400}
+.wrap{max-width:1100px;margin:0 auto;padding:0 16px}
+/* pixel frame: notched corners like the game's UI */
+.frame{position:relative;box-shadow:0 calc(-1*var(--px)) 0 0 var(--wood-d),0 var(--px) 0 0 var(--wood-d),calc(-1*var(--px)) 0 0 0 var(--wood-d),var(--px) 0 0 0 var(--wood-d),0 calc(2*var(--px)) 0 0 #0005}
+.paper{background:var(--cream);color:var(--ink)}
+.paper a{color:#a1501c}
+.paper a.btn{color:#fff}.paper a.btn.alt{color:var(--wood-d)}
+/* top bar: wooden planks */
+header.top{background:url(art/tex_planks.png) 0 0/96px 96px;image-rendering:pixelated;border-bottom:var(--px) solid var(--wood-d)}
+header.top .wrap{display:flex;align-items:center;justify-content:space-between;padding-top:10px;padding-bottom:10px}
+.brand{display:flex;align-items:center;gap:10px;font-size:17px;color:var(--cream);text-decoration:none;text-shadow:2px 2px 0 var(--wood-d)}
+.brand img{width:36px;height:36px}
+nav a{color:var(--cream);text-decoration:none;margin-left:22px;font-size:12px;text-shadow:2px 2px 0 var(--wood-d)}
+nav a:hover{color:var(--gold)}
+/* hero: grass field */
+.hero{background:url(art/tex_grass.png) 0 0/144px 144px;image-rendering:pixelated;position:relative;overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:36px;align-items:center;padding-top:44px;padding-bottom:190px}
+.sign{padding:26px 28px}
+h1{font-size:30px;line-height:1.45;margin:0 0 14px;color:var(--wood-d)}
+h1 span{color:var(--red)}
+.lead{font-size:19px;margin:0 0 22px;color:var(--ink)}
+.shot{background:var(--night2);padding:8px}
+.shot img{image-rendering:pixelated}
+.scene{position:absolute;left:0;right:0;bottom:0;height:150px;pointer-events:none}
+.scene img{position:absolute;bottom:14px;image-rendering:pixelated}
+.walker{position:absolute;bottom:14px;width:48px;height:72px;background:url(art/walkers.png) 0 0/96px auto;image-rendering:pixelated;animation:bob .7s steps(1) infinite}
+@keyframes bob{50%{background-position-x:-48px}}
+.bubble{animation:float 2.4s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-8px)}}
+.btn{display:inline-flex;align-items:center;gap:10px;background:var(--grass);color:#fff;text-decoration:none;padding:14px 20px;font-size:14px;line-height:1.3;border:0;cursor:pointer;text-shadow:2px 2px 0 var(--grass-d);box-shadow:0 -4px 0 0 var(--wood-d),0 4px 0 0 var(--wood-d),-4px 0 0 0 var(--wood-d),4px 0 0 0 var(--wood-d),inset 0 -6px 0 0 var(--grass-d);transition:transform .08s}
+.btn:hover{transform:translateY(-2px);filter:brightness(1.07)}
+.btn:active{transform:translateY(2px)}
+.btn img{width:28px;height:auto;image-rendering:pixelated}
+.btn.alt{background:var(--gold);color:var(--wood-d);text-shadow:none;box-shadow:0 -4px 0 0 var(--wood-d),0 4px 0 0 var(--wood-d),-4px 0 0 0 var(--wood-d),4px 0 0 0 var(--wood-d),inset 0 -6px 0 0 #c9942a}
+.btns{display:flex;flex-wrap:wrap;gap:18px;padding:4px}
+.note{font-size:15px;margin-top:16px;color:var(--mute)}
+/* fence divider */
+.fence{height:30px;background:url(art/fence_h.png) 0 0/48px 30px repeat-x;image-rendering:pixelated;margin-top:-30px;position:relative}
+section{padding:60px 0}
+section.dirt{background:#2b241c}
+h2{font-size:26px;line-height:1.35;margin:0 0 6px;color:var(--gold);text-shadow:3px 3px 0 #000}
+.sub{color:#cfc6ad;margin:0 0 30px}
+.features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:26px}
+.card{padding:20px}
+.card h3{margin:0 0 10px;font-size:14px;line-height:1.4;display:flex;align-items:center;gap:10px;color:var(--wood-d)}
+.card h3 img{width:40px;height:40px;object-fit:contain;image-rendering:pixelated;flex:none}
+.card p{margin:0;font-size:16px}
+.show{display:grid;grid-template-columns:300px minmax(0,1fr);gap:28px;align-items:start}
+.show video{width:100%}
+.tv{background:var(--night2);padding:6px}
+.gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
 .gallery figure{margin:0}
-.gallery img{border-radius:10px;border:1px solid var(--line);width:100%;aspect-ratio:4/3;object-fit:cover;image-rendering:pixelated}
-.gallery figcaption{color:var(--mute);font-size:13px;margin-top:5px}
-.os{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
-.os .card.mine{border-color:var(--accent)}
-.os h3{display:flex;align-items:center;gap:8px;font-size:21px}
-.tag{font-size:12px;background:var(--accent);color:var(--accent-ink);padding:2px 8px;border-radius:20px;font-weight:700;display:none}
+.gallery .tv img{width:100%;aspect-ratio:4/3;object-fit:cover;image-rendering:pixelated}
+.gallery figcaption{font-size:10px;line-height:1.6;margin-top:10px;color:#cfc6ad}
+.os{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px}
+.os .card.mine{outline:4px solid var(--gold);outline-offset:8px}
+.os h3{font-size:18px}
+.tag{font-size:9px;background:var(--gold);color:var(--wood-d);padding:2px 8px;display:none}
 .mine .tag{display:inline-block}
-ol{padding-left:22px;margin:10px 0}
+ol{padding-left:24px;margin:10px 0}
 ol li{margin:6px 0}
-.cmd{display:flex;gap:8px;align-items:stretch;margin:10px 0}
-.cmd code{flex:1;min-width:0;background:#0c100b;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;overflow-x:auto;white-space:nowrap;color:#d7f5b8}
-.copy{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:0 12px;cursor:pointer;font-size:14px}
-details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:10px 0}
-details summary{cursor:pointer;font-weight:600}
-details p,details li{color:var(--mute);font-size:15px}
-.small{font-size:14px;color:var(--mute)}
-.keys{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
-.safe{border-left:4px solid var(--accent)}
-kbd{background:#0c100b;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 6px;font-size:14px}
-footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--mute);font-size:14px}
-@media (max-width:820px){
-  .hero,.show,.os,.keys{grid-template-columns:minmax(0,1fr)}
-  .features,.gallery{grid-template-columns:1fr 1fr}
-  h1{font-size:34px}
+.cmd{display:flex;gap:10px;align-items:stretch;margin:12px 0}
+.cmd code{flex:1;min-width:0;background:var(--night);color:#c8f29a;padding:10px 12px;font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;overflow-x:auto;white-space:nowrap}
+.copy{background:var(--wood);color:var(--cream);border:0;padding:0 14px;cursor:pointer;font-size:11px;box-shadow:inset 0 -4px 0 var(--wood-d)}
+.small{font-size:15px;color:var(--mute)}
+details{background:var(--cream2);padding:12px 16px;margin:12px 0}
+details summary{cursor:pointer;font-size:12px;line-height:1.6}
+details p,details li{font-size:16px}
+.keys{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px}
+.safe{margin-top:30px;background:#e8f3d6}
+kbd{background:#fff;border:2px solid var(--wood);border-bottom-width:4px;padding:0 6px;font-size:14px;font-family:inherit}
+.faq details{background:var(--cream);color:var(--ink);margin:18px 0}
+footer{background:url(art/tex_grass.png) 0 0/144px 144px;image-rendering:pixelated;position:relative;height:210px;overflow:hidden}
+footer .wrap{position:relative;z-index:1;padding-top:16px}
+footer .pill a{color:#a1501c}
+footer .pill{display:inline-block;background:var(--cream);color:var(--ink);padding:8px 14px;font-size:15px}
+.phones{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+.phones figure{margin:0;width:260px}
+.phones .tv img{width:100%}
+.phones figcaption{font-size:10px;line-height:1.6;margin-top:10px;color:#cfc6ad;font-family:"Press Start 2P",monospace;text-align:center}
+@media (max-width:860px){
+  .hero .wrap,.show,.os,.keys{grid-template-columns:minmax(0,1fr)}
+  .features,.gallery{grid-template-columns:repeat(2,minmax(0,1fr))}
+  h1{font-size:22px}
   nav{display:none}
   .show video{max-width:300px;margin:0 auto}
+  .tv.vid{max-width:312px;margin:0 auto}
+  .scene{transform:scale(.6);transform-origin:bottom left;width:166.7%}
+  .hero .wrap{padding-bottom:120px}
 }
-@media (max-width:520px){.features,.gallery{grid-template-columns:1fr}}
+@media (max-width:540px){.features,.gallery{grid-template-columns:minmax(0,1fr)} h2{font-size:20px}}
+@media (prefers-reduced-motion:reduce){.walker,.bubble{animation:none}}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <a class="brand" href="#"><img src="img/icon.png" alt="">AI Village</a>
-    <nav><a href="#what">Что это</a><a href="#download">Скачать</a><a href="#keys">Ключи</a><a href="https://github.com/danel-beep/ai_village">GitHub</a></nav>
-  </header>
+<header class="top"><div class="wrap">
+  <a class="brand" href="#"><img class="px" src="img/icon.png" alt="">AI Village</a>
+  <nav><a href="#what">Что это</a><a href="#look">Кадры</a><a href="#download">Скачать</a><a href="#keys">Ключи</a><a href="#tournament">Турнир</a><a href="https://github.com/danel-beep/ai_village">GitHub</a></nav>
+</div></header>
 
-  <div class="hero">
-    <div>
-      <h1>Деревня, где каждый житель&nbsp;— <span>нейросеть</span></h1>
-      <p class="lead">Поселите в пиксельную деревню ИИ от разных компаний и смотрите, что они построят. Они сами добывают еду, торгуют, дружат, ссорятся, воруют, выбирают старосту и держат казну. Никаких подсказок, как себя вести: только правила мира.</p>
-      <div class="btns">
-        <a class="btn" href="#download">⬇ Скачать бесплатно</a>
-        <a class="btn ghost" href="#what">Посмотреть</a>
-      </div>
-      <p class="note">Mac и Windows · открытый код · свои ключи ИИ или бесплатные боты</p>
+<div class="hero"><div class="wrap">
+  <div class="sign paper frame">
+    <h1>Деревня, где каждый житель&nbsp;— <span>нейросеть</span></h1>
+    <p class="lead">Поселите в пиксельную деревню ИИ от разных компаний и смотрите, что они построят. Они сами добывают еду, торгуют, дружат, ссорятся, воруют, выбирают старосту и держат казну. Никаких подсказок, как себя вести: только правила мира.</p>
+    <div class="btns">
+      <a class="btn" href="#download"><img src="art/coin_pouch.png" alt="">Скачать бесплатно</a>
+      <a class="btn alt" href="#tournament">Турнир с друзьями</a>
     </div>
-    <img class="hero-img" src="img/hero.webp" width="1400" height="962" alt="Деревня на 20 жителей: дома, дороги, река, лента событий справа">
+    <p class="note">Mac и Windows · открытый код · свои ключи ИИ или бесплатные боты</p>
   </div>
-</div>
+  <div class="shot frame"><img src="img/hero.webp" width="1400" height="962" alt="Деревня на 20 жителей: дома, дороги, река, лента событий справа"></div>
+</div><div class="scene" aria-hidden="true"><img class="far" src="art/pine.png" style="left:1%;height:171px;bottom:6px"><img src="art/house2a_r2.png" style="left:6%;height:162px"><img class="far" src="art/well.png" style="left:19%;height:126px"><div class="walker" style="left:26%;background-position-y:-0px;animation-delay:-0.00s"></div><div class="walker" style="left:30%;background-position-y:-72px;animation-delay:-0.23s"></div><img class="bubble" src="art/em_handshake.png" style="left:28%;bottom:96px;height:56px"><img src="art/market.png" style="left:36%;height:87px"><img class="far" src="art/oak.png" style="left:46%;height:168px"><div class="walker" style="left:55%;background-position-y:-144px;animation-delay:-0.46s"></div><img src="art/campfire.png" style="left:59%;height:48px"><div class="walker" style="left:63%;background-position-y:-216px;animation-delay:-0.69s"></div><img class="bubble" src="art/em_heart.png" style="left:60%;bottom:96px;height:56px;animation-delay:-1s"><img class="far" src="art/town_hall.png" style="left:70%;height:240px"><div class="walker" style="left:84%;background-position-y:-288px;animation-delay:-0.92s"></div><div class="walker" style="left:88%;background-position-y:-360px;animation-delay:-1.15s"></div><img src="art/oak.png" style="left:92%;height:168px"></div></div>
+<div class="fence"></div>
 
 <section id="what"><div class="wrap">
   <h2>Что это</h2>
   <p class="sub">Песочница без победы. Эксперимент: как ведут себя ИИ разных компаний, когда им приходится жить вместе.</p>
   <div class="features">
-    <div class="card"><h3>🧠 Каждый житель думает сам</h3><p>За каждым жителем своя модель: GPT, Claude, Gemini и другие. Можно смешать разные модели в одной деревне.</p></div>
-    <div class="card"><h3>🌾 Мир с нуля</h3><p>Пустая долина, туман, голод и зима. Дома, мастерские, рынок и законы появляются, только если жители договорятся.</p></div>
-    <div class="card"><h3>💰 Деньги и власть</h3><p>Долги, налоги, казна, выборы. Тот, кто держит казну, может её тайно украсть. Кража замечена не всегда.</p></div>
-    <div class="card"><h3>⚡ Режим бога</h3><p>Подожгите дом, пошлите засуху, набег бандитов или зверя из леса и посмотрите, сплотятся ли жители.</p></div>
-    <div class="card"><h3>📜 Хроника и мысли</h3><p>Видно, что каждый житель говорит и о чём думает. В конце отчёт: кто кому помог, кто обманул.</p></div>
-    <div class="card"><h3>🎛 Простые настройки</h3><p>Экран «Новая деревня»: сколько жителей и дней, какие модели, пресеты «Обычный», «Суровый», «Без законов».</p></div>
+    <div class="card paper frame"><h3><img src="art/em_handshake.png" alt="">Каждый думает сам</h3><p>За каждым жителем своя модель: GPT, Claude, Gemini и другие. Можно смешать разные модели в одной деревне.</p></div>
+    <div class="card paper frame"><h3><img src="art/house2b_r4.png" alt="">Мир с нуля</h3><p>Пустая долина, туман, голод и зима. Дома, мастерские, рынок и законы появляются, только если жители договорятся.</p></div>
+    <div class="card paper frame"><h3><img src="art/treasure_chest.png" alt="">Деньги и власть</h3><p>Долги, налоги, казна, выборы. Тот, кто держит казну, может её тайно украсть. Кража замечена не всегда.</p></div>
+    <div class="card paper frame"><h3><img src="art/fire2.png" alt="">Режим бога</h3><p>Подожгите дом, пошлите засуху, набег бандитов или зверя из леса и посмотрите, сплотятся ли жители.</p></div>
+    <div class="card paper frame"><h3><img src="art/notice_board.png" alt="">Хроника и мысли</h3><p>Видно, что каждый житель говорит и о чём думает. В конце отчёт: кто кому помог, кто обманул.</p></div>
+    <div class="card paper frame"><h3><img src="art/ballot_box.png" alt="">Простые настройки</h3><p>Экран «Новая деревня»: сколько жителей и дней, какие модели, пресеты «Обычный», «Суровый», «Без законов».</p></div>
   </div>
 </div></section>
 
-<section><div class="wrap">
+<section id="look" class="dirt"><div class="wrap">
   <h2>Как это выглядит</h2>
   <p class="sub">Настоящие кадры из игры: жители торгуются, празднуют, отбиваются от зверя.</p>
   <div class="show">
-    <video src="img/clip.mp4" poster="img/clip-poster.webp" autoplay muted loop playsinline width="432" height="768"></video>
+    <div class="tv vid frame"><video src="img/clip.mp4" poster="img/clip-poster.webp" autoplay muted loop playsinline width="432" height="768"></video></div>
     <div class="gallery">
-      <figure><img src="img/posyolok.webp" alt="" loading="lazy"><figcaption>Посёлок вырос из пустой поляны</figcaption></figure>
-      <figure><img src="img/prazdnik.webp" alt="" loading="lazy"><figcaption>Праздник на площади</figcaption></figure>
-      <figure><img src="img/zima.webp" alt="" loading="lazy"><figcaption>Зима: запасы решают всё</figcaption></figure>
-      <figure><img src="img/osen.webp" alt="" loading="lazy"><figcaption>Осень</figcaption></figure>
-      <figure><img src="img/honors.webp" alt="" loading="lazy"><figcaption>Ночь и доска почёта</figcaption></figure>
-      <figure><img src="img/menu.webp" alt="" loading="lazy"><figcaption>Главное меню</figcaption></figure>
+      <figure><div class="tv frame"><img src="img/posyolok.webp" alt="" loading="lazy"></div><figcaption>Посёлок вырос из пустой поляны</figcaption></figure>
+      <figure><div class="tv frame"><img src="img/prazdnik.webp" alt="" loading="lazy"></div><figcaption>Праздник на площади</figcaption></figure>
+      <figure><div class="tv frame"><img src="img/zima.webp" alt="" loading="lazy"></div><figcaption>Зима: запасы решают всё</figcaption></figure>
+      <figure><div class="tv frame"><img src="img/osen.webp" alt="" loading="lazy"></div><figcaption>Осень</figcaption></figure>
+      <figure><div class="tv frame"><img src="img/honors.webp" alt="" loading="lazy"></div><figcaption>Ночь и доска почёта</figcaption></figure>
+      <figure><div class="tv frame"><img src="img/menu.webp" alt="" loading="lazy"></div><figcaption>Главное меню</figcaption></figure>
     </div>
   </div>
 </div></section>
@@ -127,7 +167,7 @@ footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--mute);fo
   <h2>Скачать</h2>
   <p class="sub">Бесплатно. Игра сама обновляется при каждом запуске.</p>
   <div class="os">
-    <div class="card" id="os-mac">
+    <div class="card paper frame" id="os-mac">
       <h3>🍏 Mac <span class="tag">ваш компьютер</span></h3>
       <p class="small">macOS 11 и новее, Apple M1–M4 и Intel.</p>
       <p><b>Самый простой способ</b> (без предупреждений системы):</p>
@@ -141,7 +181,7 @@ footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--mute);fo
         <summary>Или скачать приложение файлом</summary>
         <div class="btns" style="margin:12px 0">
           <a class="btn" href="https://github.com/danel-beep/ai_village/releases/download/desktop-latest/AI-Village-mac-arm64.zip">⬇ Mac на Apple M1–M4</a>
-          <a class="btn ghost" href="https://github.com/danel-beep/ai_village/releases/download/desktop-latest/AI-Village-mac-x86_64.zip">⬇ Mac на Intel</a>
+          <a class="btn alt" href="https://github.com/danel-beep/ai_village/releases/download/desktop-latest/AI-Village-mac-x86_64.zip">⬇ Mac на Intel</a>
         </div>
         <p>Какой у вас Mac: меню Apple (яблоко в левом верхнем углу) → «Об этом Mac». Если в строке «Чип» написано Apple M…, берите первую кнопку, если «Процессор Intel», вторую.</p>
         <p>Откройте скачанный zip и перетащите «AI Village» в папку «Программы».</p>
@@ -154,8 +194,8 @@ footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--mute);fo
         <p>Дальше приложение открывается обычным щелчком.</p>
       </details>
     </div>
-    <div class="card" id="os-win">
-      <h3>⊞ Windows <span class="tag">ваш компьютер</span></h3>
+    <div class="card paper frame" id="os-win">
+      <h3>🪟 Windows <span class="tag">ваш компьютер</span></h3>
       <p class="small">Windows 10 и 11.</p>
       <ol>
         <li>Нажмите клавишу <kbd>Win</kbd>, наберите <b>PowerShell</b>, нажмите <kbd>Enter</kbd>.</li>
@@ -172,11 +212,11 @@ footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--mute);fo
   <p class="note" id="ver"></p>
 </div></section>
 
-<section id="keys"><div class="wrap">
+<section id="keys" class="dirt"><div class="wrap">
   <h2>Как подключить свои ИИ</h2>
   <p class="sub">Жителей «думает» нейросеть, и за её работу платит тот, чей ключ. В игре нет ничьих ключей: вы подключаете свой.</p>
   <div class="keys">
-    <div class="card">
+    <div class="card paper frame">
       <h3>1. Получите ключ</h3>
       <p>Проще всего <a href="https://openrouter.ai">OpenRouter</a>: один ключ на модели всех компаний (GPT, Claude, Gemini, Llama и другие).</p>
       <ol class="small">
@@ -186,7 +226,7 @@ footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--mute);fo
       </ol>
       <p class="small">Подойдёт и ключ OpenAI с <a href="https://platform.openai.com/api-keys">platform.openai.com</a>.</p>
     </div>
-    <div class="card">
+    <div class="card paper frame">
       <h3>2. Вставьте его в игру</h3>
       <ol class="small">
         <li>Откройте AI Village.</li>
@@ -197,24 +237,55 @@ footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--mute);fo
       <p class="small">Без ключа тоже можно: выберите бесплатных ботов вместо ИИ-жителей.</p>
     </div>
   </div>
-  <div class="card safe" style="margin-top:18px">
+  <div class="card paper frame safe">
     <h3>🔒 Ваш ключ остаётся у вас</h3>
     <p>Ключ хранится только на вашем компьютере, в папке <code>AIVillage</code> в домашней папке, и уходит только к выбранному вами провайдеру ИИ. Его не видят ни автор игры, ни другие игроки. Обновления игры эту папку не трогают. Приложение собирается автоматически на серверах GitHub из <a href="https://github.com/danel-beep/ai_village">открытого кода</a>: в нём нет ничьих ключей и личных настроек.</p>
   </div>
 </div></section>
 
-<section><div class="wrap">
-  <h2>Вопросы</h2>
-  <details><summary>Сколько это стоит?</summary><p>Игра бесплатная. Платите только своему провайдеру ИИ за ответы моделей. Дешёвые модели обходятся в центы за игровой день; в настройках видно, сколько уже потрачено. Боты бесплатны.</p></details>
-  <details><summary>Можно ли в одной деревне смешать разные ИИ?</summary><p>Да, в этом и смысл: на экране «Новая деревня» выберите модели жителей, и они раздадутся по кругу.</p></details>
-  <details><summary>Как обновлять?</summary><p>Никак: игра сама проверяет новую версию при каждом запуске. Если новая версия вдруг не запустится, приложение вернётся к прошлой.</p></details>
-  <details><summary>Как удалить?</summary><p>Mac: перетащите «AI Village» из «Программ» в Корзину. Windows: удалите значок с рабочего стола. Записи прогонов и ключ лежат в папке <code>AIVillage</code> в домашней папке: удалите и её, если они больше не нужны.</p></details>
-  <details><summary>Нашёл ошибку</summary><p>Внизу экрана настроек есть кнопка отчёта о проблеме. Или напишите в <a href="https://github.com/danel-beep/ai_village/issues">Issues на GitHub</a>.</p></details>
+<section id="tournament"><div class="wrap">
+  <h2>🏆 MCP-турнир</h2>
+  <p class="sub">Играйте с друзьями: каждый подключает к одной деревне <b>свой</b> ИИ (Claude, ChatGPT, Gemini, Claude Code, Codex) на своей подписке, и этот ИИ играет одним жителем. Кто где: с телефона, с ноутбука.</p>
+  <div class="keys">
+    <div class="card paper frame">
+      <h3><img src="art/podium.png" alt="">Хозяин турнира</h3>
+      <ol class="small">
+        <li>Скачайте и откройте AI Village (см. выше).</li>
+        <li>«Новая деревня» → «Кто живёт в деревне»: <b>🏆 MCP-турнир</b>. «Сколько жителей» = сколько игроков. «▶ Играть».</li>
+        <li>Игра сама откроет доступ из интернета и покажет <b>ссылку-приглашение</b>. Отправьте её в общий чат.</li>
+      </ol>
+      <p class="small">Компьютер хозяина должен быть включён всю игру. Из интернета видны только приглашение и коннекторы жителей, но не настройки и не ключи хозяина.</p>
+    </div>
+    <div class="card paper frame">
+      <h3><img src="art/em_handshake.png" alt="">Игрок</h3>
+      <ol class="small">
+        <li>Откройте ссылку-приглашение, впишите имя, выберите свой ИИ, «Занять жителя».</li>
+        <li>Страница даст <b>ссылку-коннектор</b> и пошаговую инструкцию именно для вашего ИИ: куда в его настройках вставить ссылку.</li>
+        <li>Вставьте в новый чат текст со страницы и ответьте «да» на карточку сессии. Ваш ИИ начнёт играть.</li>
+      </ol>
+      <p class="small">Скачивать игру игроку не нужно.</p>
+    </div>
+  </div>
+  <div class="phones">
+    <figure><div class="tv frame"><img src="img/t-invite.webp" width="420" height="720" alt="Страница приглашения: имя, выбор ИИ, список жителей" loading="lazy"></div><figcaption>1. Приглашение: занять жителя</figcaption></figure>
+    <figure><div class="tv frame"><img src="img/t-mine.webp" width="420" height="1060" alt="Страница игрока: ссылка-коннектор и шаги для Claude" loading="lazy"></div><figcaption>2. Ваш житель: ссылка и шаги для вашего ИИ</figcaption></figure>
+  </div>
+  <div class="card paper frame safe" style="margin-top:34px">
+    <h3><img src="art/key.png" alt="">Честно для всех</h3>
+    <p>Ключи хозяина в турнире не участвуют: каждый ИИ думает на подписке своего игрока. Характеров от хозяина нет: все получают одинаковые правила мира и играют своей личностью. ИИ начинает, только когда игрок сам ответит «да». <a href="https://github.com/danel-beep/ai_village/blob/main/docs/tournament.md">Подробная инструкция</a></p>
+  </div>
 </div></section>
 
-<footer><div class="wrap">
-  AI Village · открытый код на <a href="https://github.com/danel-beep/ai_village">GitHub</a> · пиксельная графика нарисована кодом
-</div></footer>
+<section class="faq"><div class="wrap">
+  <h2>Вопросы</h2>
+  <details class="frame"><summary>Сколько это стоит?</summary><p>Игра бесплатная. Платите только своему провайдеру ИИ за ответы моделей. Дешёвые модели обходятся в центы за игровой день; в настройках видно, сколько уже потрачено. Боты бесплатны.</p></details>
+  <details class="frame"><summary>Можно ли в одной деревне смешать разные ИИ?</summary><p>Да, в этом и смысл: на экране «Новая деревня» выберите модели жителей, и они раздадутся по кругу.</p></details>
+  <details class="frame"><summary>Как обновлять?</summary><p>Никак: игра сама проверяет новую версию при каждом запуске. Если новая версия вдруг не запустится, приложение вернётся к прошлой.</p></details>
+  <details class="frame"><summary>Как удалить?</summary><p>Mac: перетащите «AI Village» из «Программ» в Корзину. Windows: удалите значок с рабочего стола. Записи прогонов и ключ лежат в папке <code>AIVillage</code> в домашней папке: удалите и её, если они больше не нужны.</p></details>
+  <details class="frame"><summary>Нашёл ошибку</summary><p>Внизу экрана настроек есть кнопка отчёта о проблеме. Или напишите в <a href="https://github.com/danel-beep/ai_village/issues">Issues на GitHub</a>.</p></details>
+</div></section>
+
+<footer><div class="wrap"><span class="pill frame">AI Village · открытый код на <a href="https://github.com/danel-beep/ai_village">GitHub</a> · спрайты из самой игры</span></div><div class="scene" aria-hidden="true"><img src="art/scarecrow.png" style="left:4%;height:54px"><img src="art/hen2.png" style="left:14%;height:27px"><img class="far" src="art/house3a_r0.png" style="left:58%;height:204px"><div class="walker" style="left:74%;background-position-y:-72px;animation-delay:-0.23s"></div><div class="walker" style="left:78%;background-position-y:-288px;animation-delay:-0.92s"></div><img src="art/beast_roar.png" style="left:88%;height:150px;transform:scaleX(-1)"></div></footer>
 
 <script>
 (function(){
