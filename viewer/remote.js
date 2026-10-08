@@ -1,7 +1,9 @@
 // Own AIs over MCP: injected by aivillage/server.py in live mode. Shows nothing unless the village has seats for
 // people's own AIs (start screen "Свои ИИ"). A "🔌 Свои ИИ" button opens the links per villager, the internet
 // tunnel switch and how to connect; a banner at the top says whom the village is waiting for, so a slow AI never
-// looks like a frozen game. Data: GET /api/remote every 1.5 s; POST /api/remote/tunnel, /api/remote/skip.
+// looks like a frozen game. The invite link (one for all players, the «MCP-турнир» lobby, viewer/join.html) lets each
+// player take a villager on their own device. Data: GET /api/remote every 1.5 s; POST /api/remote/tunnel,
+// /api/remote/skip, /api/remote/release.
 (() => {
   const css = document.createElement('style');
   css.textContent = `
@@ -20,6 +22,7 @@
     #ra-panel .link input { flex:1; min-width:0; background:#34403b; color:#e8efe9; border:0; border-radius:6px;
       padding:4px 6px; font:12px ui-monospace, monospace; }
     #ra-panel .note { color:#e3c46b; font-size:12px; margin-top:4px; }
+    #ra-panel .invite { background:#2f3a2c; border-radius:8px; padding:8px; margin:8px 0; }
     #ra-panel ol { padding-left:18px; margin:6px 0; } #ra-panel li { margin:4px 0; }
     #ra-panel textarea { width:100%; min-height:86px; background:#34403b; color:#e8efe9; border:0; border-radius:6px;
       padding:6px; box-sizing:border-box; font:12px system-ui; }
@@ -40,6 +43,7 @@
   const PROMPT = 'Сыграй за меня в AI Village через коннектор деревни. Сначала вызови join_village и покажи мне ' +
     'карточку сессии; начинай, только когда я отвечу «да». Потом играй сам до конца игры: next_turn, потом answer, ' +
     'и так по кругу. Не останавливайся и ничего у меня не спрашивай; если ход не твой, снова вызывай next_turn.';
+  const AI_NAME = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', claude_code: 'Claude Code', codex: 'Codex', other: 'другой ИИ' };
   const STATE = { playing: '🟢 играет', asking: '🟡 ждёт «да» от игрока', offline: '⚪ не подключён' };
   const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -75,8 +79,9 @@
     const t = st.tunnel;
     const tun = t.state === 'on' ? `🌍 Открыто из интернета: ${t.url}` : t.state === 'starting' ? '🌍 Открываю доступ…'
       : t.state === 'error' ? `⚠️ Не вышло открыть доступ: ${t.error}` : 'Доступ только с этого компьютера.';
-    panel.innerHTML = `<h4>Свои ИИ</h4><div class="sub">Сессия ${st.session}${st.finished ? ' (игра окончена)' : ''} · ` +
-      `ждать ход ${st.wait_minutes} мин · ${st.style === 'owner' ? 'как владелец' : 'сам за себя'}</div>` +
+    const style = { owner: 'как владелец', self: 'сам за себя', model: 'каждый ИИ сам собой (турнир)' }[st.style];
+    panel.innerHTML = `<h4>${st.style === 'model' ? '🏆 MCP-турнир' : 'Свои ИИ'}</h4><div class="sub">Сессия ${st.session}` +
+      `${st.finished ? ' (игра окончена)' : ''} · ждать ход ${st.wait_minutes} мин · ${style}</div>` +
       `<div>${tun}</div>`;
     const tb = el('button', { className: t.state === 'on' ? '' : 'go',
       textContent: t.state === 'on' || t.state === 'starting' ? 'Закрыть доступ' : '🌍 Открыть доступ из интернета' });
@@ -85,10 +90,24 @@
     if (t.state !== 'on') panel.append(el('div', { className: 'note', textContent:
       'Claude, ChatGPT и Gemini подключаются из своего облака: без доступа из интернета ссылка работает только для ' +
       'Codex или Claude Code на этом компьютере.' }));
+    if (st.lobby) {  // one link for every player: each takes a free villager and gets its connector link there
+      const inv = el('div', { className: 'invite' });
+      inv.innerHTML = '<b>Ссылка-приглашение для всех игроков</b><div class="sub" style="margin:2px 0 0">Отправьте её в ' +
+        'общий чат. Каждый откроет её на своём телефоне или компьютере, займёт жителя и получит пошаговую инструкцию ' +
+        'для своего ИИ.' + (t.state === 'on' ? '' : ' Сначала откройте доступ из интернета.') + '</div>';
+      const link = el('div', { className: 'link' });
+      const inp = el('input', { value: base() + st.lobby, readOnly: true });
+      const cb = el('button', { className: 'go', textContent: 'Копировать' });
+      cb.onclick = () => copy(inp.value, cb);
+      link.append(inp, cb);
+      inv.append(link);
+      panel.append(inv);
+    }
     for (const s of st.seats) {
       const row = el('div', { className: 'seat' });
       const status = s.skipped && s.state !== 'playing' ? '⏸ играем без него' : STATE[s.state];
-      row.innerHTML = `<b>${s.name}</b> (${s.profession}) · ${status}${s.client ? ' · ' + s.client : ''}` +
+      const who = s.player ? ` · 👤 ${s.player.replace(/[<>&]/g, '')}${s.ai ? ' (' + (AI_NAME[s.ai] || '') + ')' : ''}` : '';
+      row.innerHTML = `<b>${s.name}</b> (${s.profession})${who} · ${status}${s.client ? ' · ' + s.client : ''}` +
         (s.answered ? ` · ходов: ${s.answered}` : '') + (s.misses ? ` · пропустил подряд: ${s.misses}` : '');
       const link = el('div', { className: 'link' });
       const inp = el('input', { value: base() + s.path, readOnly: true });
@@ -101,13 +120,19 @@
         sk.style.marginTop = '4px';
         sk.onclick = () => post('/api/remote/skip', { name: s.name, skip: !s.skipped }).then(poll);
         row.append(sk);
+        if (s.player) {
+          const fr = el('button', { textContent: 'Освободить место' });
+          fr.style.margin = '4px 0 0 6px';
+          fr.onclick = () => post('/api/remote/release', { name: s.name }).then(poll);
+          row.append(fr);
+        }
       }
       panel.append(row);
     }
     const how = el('div');
     how.innerHTML = '<h4 style="margin-top:10px">Как подключить</h4><ol>' +
-      '<li>Откройте доступ из интернета и отправьте другу ссылку его жителя. У каждого жителя своя ссылка; ' +
-      'в новой игре ссылки новые.</li>' +
+      '<li>Откройте доступ из интернета и отправьте всем ссылку-приглашение (или другу ссылку его жителя). ' +
+      'В новой игре ссылки новые.</li>' +
       '<li>Друг добавляет ссылку как коннектор:<br>' +
       '• <b>Claude</b> (claude.ai или приложение): Настройки → Коннекторы → «Добавить свой коннектор».<br>' +
       '• <b>ChatGPT</b>: Настройки → Коннекторы → Дополнительно → Режим разработчика, потом «Создать».<br>' +
@@ -125,8 +150,10 @@
 
   function poll() {
     return fetch('/api/remote').then(r => r.ok ? r.json() : null).then(d => {
+      const first = !st;
       st = d && d.seats && d.seats.length ? d : null;
       btn.hidden = !st;
+      if (st && first && st.style === 'model' && !st.finished) panel.hidden = false;  // the tournament: invite link first
       if (!st) { panel.hidden = true; wait.hidden = true; return; }
       const keep = document.activeElement && panel.contains(document.activeElement);
       if (!keep) draw();

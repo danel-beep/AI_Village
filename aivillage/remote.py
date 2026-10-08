@@ -15,7 +15,12 @@ links and asks again, so an old connection can never be reused for another sessi
 
 Config (`own_ai` in config.py): `seats` = how many villagers are own AIs (the first ones in `config.agents`),
 `wait_minutes` = how long the village waits for one answer once the AI is connected, `style` = "owner" (the AI
-takes the villager's character from its owner) or "self" (the same character text as any villager).
+takes the villager's character from its owner), "self" (the same character text as any villager) or "model" (no
+character from the host at all: the AI plays as itself; the «MCP-турнир» start, docs/tournament.md).
+
+Lobby (the tournament): one invite link `/mcp/join/<lobby>` for everyone. A player opens it on any device, types a
+name and takes a free villager; the page then shows that villager's connector link and how to add it to their own
+AI. The lobby never shows another player's link, and the host's keys never take part.
 """
 
 from __future__ import annotations
@@ -35,7 +40,11 @@ OWNER_CHARACTER = ("You are played by the personal AI of a real person, your own
                    "act as you believe your owner would act here, drawing on what you know about them from your own "
                    "memory and your conversations with them.")
 
-STYLES = ("owner", "self")
+MODEL_CHARACTER = ("No character is written for you: play this villager as yourself, the AI you are, with your own "
+                   "personality, values and judgment.")
+
+STYLES = ("owner", "self", "model")
+PLAYER_CHARS = 30
 
 
 def seat_names(config: dict) -> list[str]:
@@ -104,6 +113,9 @@ class Seat:
         self.system_seen = ""
         self.misses = self.answered = 0
         self._ids = 0
+        self.player = ""  # lobby: the name of the person who took this villager
+        self.ai = ""  # lobby: which AI they said they play with (claude, chatgpt, ...)
+        self.claim = ""  # lobby: the token their browser keeps to see this seat's link again
 
     # --- engine side ---
 
@@ -147,8 +159,10 @@ class Seat:
 
     def card(self) -> str:
         info = self.hub.info
-        style = ("as your owner would: take the villager's character from what you know about the person you work "
-                 "for" if self.hub.style == "owner" else "as yourself, with the same rules as every villager")
+        style = {"owner": "as your owner would: take the villager's character from what you know about the person "
+                          "you work for",
+                 "model": "as yourself: the host gives you no character, only the rules every villager gets"
+                 }.get(self.hub.style, "as yourself, with the same rules as every villager")
         return (f"AI Village session {self.hub.session}\n"
                 f"Village started {info.get('started', '?')}, {info.get('days', '?')} game days, "
                 f"{info.get('villagers', '?')} villagers. You would play {self.name}, a {self.profession}, {style}.\n"
@@ -235,16 +249,18 @@ class Seat:
             self.cond.notify_all()
         return None
 
+    def state(self) -> str:
+        if self.confirmed:
+            return "playing"
+        if self.joined:
+            return "asking"  # the card is shown, the person has not said yes yet
+        return "offline"
+
     def status(self) -> dict:
         req, now = self.request, time.time()
-        if self.confirmed:
-            state = "playing"
-        elif self.joined:
-            state = "asking"  # the card is shown, the person has not said yes yet
-        else:
-            state = "offline"
+        state = self.state()
         out = {"name": self.name, "profession": self.profession, "path": f"/mcp/{self.code}", "state": state,
-               "client": self.client, "skipped": self.skipped, "misses": self.misses, "answered": self.answered,
+               "client": self.client, "player": self.player, "ai": self.ai, "skipped": self.skipped, "misses": self.misses, "answered": self.answered,
                "last_seen": round(now - self.last_seen) if self.last_seen else None}
         if req is not None and req.answer is None:
             out["waiting"] = {"kind": req.kind, "seconds": round(now - max(req.created, self.confirmed or req.created)),
@@ -264,6 +280,8 @@ class Hub:
         self.wait_s = 300.0
         self.style = "owner"
         self.info: dict = {}
+        self.lobby = ""  # the invite link's code: /mcp/join/<lobby>
+        self.world = None  # the village's World, for the lobby's table (set by run.llm_agents)
 
     def reset(self, *, wait_minutes: float = 5, style: str = "owner", info: dict | None = None) -> None:
         self.close()
@@ -274,6 +292,8 @@ class Hub:
             self.wait_s = max(0.0, float(wait_minutes)) * 60
             self.style = style if style in STYLES else "owner"
             self.info = {"started": time.strftime("%Y-%m-%d %H:%M"), **(info or {})}
+            self.lobby = secrets.token_urlsafe(9)
+            self.world = None
 
     def add(self, name: str, profession: str = "villager") -> Seat:
         with self.lock:
@@ -286,6 +306,54 @@ class Hub:
 
     def by_name(self, name: str) -> Seat | None:
         return next((s for s in self.seats.values() if s.name == name), None)
+
+    # --- lobby: one invite link, each player takes a free villager (aivillage/mcpserver.py, viewer/join.html) ---
+
+    def take(self, player: str, ai: str = "") -> Seat:
+        """Give `player` the first free villager. Raises ValueError when the name is empty or every seat is taken."""
+        player = " ".join(str(player or "").split())[:PLAYER_CHARS]
+        if not player:
+            raise ValueError("Напишите своё имя.")
+        with self.lock:
+            if self.closed:
+                raise ValueError("Эта игра уже закончилась.")
+            free = [s for s in self.seats.values() if not s.player and not s.confirmed]
+            if not free:
+                raise ValueError("Все места заняты. Попросите хозяина деревни добавить жителей в новой игре.")
+            seat = free[0]
+            seat.player, seat.ai, seat.claim = player, str(ai or "")[:20], secrets.token_urlsafe(18)
+            return seat
+
+    def by_claim(self, claim: str) -> Seat | None:
+        return next((s for s in self.seats.values() if claim and secrets.compare_digest(s.claim, str(claim))), None)
+
+    def release(self, seat: Seat) -> None:
+        """The seat is free again (the player left, or the host freed it). A connected AI keeps playing it."""
+        with self.lock:
+            seat.player = seat.ai = seat.claim = ""
+
+    def lobby_status(self) -> dict:
+        """What everyone with the invite link may see: who plays whom and how they do. No connector links."""
+        seats = []
+        w = self.world
+        for s in self.seats.values():
+            row = {"name": s.name, "player": s.player, "ai": s.ai, "client": s.client, "state": s.state(),
+                   "answered": s.answered, "misses": s.misses, "thinking": bool(s.request and s.request.delivered
+                                                                                  and s.request.answer is None)}
+            ag = w.agents.get(s.name) if w is not None else None
+            if ag is not None:
+                try:
+                    from .chronicle import worth
+                    row.update(status=ag.status, health=ag.health, worth=worth(w, s.name))
+                except Exception:  # the engine thread is mid-step: the table fills next time
+                    pass
+            seats.append(row)
+        out = {"session": self.session, "open": bool(self.seats) and not self.closed, "finished": self.finished,
+               "wait_minutes": self.wait_s / 60, "style": self.style, "days": self.info.get("days"),
+               "free": sum(1 for s in self.seats.values() if not s.player and not s.confirmed), "seats": seats}
+        if w is not None:
+            out.update(day=w.day, time=f"{w.hour:02d}:{w.minute:02d}")
+        return out
 
     def close(self, finished: bool = False) -> None:
         self.closed = True
@@ -300,7 +368,7 @@ class Hub:
 
     def status(self) -> dict:
         return {"session": self.session, "open": bool(self.seats) and not self.closed, "finished": self.finished,
-                "wait_minutes": self.wait_s / 60, "style": self.style,
+                "wait_minutes": self.wait_s / 60, "style": self.style, "lobby": f"/mcp/join/{self.lobby}",
                 "seats": [s.status() for s in self.seats.values()]}
 
 
