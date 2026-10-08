@@ -53,13 +53,27 @@
     </select>
     <label>Сколько жителей думают одновременно (для OpenAI)</label>
     <input id="st-parallel" type="number" min="1" max="64" placeholder="16">
+    <h3>Хайлайты и ролики</h3>
+    <label>Язык хайлайтов и роликов «🎞 Видео»</label>
+    <select id="st-clang">
+      <option value="ru">Русский</option>
+      <option value="en">English (для X и Instagram)</option>
+    </select>
+    <label>Озвучка роликов (голос рассказчика, нужен ключ OpenAI, ≈$0.01 за ролик)</label>
+    <select id="st-narr">
+      <option value="off">Без голоса: только музыка и титры</option>
+      <option value="on">С голосом рассказчика</option>
+    </select>
+    <label>Голос</label>
+    <select id="st-voice"></select>
     <div class="row">
       <button class="b save" id="st-save">Сохранить</button>
       <button class="b test" id="st-test">Проверить ключ</button>
     </div>
     <div class="msg" id="st-msg"></div>
     <div class="hint">Ключи хранятся только на этом компьютере и не попадают в логи.
-      Новый ключ и тариф начинают работать сразу, перезапуск не нужен. Модель и одновременность
+      Новый ключ, тариф, язык и озвучка роликов начинают работать сразу, перезапуск не нужен
+      (язык хайлайтов меняется со следующего игрового дня). Модель и одновременность
       применятся со следующего запуска деревни.</div>`;
   // Joins the top-left button row of report.js when it is there (same look), else stands alone.
   const bar = document.getElementById('rp-bar');
@@ -89,6 +103,10 @@
     $('st-model').placeholder = s.default_model || '';
     $('st-parallel').value = s.parallel || '';
     $('st-tier').value = s.openai_tier || 'flex';
+    $('st-clang').value = s.content_lang || 'ru';
+    $('st-narr').value = s.narration || 'off';
+    $('st-voice').innerHTML = (s.voices || ['cedar']).map(v => `<option value="${v}">${v}</option>`).join('');
+    $('st-voice').value = s.tts_voice || 'cedar';
     $('st-openai').value = $('st-openrouter').value = '';
     clear.length = 0;
     savedLine('st-openai-saved', 'openai_key', s.openai_key);
@@ -115,7 +133,8 @@
     if (oa && (!oa.startsWith('sk-') || oa.startsWith('sk-or-'))) return msg('Ключ OpenAI начинается с sk- (но не с sk-or-).', 'bad');
     if (or && !or.startsWith('sk-or-')) return msg('Ключ OpenRouter начинается с sk-or-.', 'bad');
     const body = { provider: $('st-provider').value, model: $('st-model').value.trim(),
-      parallel: $('st-parallel').value.trim(), openai_tier: $('st-tier').value, openai_key: oa, openrouter_key: or, clear: clear.slice() };
+      parallel: $('st-parallel').value.trim(), openai_tier: $('st-tier').value, openai_key: oa, openrouter_key: or, clear: clear.slice(),
+      content_lang: $('st-clang').value, narration: $('st-narr').value, tts_voice: $('st-voice').value };
     try { fill(await call('/api/settings', body)); msg('Сохранено.', 'ok'); return true; }
     catch (e) { msg('Не сохранилось: ' + e.message, 'bad'); return false; }
   }
