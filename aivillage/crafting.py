@@ -14,8 +14,9 @@ Off, nothing changes: `cfg["recipes"]` and the one generic `tool` work as in eve
   hour of work and wears out after its `hours`; `needs_tool` resources cannot be gathered by hand;
 - the owner of a workshop with a trade (`workshops`: smithy -> smith ...) takes that trade if they have none
   (labor.workshop_trades, checked every hour);
-- a recipe made at a private workshop needs no profession: whoever may use the workshop makes it (a carpenter
-  who owns the only smithy can make locks). The village's own workshop keeps the recipe's profession;
+- a recipe made at a workshop needs no profession: whoever may use the workshop makes it (a carpenter who owns
+  the only smithy can make locks). Danel 2026-10-08: trades should come from who has time for what, not from a
+  ban; dropping professions everywhere else is a separate backlog item;
 - the owner of a private workshop opens it to others with `set_workshop_fee` (Danel 2026-10-08): coins per item
   made there, paid to the owner when the item is made; 0 = free; closed again with no fee. The fee is kept on the
   building (`fee`; absent = only the owner's household). Without a fee set nothing changes.
@@ -176,14 +177,9 @@ def _owned_buildings(world: World, owner: str, kind: str) -> list[dict]:
     return out + [b for b in _constructed(world) if b.get("owner") == owner and b.get("kind") == kind]
 
 
-def private_here(world: World, a: Agent, kind: str) -> bool:
-    """A private workshop of `kind` that `a` may use stands where `a` is (its recipes need no profession)."""
-    return any(w["owner"] and w["kind"] == kind and _may_use(w, a.name) for w in workshops_at(world, a.location))
-
-
 def profession_ok(world: World, a: Agent, r: dict) -> bool:
-    return not r.get("profession") or a.profession == r["profession"] \
-        or bool(r.get("building")) and private_here(world, a, r["building"])
+    """Workshop recipes are made by whoever may use the workshop (where_error checks that), whatever their trade."""
+    return not r.get("profession") or a.profession == r["profession"] or bool(r.get("building"))
 
 
 def rent(world: World, a: Agent, r: dict) -> tuple[int, dict | None]:
@@ -262,8 +258,7 @@ def craft(ctx: Ctx, a: Agent, rid: str, times: int) -> None:
     if why := where_error(w, a, rid, r):
         raise ActionError(why)
     if not profession_ok(w, a, r):
-        raise ActionError(f"only a {r['profession']} can make {rid} (anyone may make it at a private {r['building']} "
-                          f"they may use)" if r.get("building") else f"only a {r['profession']} can make {rid}")
+        raise ActionError(f"only a {r['profession']} can make {rid}")
     need = {k: v * times for k, v in r["inputs"].items()}
     missing = {k: v - ops.count(a.inventory, k) for k, v in need.items() if ops.count(a.inventory, k) < v}
     if missing:
@@ -431,7 +426,7 @@ def facts(cfg: dict) -> list[str]:
     """Prompt cheat-sheet lines (llm.world_facts) with crafting on: recipes, workshops, tools."""
     hand, shop = [], []
     for rid, r in cfg["recipes"].items():
-        who = f", only a {r['profession']}" if r["profession"] else ""
+        who = f", only a {r['profession']}" if r["profession"] and not r.get("building") else ""
         more = "".join(f", {n} at a {k}" for k, n in r.get("more_at", {}).items())
         hrs = f", {r['hours']} h each" if (r.get("hours") or 0) > 1 else ""
         line = f"{rid}: {_ins(r)} -> {r['output']}{more}{who}{hrs}"
@@ -443,8 +438,8 @@ def facts(cfg: dict) -> list[str]:
     lines = [f"- Craft by hand: {'; '.join(hand)}."]
     if shop:
         lines.append(f"- Craft at a workshop (a workshop in a private yard serves its owner's household; its "
-                     "owner may open it to others for a fee per item, or for free, with set_workshop_fee; at a "
-                     f"private workshop anyone allowed in makes its recipes, whatever their trade): {'; '.join(shop)}.")
+                     "owner may open it to others for a fee per item, or for free, with set_workshop_fee; anyone allowed "
+                     f"in makes its recipes, whatever their trade): {'; '.join(shop)}.")
     if c.get("home_also_at"):
         lines.append(f"- Recipes made at home can also be made by a {' or a '.join(c['home_also_at'])}.")
     trades = ", ".join(f"{k} -> {p}" for k, p in c.get("workshops", {}).items() if p)

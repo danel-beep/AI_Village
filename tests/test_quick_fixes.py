@@ -31,13 +31,14 @@ def test_carpenter_owner_makes_a_lock_at_own_smithy(w):
     assert a.inventory["lock"] == 1
 
 
-def test_village_smithy_keeps_the_profession(w):
+def test_village_smithy_serves_every_trade(w):
     b = w.agents["Boris"]
     assert b.profession != "smith"
     b.location = "smithy"  # the village's own smithy in the classic map
+    clear(w, "Boris")
     give(w, "Boris", ore=1, stone=1)
-    with pytest.raises(ActionError, match="only a smith"):
-        act(w, "Boris", "craft", recipe="lock")
+    act(w, "Boris", "craft", recipe="lock")
+    assert b.inventory["lock"] == 1
 
 
 def test_owner_rents_out_the_smithy(w):
