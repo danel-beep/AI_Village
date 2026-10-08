@@ -681,6 +681,8 @@
     }
 
     function syncRoster() {
+      // «MCP-турнир»: players pick the looks in the lobby and their AIs name themselves, so no per-villager editor
+      $('su-people').style.display = values.brains === 'mcp' ? 'none' : '';
       if (roster && roster.length < n()) fetchRoster(roster).then(d => { roster = d.roster; drawRoster(); remember(); },
         e => { $('su-msg').textContent = e.message; $('su-msg').className = 'msg bad'; });
       else drawRoster();
@@ -709,7 +711,7 @@
       go.disabled = true; $('su-msg').textContent = ''; $('su-msg').className = 'msg';
       const body = {};
       for (const k of knobs) if (!notHere(k)) body[k.key] = values[k.key];
-      if (roster) body.roster = roster.slice(0, n());
+      if (roster && values.brains !== 'mcp') body.roster = roster.slice(0, n());
       goLoading('Строю деревню', 'Рисую карту, расселяю жителей, раскладываю ягоды по кустам…');
       post('/api/start', body).then(d => { if (d && d.lobby) location.href = d.lobby; else location.reload(); }, e => {
         hideLoading();
