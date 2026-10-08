@@ -219,7 +219,8 @@ MODES["survival"] = {
                                                   "start": 12, "max": 12, "regen": 4, "slots": 3}}}}}),
 }
 
-DEFAULT_MODE = "crafts"
+# «С нуля» is what a new village starts in (Danel 2026-10-08); «Обычный» (crafts) stays a choice.
+DEFAULT_MODE = "survival"
 
 # Rules every run starts with (under the mode's own settings), while the bare engine default stays off so
 # engine tests can leave villagers idle for days: one hospital stay, the second collapse is death.
