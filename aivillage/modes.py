@@ -190,7 +190,10 @@ MODES["survival"] = {
                                               # take what lies ready in the yard
                                               "threats": {"first_day": 4, "warn_chance": 0.8,
                                                           "hostile": {"max_gap_days": 10, "min_gap_days": 4},
-                                                          "kinds": {"raid": {"yard_share": 0.5}}},
+                                                          # every raid hard, harder as the village
+                                                          # grows and arms itself (Danel 2026-10-08)
+                                                          "arms": {"enabled": True},
+                                                          "kinds": {"raid": {"yard_share": 0.5, "hp": 80}}},
                                               # the hospital is no free meal; others see who is wounded
                                               "hospital_discharge": {"satiety": 30},
                                               "wounded_seen_below": 40,

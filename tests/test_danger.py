@@ -164,3 +164,53 @@ def test_gap_run_replays_exactly(tmp_path):
     run.run(w, bots_decider(w, ["worker", "thief", "random"], 5), days=8, log_path=log)
     assert replay(log).hash() == w.hash()
     assert hostile_days(w)
+
+
+def test_raiders_grow_with_the_village_and_copy_its_best_gear():
+    w = survival("town")
+    names = sorted(w.agents)
+    target = names[0]
+    plain = threats._arms(w)
+    ops.mint(w, w.agents[names[1]].inventory, "sword", 1)
+    ops.mint(w, w.chests[f"chest_{names[2]}"].items, "iron_armor", 1)
+    ops.mint(w, w.agents[names[3]].inventory, "club", 1)
+    arms = threats._arms(w)
+    assert arms["armed"] == plain["armed"] + 2
+    assert (arms["weapon"], arms["armor"]) == ("sword", "iron_armor")
+    assert (arms["attack"], arms["damage"], arms["block"]) == (2, 4, 2)  # half of sword 3/7, iron armor 4
+    ev = engine.step(w, {}, [{"name": "raid", "args": {"target": target, "warn": False}}])
+    ev += engine.step(w, {})
+    t = next(t for t in w.threats if t["kind"] == "raid")
+    k = w.config["threats"]["kinds"]["raid"]
+    scale = max(1.0, sum(a.status != "dead" for a in w.agents.values()) / 5)
+    grow = 1 + 0.25 * 2  # town: two stages above the hamlet
+    assert t["max_hp"] == round((k["hp"] * grow + 10 * arms["armed"]) * scale * threats._defense(w))
+    arrived = next(e for e in ev if e.kind == "threat_arrived")
+    assert "They carry sword and iron_armor" in arrived.text
+    assert "best-armed villager" in world_facts(w.config)
+
+
+def test_bandit_armor_takes_off_each_blow():
+    w = survival("hamlet")
+    name = sorted(w.agents)[0]
+    a = w.agents[name]
+    engine.step(w, {}, [{"name": "raid", "args": {"target": name, "warn": False}}])
+    engine.step(w, {})
+    t = next(t for t in w.threats if t["kind"] == "raid")
+    t["arms"] = {"weapon": "sword", "attack": 2, "damage": 4, "armor": "iron_armor", "block": 20}
+    a.location, a.health = t["location"], 100
+    hits = []
+    for _ in range(12):
+        ev = engine.step(w, {name: {"action": {"name": "defend", "args": {}}}})
+        hits += [e.data["damage"] for e in ev if e.kind == "defend" and e.data["hit"]]
+        if t["state"] != "here" or a.health < 40:
+            break
+    assert hits and all(d == 1 for d in hits)  # armor stronger than any blow: 1 still lands
+
+
+def test_arms_off_keeps_the_old_strength():
+    w = world()
+    assert not threats._arms_on(w.config)
+    engine.step(w, {}, [{"name": "raid", "args": {"target": "Anna", "warn": False}}])
+    engine.step(w, {})
+    assert w.threats[0]["max_hp"] == 60 and "arms" not in w.threats[0]

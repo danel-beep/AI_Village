@@ -89,6 +89,37 @@ def _wall_level(world: World) -> int:
     return int(works.defense(world))  # wall level x defense_per_level (works.py), 0 without a wall
 
 
+def _arms_on(cfg: dict) -> bool:
+    return bool((_t(cfg).get("arms") or {}).get("enabled"))
+
+
+def _arms(world: World) -> dict:
+    """What the village could fight with, read when a raid or beast comes: the best weapon and armor any active
+    villager carries or keeps in the home chest (bandits come equipped alike) and how many carry a weapon
+    other than a work tool (each makes a raid or beast `hp_per_armed` stronger)."""
+    cfg = world.config
+    best = {"weapon": None, "attack": 0, "damage": 0, "armor": None, "block": 0, "armed": 0}
+    arms = {i: w for i, w in conflict.weapons(cfg).items() if i != "tool"}
+    shields = (cfg["combat"].get("gear") or {}).get("armor", {}) if conflict.gear_on(cfg) else {}
+    for a in sorted(world.agents.values(), key=lambda a: a.name):
+        if a.status != "active":
+            continue
+        best["armed"] += any(ops.count(a.inventory, i) for i in arms)
+        chest = world.chests.get(f"chest_{a.name}")
+        have = lambda i: ops.count(a.inventory, i) or (chest is not None and ops.count(chest.items, i))
+        for i, wp in sorted(arms.items()):
+            if have(i) and wp["attack"] + wp["damage"] > (top := best.get("_w", -1)):
+                best.update(weapon=i, _w=wp["attack"] + wp["damage"], attack=wp["attack"], damage=wp["damage"])
+        for i, sh in sorted(shields.items()):
+            if have(i) and int(sh["block"]) > best.get("_b", 0):
+                best.update(armor=i, _b=int(sh["block"]), block=int(sh["block"]))
+    share = float(_t(cfg)["arms"].get("gear_share", 1.0))  # bandits' gear is that much of the village's best
+    for x in ("attack", "damage", "block"):
+        best[x] = int(best[x] * share + 0.5)
+    best.pop("_w", None), best.pop("_b", None)
+    return best
+
+
 def _homes(world: World) -> dict[str, str]:
     """home location -> its villager (active, the first one by name if a couple shares it)."""
     out: dict[str, str] = {}
@@ -260,14 +291,21 @@ def _arrive(ctx: Ctx, t: dict) -> None:
     if t["kind"] == "raid":
         t["route"] = [home] + _near(w, home, sorted(homes))[: max(0, int(k["houses"]) - 1)]
     defense = _defense(w)
-    t["hp"] = t["max_hp"] = max(1, round(k["hp"] * _scale(w) * defense))
+    arms = _arms(w) if _arms_on(cfg) else {}
+    grow = 1 + float(_t(cfg)["arms"].get("hp_per_stage", 0)) * max(0, progress.stage_index(w) - 1) if arms else 1
+    extra = int(_t(cfg)["arms"].get("hp_per_armed", 0)) * arms.get("armed", 0)
+    t["hp"] = t["max_hp"] = max(1, round((k["hp"] * grow + extra) * _scale(w) * defense))
+    if t["kind"] == "raid" and arms:
+        t["arms"] = {x: arms[x] for x in ("weapon", "attack", "damage", "armor", "block")}
     wall = " The village wall slowed them: they are fewer and weaker." if defense < 1 else ""
     who = homes[home]
     if t["kind"] == "raid":
         scout = " Among them is the traveler who visited the village." if t.get("from_scout") else ""
+        gear = [x for x in (t.get("arms", {}).get("weapon"), t.get("arms", {}).get("armor")) if x]
+        armed = f" They carry {' and '.join(gear)}." if gear else ""
         text = (f"Bandits! Armed robbers burst into {who}'s house ({home}). Each hour nobody fights them "
                 f"they plunder the chests there and move to the next house; in {t['hours_left']} hours they leave and "
-                f"burn the house they are at. Anyone there can defend.{scout}{wall}")
+                f"burn the house they are at. Anyone there can defend.{armed}{scout}{wall}")
     else:
         text = (f"A beast came out of the forest to {who}'s house ({home})! Each hour nobody fights it, "
                 f"it eats the food in the chests there, mauls whoever is around and prowls to another house; it "
@@ -495,15 +533,17 @@ def defend(ctx: Ctx, a: Agent, _args) -> None:
     item, atk, dmg = conflict.weapon(ctx.cfg, a)
     roll = rng.randint(1, c["die"])
     hit = roll == c["die"] or (roll != 1 and roll + atk >= c["hit_at"])
-    dealt = min(t["hp"], rng.randint(1, c["damage_die"]) + dmg) if hit else 0
+    arms = t.get("arms") or {}
+    raw = rng.randint(1, c["damage_die"]) + dmg if hit else 0
+    dealt = min(t["hp"], max(1, raw - arms.get("block", 0)) if hit else 0)
     t["hp"] -= dealt
     t["fought"] = True
     t["fighters"][a.name] = t["fighters"].get(a.name, 0) + dealt
     hurt = 0
     if t["hp"] > 0:
         back = rng.randint(1, c["die"])
-        if back == c["die"] or (back != 1 and back + int(k["attack"]) >= c["hit_at"]):
-            hurt = min(a.health, conflict.soak(ctx, a, rng.randint(1, int(k["damage_die"]))))
+        if back == c["die"] or (back != 1 and back + int(k["attack"]) + arms.get("attack", 0) >= c["hit_at"]):
+            hurt = min(a.health, conflict.soak(ctx, a, rng.randint(1, int(k["damage_die"])) + arms.get("damage", 0)))
             a.health -= hurt
     conflict.wear(ctx, a, item)
     what = "the bandits" if t["kind"] == "raid" else "the beast"
@@ -655,7 +695,14 @@ def facts(cfg: dict) -> str | None:
     return (f"- Danger can come from outside: bandits{governance.opens_note(cfg, RAIDS)} plunder chests house by house and burn one when they leave; a "
             "beast eats stores and mauls people; a traveler asks for food. Warnings, if any, come in the news; "
             "\"threats\" lists what is expected or here. Anyone at the place can defend (a dice round, they strike "
-            "back); driven-off bandits drop what they took." + _gap_fact(cfg))
+            "back); driven-off bandits drop what they took." + _gap_fact(cfg) + _arms_fact(cfg))
+
+
+def _arms_fact(cfg: dict) -> str:
+    if not _arms_on(cfg):
+        return ""
+    return (" Bandits and beasts grow stronger as the village grows and as more villagers carry weapons; bandits "
+            "come armed and armored like the best-armed villager, if not as well.")
 
 
 def _gap_fact(cfg: dict) -> str:
