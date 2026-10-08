@@ -84,14 +84,30 @@ const ThreatLayer = (() => {
     b.fillStyle = '#e4572e'; b.fillRect(Math.round(x - w / 2), y, Math.round(w * f), 2);
   }
 
+  // Sprite art from the atlas (viewer/sprites.js); a white silhouette of it for the flash of a landed blow.
+  const art = n => window.Sprites && Sprites.has(n);
+  const whites = {};
+  function pic(b, n, x, y, flip, white) {
+    if (!white) return Sprites.draw(b, n, x, y, { flip });
+    if (!whites[n]) {
+      const c = Sprites.canvas(n), w = document.createElement('canvas'), g = w.getContext('2d');
+      w.width = c.width; w.height = c.height; g.drawImage(c, 0, 0);
+      g.globalCompositeOperation = 'source-in'; g.fillStyle = '#ffffff'; g.fillRect(0, 0, w.width, w.height);
+      whites[n] = w;
+    }
+    const img = whites[n], dx = Math.round(x - img.width / 2), dy = Math.round(y - img.height);
+    b.save(); if (flip) { b.translate(dx + img.width, dy); b.scale(-1, 1); b.drawImage(img, 0, 0); } else b.drawImage(img, dx, dy); b.restore();
+  }
+
   // Where a threat that is here stands: {x, y: feet, half: half width, h: height} in map pixels (viewer/combat.js
   // lines the defenders up beside it), or null.
   function spot(th, layout) {
     const bx = th && th.state === 'here' && layout.box[th.location];
     if (!bx) return null;
     const [x0, y0, w, h] = bx;
-    if (th.kind === 'raid') { const n = Math.max(1, Math.ceil(4 * th.hp / (th.max_hp || 1))); return { x: x0 + w / 2, y: y0 + h + 6, half: (n - 1) * 5.5 + 6, h: 16 }; }
-    if (th.kind === 'beast') return { x: x0 + w + 6, y: y0 + h + 2, half: 26, h: 30 };
+    if (th.kind === 'raid') { const n = Math.max(1, Math.ceil(4 * th.hp / (th.max_hp || 1))), k = art('b0_down') ? 6.5 : 5.5;
+      return { x: x0 + w / 2, y: y0 + h + 6, half: (n - 1) * k + (art('b0_down') ? 11 : 7), h: art('b0_down') ? 22 : 16 }; }
+    if (th.kind === 'beast') return art('beast_stand') ? { x: x0 + w + 6, y: y0 + h + 4, half: 27, h: 44 } : { x: x0 + w + 6, y: y0 + h + 2, half: 26, h: 30 };
     return null;
   }
 
@@ -109,6 +125,19 @@ const ThreatLayer = (() => {
       }
       if (th.kind === 'raid') {
         const n = Math.max(1, Math.ceil(4 * th.hp / (th.max_hp || 1)));
+        if (art('b0_down')) {   // the bandit sheet (viewer/art/bandits.png): six looks, picked by the band's id
+          const seed = [...String(th.id)].reduce((a, c) => a + c.charCodeAt(0), 0);
+          for (let i = 0; i < n; i++) {
+            const x = cx + (i - (n - 1) / 2) * 13, k = (seed + i) % 6, fight = jolt.busy;
+            const face = jolt.target != null ? Math.sign(jolt.target - x) || jolt.face : jolt.face;
+            const pose = fight ? 'side' : Math.floor(sec * 3 + i) % 2 ? 'step' : 'down';
+            const bob = Math.round(Math.abs(Math.sin(sec * 5 + i * 1.7)) * (jolt.act === 'strike' ? 0 : 1));
+            pic(b, `b${k}_${pose}`, x, foot + (i % 2) * 3 - bob, pose === 'side' && face < 0, jolt.flash);
+            if (i === 0) Sprites.draw(b, 'fx_torch', x + (pose === 'side' && face < 0 ? -6 : 6), foot - 7 - bob, { s: .9 + .1 * Math.sin(sec * 17) });
+          }
+          bar(b, cx, foot - 28, th.hp, th.max_hp);
+          continue;
+        }
         for (let i = 0; i < n; i++) {
           const x = cx + (i - (n - 1) / 2) * 11, bob = Math.round(Math.abs(Math.sin(sec * 5 + i * 1.7)) * 2);
           put(b, sprite(BANDIT, i % 2 === 1, jolt.flash), x, foot + (i % 2) * 3 - bob);
@@ -122,6 +151,14 @@ const ThreatLayer = (() => {
       } else if (th.kind === 'beast') {
         const step = Math.round(Math.sin(sec * 1.3) * 4), bob = Math.round(Math.abs(Math.sin(sec * 4)) * 1);
         const bxs = x0 + w + 6 + (jolt.dx || jolt.flash ? jx : step / 2);   // beside the house, so the defenders at the door face it
+        if (art('beast_stand')) {   // the beast sheet (viewer/art/beast.png): drawn facing left
+          const hurt = th.hp < (th.max_hp || 1) * .3, roar = !jolt.act && sec % 7 < .7;
+          const f = jolt.act === 'hit' ? 'beast_flinch' : jolt.act === 'strike' ? (Math.floor(sec / 1.6) % 2 ? 'beast_bite' : 'beast_swipe')
+            : roar ? 'beast_roar' : hurt ? 'beast_limp' : ['beast_walk1', 'beast_walk2', 'beast_walk3', 'beast_walk2'][Math.floor(sec * 4) % 4];
+          pic(b, f, bxs, y0 + h + 4, jolt.face > 0, jolt.flash);
+          bar(b, bxs, y0 + h - 50, th.hp, th.max_hp);
+          continue;
+        }
         put(b, sprite(BEAST, false, jolt.flash), bxs, y0 + h + 2 - bob, 2);
         bar(b, bxs, y0 + h - 36, th.hp, th.max_hp);
       } else if (th.kind === 'traveler') {

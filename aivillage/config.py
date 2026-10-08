@@ -24,6 +24,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # as short lines plus its own answers (cached by the provider, reset each night); "fresh" = every turn is a new
     # chat with the last 3 actions and own notes (the old way).
     "llm_memory": "day",
+    # What each turn's observation carries ("day" memory only, llm.OBS_MODES): "changes" = the board, map, land,
+    # wealth and the like only when they change (they stay in the cached day conversation); "full" = everything
+    # every turn (before 2026-10-08). A/B (scenarios/obs_changes.yaml): a turn 14-20% cheaper, failed actions
+    # halved, no other difference beyond the A/A noise.
+    "llm_obs": "changes",
     # Own AIs (aivillage/remote.py): the first `seats` villagers are played by people's own AIs (Claude, ChatGPT,
     # Gemini, Codex...) connected over MCP. The village waits `wait_minutes` for each answer once an AI is
     # connected; `style` "owner" = the AI takes the villager's character from its owner, "self" = like any villager.
@@ -65,6 +70,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # addressed.py: letters, whispers and words said to a villager by name stay in "said_to_you" until the end of
     # the next day (keep_days) or until the two have since given, lent or traded to each other; at most `max`
     "said_to_you": {"keep_days": 1, "max": 5},
+    # talk.py: villagers at one place take turns within a tick and hear the earlier ones (`turn_taking`, at most
+    # `waves` turns in a row); a busy villager spoken to answers at once and owes the rest (`interrupt_pause`)
+    "talk": {"turn_taking": False, "waves": 5, "interrupt_pause": False},
     "health_max": 100,
     "health_regen_night_at_home": 15,
     "health_regen_min_satiety": 30,

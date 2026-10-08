@@ -132,3 +132,29 @@ def test_a_bare_string_action_does_not_crash_the_day_log():
     ag = LLMAgent("Anna", "farmer", Echo())
     ag.remember_turn({"time": {"hour": 9, "minute": 0}, "you": {"location": "square"}}, {"action": "wait"})
     assert "I did None" in ag.day_log[-1]
+
+
+def test_changes_mode_sends_the_world_only_when_it_changes():
+    """`llm_obs: changes`: the board, map, land... come once in the (cached) day conversation and again only when
+    they change; the current observation keeps where you are, who is here, news and what was said to you."""
+    w = engine.new_world({"seed": 3})
+    c = Echo()
+    agent = LLMAgent("Anna", "farmer", c, memory="day", obs_mode="changes")
+    for _ in range(3):
+        agent.decide(engine.observe(w, "Anna"))
+    first, last = c.calls[0], c.calls[-1]
+    assert "World (shown again only when it changes" in first[-2]["content"]  # the first turn shows it all
+    obs = json.loads(last[-1]["content"].split("\n", 1)[1])
+    assert "time" in obs and "you" in obs and "board" not in obs and "explored" not in obs
+    assert "as last shown above: " in last[-1]["content"].split("\n", 1)[0]
+    assert last[1]["content"] == first[-2]["content"]  # the history keeps the line exactly as sent: cache prefix
+    assert "World (" not in last[-2]["content"]  # nothing changed while Anna waited
+    obs = engine.observe(w, "Anna")
+    obs["notice_board"] = ["Lost: a grey cat"]  # the notice board changes: shown again, and only it
+    agent.decide(obs)
+    shown = json.loads(c.calls[-1][-2]["content"].split("null = gone): ", 1)[1])
+    assert shown == {"notice_board": ["Lost: a grey cat"]}
+    agent.reflect(1)
+    assert agent.shown == {}  # a new day shows everything again
+    full = LLMAgent("Anna", "farmer", Echo(), memory="day", obs_mode="full")
+    assert "board" in json.loads(full.messages(engine.observe(w, "Anna", consume_inbox=False))[-1]["content"].split("\n", 1)[1])
