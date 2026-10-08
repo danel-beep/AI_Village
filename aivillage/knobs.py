@@ -576,6 +576,7 @@ HINTS = {
     "max_steal_qty": "Сколько вещей вор уносит за одну кражу.",
     "owner_notice": "Шанс, что хозяин, стоящий дома, поймает вора у своего сундука.",
     "victim_notice": "Шанс, что житель заметит, как у него тащат из кармана.",
+    "crime_days": "Сколько дней после кражи пострадавший ещё может пожаловаться на вора.",
     "debt_collect_fee": "Какую часть взысканного долга мэр забирает в казну.",
     "dice_max_stake": "Больше этой суммы за одну игру в кости поставить нельзя.",
     "crisis_chance": "Шанс, что утром начнётся беда: неурожай, засуха, крысы и т.п.",
@@ -595,10 +596,15 @@ HINTS = {
 
 # Start-screen layout (viewer/setup.js). MAIN: the few knobs always shown at the top; the rest sit in folded
 # SECTIONS (title, one-line about, keys in order). A knob in neither lands in a section named by its own `group`.
+# SIMPLE: all the «Простой» view shows (the default view); «Расширенный» shows MAIN and every section.
+# RETIRED: kept in to_run() and in the config (old saved forms, the lab, scenarios), never on the screen: switches
+# back to an older, dearer or worse way that nobody should pick by hand (Danel 2026-10-08).
+SIMPLE = ["brains", "bot_mix", "start_stage", "villagers", "days", "daily_budget", "chaos"]
+RETIRED = {"llm_memory", "llm_obs", "fixed_map"}
 MAIN = ["brains", "bot_mix", "mode", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
-    ("🧠 Жители и их ИИ", "Характеры, память, свои цели и что жители видят друг о друге.",
-     ["characters", "own_goals", "llm_memory", "llm_obs", "craft_hint", "summaries", "luxury", "hungry_seen_below",
+    ("🧠 Жители и их ИИ", "Характеры, свои цели и что жители видят друг о друге.",
+     ["characters", "own_goals", "craft_hint", "summaries", "luxury", "hungry_seen_below",
       "said_to_you_days"]),
     ("💰 Деньги и налоги", "Монеты на старте, налоги, казна, государства и неравенство.",
      ["unfairness", "start_coins", "law_enforcement", "tax_amount", "tax_every_days", "sales_pct", "wealth_pct",
@@ -624,7 +630,7 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
     ("⚔️ Драки", "Можно ли драться, сколько длится драка и что забирает победитель.",
      ["combat", "combat_rounds", "combat_loot", "combat_loot_coins", "combat_min_health"]),
     ("🗣 Слухи и разговоры", "Как искажаются пересказы и сколько стоит объявление.",
-     ["mishear_number", "mishear_name", "overhear", "origin_hops", "announce_cost"]),
+     ["record", "mishear_number", "mishear_name", "overhear", "origin_hops", "announce_cost"]),
     ("⚡ Беды и случайности", "Пожары, болезни, набеги, звери и кризисы. Наверху один общий переключатель.",
      ["chaos", "random_fire", "sickness_chance", "illness_spread", "raid_chance", "beast_chance", "threat_warn",
       "threat_warn_days", "raids_from_stage", "hostile_max_gap", "traveler_chance", "scout_chance", "fire_ticks", "fire_water_needed", "fire_spread_hours",
@@ -633,15 +639,19 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🐗 Звери, транспорт и азарт", "Охота, лошади и телеги, кости на деньги.",
      ["animals", "transport", "dice", "dice_max_stake", "dice_credit"]),
     ("🗺 Карта и земля", "Размер карты, разведка, участки под дома и номер деревни.",
-     ["map_size", "explore", "settle", "settle_spread", "land_claim", "land_jump", "land", "land_price", "gold", "regrowth", "fixed_map", "seed"]),
+     ["map_size", "explore", "settle", "settle_spread", "land_claim", "land_jump", "land", "land_price", "gold", "regrowth", "seed"]),
     ("⏱ Скорость", "Как быстро идёт время на экране и как часто жители думают.",
      ["pace", "tick_minutes"]),
+    ("🔌 Свои ИИ по подписке", "Жителями могут играть ваши Claude, ChatGPT или Gemini, подключённые к деревне.",
+     ["own_ai_seats", "own_ai_wait", "own_ai_style"]),
 ]
 
 
 def layout(knobs: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Knobs in screen order, each with `section` ("main" or a section title) and `hint` filled in; and the
+    """Knobs in screen order (RETIRED left out), each with `section` ("main" or a section title), `simple` (shown
+    in the «Простой» view) and `hint` filled in; and the
     sections [{title, about}] in order. Keys not in MAIN/SECTIONS go last under their own `group`."""
+    knobs = [k for k in knobs if k["key"] not in RETIRED]
     by_key = {k["key"]: k for k in knobs}
     placed: list[tuple[dict, str]] = [(by_key[key], "main") for key in MAIN if key in by_key]
     sections = []
@@ -656,7 +666,8 @@ def layout(knobs: list[dict]) -> tuple[list[dict], list[dict]]:
             if k["group"] not in [s["title"] for s in sections]:
                 sections.append({"title": k["group"], "about": ""})
             placed.append((k, k["group"]))
-    out = [{**k, "section": s, "hint": k.get("hint") or HINTS.get(k["key"], "")} for k, s in placed]
+    out = [{**k, "section": s, "simple": k["key"] in SIMPLE, "hint": k.get("hint") or HINTS.get(k["key"], "")}
+           for k, s in placed]
     return out, sections
 
 

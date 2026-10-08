@@ -1,6 +1,6 @@
 // Saves (aivillage/saves.py), injected by aivillage/server.py on every page.
 // In a village: "💾 Сохранить" in the top-left row (POST /api/save). The village also saves itself every game
-// hour, when it is stopped and when it ends. On the start screen: "💾 Продолжить деревню", the saved villages
+// hour, when it is stopped and when it ends. On the start screen's "💾 Продолжить" page (setup.js): the saved villages
 // (GET /api/saves) with "▶ Продолжить" (POST /api/load, then the page reloads into the village).
 (function () {
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -50,7 +50,7 @@
       // setup.js draws the start screen after its own fetch: wait for it
       let tries = 0;
       const t = setInterval(() => {
-        const key = document.getElementById('su-key');
+        const key = document.getElementById('su-saves-slot');
         if (key || ++tries > 100) { clearInterval(t); if (key) draw(key, d.saves); }
       }, 50);
     }).catch(() => {});
@@ -96,7 +96,10 @@
       } else go.textContent = '▶ Продолжить';
       go.onclick = () => {
         go.disabled = true; msg.textContent = 'Загружаю деревню…'; msg.className = 'msg';
+        const L = window.VillageLoading;  // setup.js: the loading screen until the village is on the map
+        if (L) L.start('Загружаю деревню', 'Тот же мир, та же память жителей.');
         post('/api/load', { name: s.name, days: days ? Number(days.value) : null }).then(() => location.reload(), e => {
+          if (L) L.fail(e);
           go.disabled = false; msg.textContent = e.message; msg.className = 'msg bad';
         });
       };
