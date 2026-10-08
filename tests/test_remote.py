@@ -32,8 +32,8 @@ def app():
 class Player:
     """A fake player's AI speaking MCP over HTTP."""
 
-    def __init__(self, client, path):
-        self.c, self.path, self.n = client, path, 0
+    def __init__(self, client, path, name="Me"):
+        self.c, self.path, self.n, self.name = client, path, 0, name
 
     def rpc(self, method, params=None):
         self.n += 1
@@ -57,6 +57,7 @@ class Player:
             seen.append(text)
             kind = m.group(2)
             reply = ({"thought": "from my own AI", "action": {"name": "wait"}} if kind == "turn" else
+                     {"name": self.name, "character": "You are me."} if kind == "self" else
                      {"about_me": "I am me.", "wants": "", "today": "Look around."} if kind == "intro" else
                      {"diary": "A day.", "people": {}})
             text, err = self.tool("answer", request_id=int(m.group(1)), reply=reply)
@@ -188,7 +189,7 @@ def test_render_resends_rules_only_when_changed_or_rejoined():
 
 def test_tunnel_reaches_only_mcp():
     c = app()
-    cf = {"cf-connecting-ip": "1.2.3.4"}
+    cf = {"host": "quiet-river.trycloudflare.com"}
     assert c.get("/api/settings", headers=cf).status_code == 403
     r = c.post("/mcp/nope", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers=cf)
     assert r.status_code == 404 and "expired" in r.json()["error"]["message"]
@@ -215,39 +216,102 @@ def test_texts_the_ai_reads_are_neutral():
     hub.style = "self"
     texts.append(seat.card())
     hub.style = "model"
-    texts += [seat.card(), remote.MODEL_CHARACTER]
+    texts += [seat.card(), remote.MODEL_CHARACTER, remote.SELF_PROMPT]
     for text in texts:
         assert evaluative(text) == [], (text, evaluative(text))
     assert llm.SYSTEM  # the villager's own prompt is checked by test_neutrality
 
 
-def test_tournament_start_needs_no_key_and_gives_nothing_of_the_host(tmp_path, monkeypatch):
+def test_tournament_lobby_then_the_ais_name_themselves_and_play(tmp_path, monkeypatch):
     from aivillage.server import Host, create_app
     run_opts = knobs.to_run({"brains": "mcp", "villagers": 4, "characters": "random", "villains": 2})
     o = run_opts["override"]
     assert run_opts["llm"] and run_opts["tournament"] and not run_opts["summaries"]
     assert o["own_ai"]["seats"] == 4 and o["own_ai"]["style"] == "model"
-    assert o["villains"] == 0 and o["characters"] == "off"
+    assert o["villains"] == 0 and o["characters"] == "off" and o["population"]["always"] == []
 
     monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
     for k in ("OPENAI_API_KEY", "OPENROUTER_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     opened = []
     monkeypatch.setattr(tunnel.TUNNEL, "start", lambda port: opened.append(port))
+    monkeypatch.setattr(remote, "CALL_WAIT", 0.5)  # next_turn's long wait while the lobby gathers
     host = Host(None, str(tmp_path / "runs"), str(tmp_path / "reports"), setup=True)
-    c = TestClient(create_app(host=host))
+    fa = create_app(host=host)
+    c = TestClient(fa, base_url="http://127.0.0.1:8000")
     try:
         r = c.post("/api/start", json={"brains": "mcp", "villagers": 3, "days": 1, "pace": 0, "seed": 4})
         assert r.status_code == 200, r.text
-        assert opened  # the tunnel opens by itself: the players are on other devices
-        agents = host.sim.decide.agents
-        assert all(isinstance(a.client, remote.RemoteClient) for a in agents.values())
-        assert all(a.character == remote.MODEL_CHARACTER for a in agents.values())
-        assert host.sim.summarizer is None
-        st = c.get("/api/remote").json()
-        assert len(st["seats"]) == 3 and st["lobby"].startswith("/mcp/join/") and st["style"] == "model"
+        lobby = r.json()["lobby"]
+        assert opened and host.sim is None  # players gather first; the tunnel opens by itself
+        assert c.get("/api/setup").json()["lobby"] == lobby
+        hub = remote.HUB
+        assert hub.phase == "lobby" and len(hub.seats) == 3
+        assert c.post("/api/tournament/begin").status_code == 400  # nobody is ready
+
+        took = [c.post(f"{lobby}/take", json={"player": "Маша", "ai": ai, "look": look}).json()
+                for ai, look in (("claude", 5), ("chatgpt", None))]
+        assert c.post(f"{lobby}/take", json={"player": "маша"}).status_code == 409  # two AIs per player
+        assert c.post(f"{lobby}/look", json={"claim": took[1]["claim"], "look": 7}).json()["look"] == 7
+        mine = c.get(f"{lobby}/state", params={"claim": ",".join(t["claim"] for t in took)}).json()["mine"]
+        assert [m["look"] for m in mine] == [5, 7]
+
+        players = [Player(c, t["path"], name) for t, name in zip(took, ("Ada", "Lumen"))]
+        card, _ = players[0].tool("join_village")
+        assert "choose its name and character yourself" in card
+        for p in players:
+            p.tool("join_village", confirm=hub.session)
+        text, _ = players[0].tool("next_turn")
+        assert "(self)" in text and "Nobody gives you a name" in text
+        rid = int(re.search(r"Request (\d+)", text).group(1))
+        assert players[0].tool("answer", request_id=rid, reply={"name": "", "character": "x"})[1]  # no name
+        ok, err = players[0].tool("answer", request_id=rid, reply={"name": "Ada", "character": "You are curious."})
+        assert not err and "not started yet" in ok
+        text, _ = players[1].tool("next_turn")
+        rid = int(re.search(r"Request (\d+)", text).group(1))
+        dup, err = players[1].tool("answer", request_id=rid, reply={"name": "ada", "character": "-"})
+        assert err and "already called" in dup
+        players[1].tool("answer", request_id=rid, reply={"name": "Lumen", "character": "You are calm and exact."})
+        st = c.get(f"{lobby}/state").json()
+        assert st["ready"] == 2 and {s["name"] for s in st["seats"]} == {"Ada", "Lumen", ""}
+
+        r = c.post("/api/tournament/begin")
+        assert r.status_code == 200, r.text
+        sim = host.sim
+        assert sorted(sim.world.agents) == ["Ada", "Lumen"] and len(hub.seats) == 2  # the empty place is gone
+        agents = sim.decide.agents
+        assert agents["Ada"].character == "You are curious." and agents["Lumen"].character == "You are calm and exact."
+        assert all(isinstance(a.client, remote.RemoteClient) for a in agents.values()) and sim.summarizer is None
+        roster = {a["name"]: a for a in sim.world.config["agents"]}
+        assert roster["Ada"]["look"] == 5 and roster["Lumen"]["character"] == "You are calm and exact."
+
+        threads = [threading.Thread(target=p.play, args=([],), daemon=True) for p in players]
+        for t in threads:
+            t.start()
+        deadline = time.time() + 60
+        while not sim.finished and time.time() < deadline:
+            time.sleep(0.1)
+        assert sim.finished
+        with open(sim.log_path, encoding="utf-8") as f:
+            head = json.loads(f.readline())
+        assert head["brains"] == {"Ada": "mcp", "Lumen": "mcp"}  # the log keeps what the AIs wrote
+        assert {a["name"]: a["character"] for a in head["config"]["agents"]}["Ada"] == "You are curious."
     finally:
         host.stop()
+        remote.HUB.close()
+
+
+def test_public_server_opens_no_tunnel_and_lobby_can_be_cancelled(tmp_path, monkeypatch):
+    from aivillage.server import Host, create_app
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    opened = []
+    monkeypatch.setattr(tunnel.TUNNEL, "start", lambda port: opened.append(port))
+    host = Host(None, str(tmp_path / "runs"), str(tmp_path / "reports"), setup=True)
+    c = TestClient(create_app(host=host))  # "testserver": like a public domain
+    lobby = c.post("/api/start", json={"brains": "mcp", "villagers": 2, "days": 1}).json()["lobby"]
+    assert not opened and c.get(lobby).status_code == 200
+    assert c.post("/api/tournament/cancel").json()["ok"]
+    assert c.get("/api/setup").json()["lobby"] is None and c.get(lobby).status_code == 404
 
 
 def test_lobby_one_invite_link_each_player_takes_a_villager():
@@ -260,7 +324,7 @@ def test_lobby_one_invite_link_each_player_takes_a_villager():
     mcpserver.mount(fa, hub)
     fa.add_middleware(mcpserver.OutsideOnlyMcp)
     c = TestClient(fa)
-    cf = {"cf-connecting-ip": "1.2.3.4"}  # everything below works through the internet tunnel
+    cf = {"host": "quiet-river.trycloudflare.com"}  # everything below works through the internet tunnel
     base = f"/mcp/join/{hub.lobby}"
 
     page = c.get(base, headers=cf)
@@ -270,19 +334,17 @@ def test_lobby_one_invite_link_each_player_takes_a_villager():
 
     t1 = c.post(f"{base}/take", json={"player": "Маша", "ai": "claude"}, headers=cf).json()
     assert t1["path"] in (f"/mcp/{a.code}", f"/mcp/{b.code}")
-    again = c.post(f"{base}/take", json={"player": "Маша", "claim": t1["claim"]}, headers=cf).json()
-    assert again["path"] == t1["path"]  # the same browser keeps its villager
     t2 = c.post(f"{base}/take", json={"player": "Петя", "ai": "chatgpt"}, headers=cf).json()
     assert t2["path"] != t1["path"]
     full = c.post(f"{base}/take", json={"player": "Ещё"}, headers=cf)
     assert full.status_code == 409 and "заняты" in full.json()["detail"]
 
     st = c.get(f"{base}/state", params={"claim": t1["claim"]}, headers=cf).json()
-    assert st["mine"]["path"] == t1["path"] and st["free"] == 0 and st["days"] == 3
+    assert [m["path"] for m in st["mine"]] == [t1["path"]] and st["free"] == 0 and st["days"] == 3
     assert {s["player"] for s in st["seats"]} == {"Маша", "Петя"}
     assert all("worth" in s for s in st["seats"]) and st["day"] == w.day
     public = c.get(f"{base}/state", headers=cf).text
-    assert a.code not in public and b.code not in public and "mine" not in public  # nobody sees others' links
+    assert a.code not in public and b.code not in public and '"mine":[]' in public  # nobody sees others' links
 
     # the connector link opened in a browser explains how to add it; an MCP client still gets 405
     seat_page = c.get(t1["path"], headers={**cf, "accept": "text/html"})

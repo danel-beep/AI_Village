@@ -642,11 +642,14 @@ class Host:
         self.reveal_reports = reveal_reports
         self.last: dict | None = None  # start-screen answers of the current run, to prefill the next one
         self.lab: LabJob | None = None  # the experiment playing in the background (start screen, «🔬 Опыт»)
+        self.lobby_opts: dict | None = None  # «MCP-турнир» gathering players: the start-screen answers for later
         self._lock = threading.Lock()
 
     def start(self, opts: dict) -> LiveSim:
         run_opts = knobs.to_run(opts)  # ValueError on bad input, before anything stops
         seed = run_opts["seed"] or random.SystemRandom().randrange(1, 1_000_000)
+        if not remote.HUB.prepared:  # any other start ends a tournament lobby
+            self.cancel_lobby()
         with self._lock:
             self.stop()
             world = engine.new_world(with_tick_minutes({**run_opts["override"], "seed": seed}, run_opts["tick_minutes"]))
@@ -669,6 +672,35 @@ class Host:
             self.sim.start()
             print(f"Village seed {seed}: {log}")
             return self.sim
+
+    def open_lobby(self, opts: dict) -> str:
+        """«MCP-турнир»: stop the current village and open the lobby with one place per villager; the village is
+        built by `begin_tournament` from the AIs that joined. Returns the invite path."""
+        run_opts = knobs.to_run(opts)  # ValueError on bad input, before anything stops
+        with self._lock:
+            self.stop()
+            remote.HUB.open_lobby(run_opts["values"]["villagers"], wait_minutes=run_opts["override"]["own_ai"].get(
+                "wait_minutes", 5), info={"days": run_opts["days"]})
+            self.lobby_opts = dict(opts)
+        return f"/mcp/join/{remote.HUB.lobby}"
+
+    def begin_tournament(self) -> LiveSim:
+        if self.lobby_opts is None:
+            raise ValueError("Сбор игроков не открыт.")
+        rows = remote.HUB.begin()
+        seed = int(self.lobby_opts.get("seed") or random.SystemRandom().randrange(1, 1_000_000))
+        professions = knobs.roster(len(rows), seed)  # «С нуля» has no trades; the roster still names one
+        for row, d in zip(rows, professions):
+            row.pop("player", None)
+            row["profession"] = d["profession"]
+        opts, self.lobby_opts = {**self.lobby_opts, "villagers": len(rows), "roster": rows, "seed": seed}, None
+        return self.start(opts)
+
+    def cancel_lobby(self) -> None:
+        if self.lobby_opts is not None:
+            self.lobby_opts = None
+            remote.HUB.close()
+            remote.HUB.seats = {}  # the invite and every place's link stop working
 
     def stop(self, wait: float = 5.0, ended_by: str = "new_village") -> LiveSim | None:
         """Stop the current village (it saves itself on the way out, and its session summary is saved like
@@ -888,7 +920,8 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
     @app.get("/api/remote")
     def remote_status(request: Request) -> dict:
         local_only(request)
-        st = remote.HUB.status() if host.sim is not None and host.sim.own_ai() else {"open": False, "seats": []}
+        own = (host.sim is not None and host.sim.own_ai()) or host.lobby_opts is not None
+        st = remote.HUB.status() if own else {"open": False, "seats": []}
         base = f"{request.url.scheme}://{request.url.netloc}"
         return {**st, "local": base, "tunnel": TUNNEL.status()}
 
@@ -955,6 +988,7 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         return {**knobs.schema(), "running": host.sim is not None, "can_restart": host.setup,
                 "last": host.last, "has_key": keys.has_any_key(), "has_openrouter": bool(keys.get("openrouter_key")),
                 "model": keys.get("model") or llm.DEFAULT_MODEL,
+                "lobby": f"/mcp/join/{remote.HUB.lobby}" if host.lobby_opts is not None else None,
                 "finished": bool(host.sim and host.sim.finished)}
 
     @app.post("/api/roster")
@@ -984,13 +1018,35 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         if any(not m.startswith("openai/") for m in mix) and not keys.get("openrouter_key"):
             raise HTTPException(400, "Для Haiku нужен ключ OpenRouter: «⚙️ Настройки» вверху справа. "
                                      "Или выберите «Одна на всех» и уберите Haiku у жителей.")
+        if opts.get("brains") == "mcp":  # the tournament: players gather in the lobby first, the village comes later
+            try:
+                lobby = host.open_lobby(opts)
+            except (ValueError, TypeError) as e:
+                raise HTTPException(400, str(e)) from None
+            if (request.url.hostname or "") in ("127.0.0.1", "localhost", "::1"):  # a public server needs no tunnel
+                TUNNEL.start(request.url.port or 8000)  # the players are on other devices
+            return {"ok": True, "lobby": lobby}
         try:
             sim = host.start(opts)
         except (ValueError, TypeError) as e:
             raise HTTPException(400, str(e)) from None
-        if opts.get("brains") == "mcp":  # the tournament's players are on other devices: open the tunnel at once
-            TUNNEL.start(request.url.port or 8000)
         return {"ok": True, **sim.status()}
+
+    @app.post("/api/tournament/begin")
+    def tournament_begin(request: Request) -> dict:
+        """«Начать игру» in the lobby: the village of the AIs that said yes and introduced themselves."""
+        local_only(request)
+        try:
+            sim = host.begin_tournament()
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, **sim.status()}
+
+    @app.post("/api/tournament/cancel")
+    def tournament_cancel(request: Request) -> dict:
+        local_only(request)
+        host.cancel_lobby()
+        return {"ok": True}
 
     @app.post("/api/stop")
     def stop(request: Request) -> dict:

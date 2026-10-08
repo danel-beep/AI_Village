@@ -439,15 +439,19 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         models = {n: models[i % len(models)] for i, n in enumerate(seats)}
     if not models:
         return {}
-    from .llm import VILLAIN_CHARACTER, LLMAgent, StubClient, character_text, make_client, world_facts
+    from .llm import CHARACTERS, VILLAIN_CHARACTER, LLMAgent, StubClient, character_text, make_client, world_facts
     off = hidden_actions(world.config)
     facts = world_facts(world.config)
     chars = {a["name"]: a.get("character") for a in world.config["agents"]}
     mode = world.config.get("characters", "default")
     own = world.config.get("own_ai") or {}
+    lobby = remote.HUB.prepared  # the tournament's lobby built this roster: its players are connected already
     if "mcp" in models.values():  # own AIs over MCP (aivillage/remote.py): new links and new consent every time
-        remote.HUB.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
-                         info={"villagers": len(world.agents)})
+        if lobby:
+            remote.HUB.prepared = False
+        else:
+            remote.HUB.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
+                             info={"villagers": len(world.agents)})
         remote.HUB.world = world  # the lobby's table: who is alive and how rich
     villains = villains_of(models, int(world.config.get("villains") or 0), world.config["seed"])
     out = {}
@@ -456,11 +460,17 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
         if name in villains:
             character = VILLAIN_CHARACTER
         if m == "mcp":
-            client = remote.RemoteClient(remote.HUB.add(name, world.agents[name].profession))
+            seat = remote.HUB.by_name(name) if lobby else None
+            if seat is None:
+                seat = remote.HUB.add(name, world.agents[name].profession)
+            seat.profession = world.agents[name].profession
+            client = remote.RemoteClient(seat)
             if remote.HUB.style == "owner":
                 character = remote.OWNER_CHARACTER
-            elif remote.HUB.style == "model":  # the tournament: nothing of the host's, the AI is itself
-                character = remote.MODEL_CHARACTER
+            elif remote.HUB.style == "model":  # the tournament: nothing of the host's; the AI's own words if it wrote any
+                c = chars.get(name) or ""
+                own_words = c if c != "default" and c not in CHARACTERS else ""  # a tournament roster: the AI's text
+                character = seat.character or own_words or remote.MODEL_CHARACTER
         else:
             client = StubClient(name) if m == "stub" else make_client(m, fallbacks=fallbacks)
         out[name] = LLMAgent(name, world.agents[name].profession, client, facts=facts,

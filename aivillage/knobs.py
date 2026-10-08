@@ -956,7 +956,8 @@ def to_run(opts: dict) -> dict:
     if tournament:  # every villager is a player's own AI: nothing of the host's (keys, characters, villains)
         override["own_ai"] = {**override.get("own_ai", {}), "seats": val["villagers"], "style": "model"}
         override["villains"] = 0
-        override["characters"] = "off"
+        override["characters"] = "off"  # the roster's characters are the AIs' own words (remote.SELF_PROMPT)
+        override["population"]["always"] = []  # names are the AIs' own too: no Boris by rule
     return {"override": override, "preset": preset, "llm": val["brains"] in ("llm", "mcp"), "tournament": tournament,
             "bots": BOT_MIXES[val["bot_mix"]], "days": val["days"], "pace": val["pace"],
             "seed": val["seed"], "tick_minutes": val["tick_minutes"],
