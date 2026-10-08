@@ -190,11 +190,17 @@ MODES["survival"] = {
                                               # take what lies ready in the yard
                                               "threats": {"first_day": 4, "warn_chance": 0.8,
                                                           "hostile": {"max_gap_days": 10, "min_gap_days": 4},
-                                                          # every raid hard, harder as the village
-                                                          # grows and arms itself (Danel 2026-10-08)
+                                                          # raids and beasts beaten only together
+                                                          # (Danel 2026-10-08): on 6 villagers one
+                                                          # defender never wins, 3 with spear and
+                                                          # leather ~85%, 3 bare-handed ~10%;
+                                                          # stronger as the village arms itself
                                                           "arms": {"enabled": True},
                                                           "kinds": {"raid": {"yard_share": 0.5, "hall_share": 0.4,
-                                                                             "hp": 80}}},
+                                                                             "hp": 200, "attack": 5,
+                                                                             "damage_die": 10},
+                                                                    "beast": {"hp": 170, "attack": 5,
+                                                                              "damage_die": 10}}},
                                               # the hospital is no free meal; others see who is wounded
                                               "hospital_discharge": {"satiety": 30},
                                               "wounded_seen_below": 40,
@@ -228,6 +234,10 @@ MODES["survival"] = {
                                               # "I owe you later" in kind: the hungry can borrow food
                                               # against a promise (debts.py, plan item 5)
                                               "debts": {"in_kind": True},
+                                              # a book of deeds instead of a reputation score: good deeds never
+                                              # erase bad ones; each night the villager picks what to keep for
+                                              # long (reputation.py, llm.py; Danel 2026-10-08)
+                                              "reputation": {"record": True},
                                               "land": {"claim": "first"},
                                               "seasons": {"night_hunger": {"winter": 10}},
                                               "hire": {"enabled": True},

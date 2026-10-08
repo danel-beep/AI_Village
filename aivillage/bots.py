@@ -11,6 +11,8 @@ and answer with the same decision format, so they exercise the real interface fo
 
 from __future__ import annotations
 
+import re
+
 from collections import Counter
 
 import random
@@ -26,6 +28,19 @@ def batches(obs: dict, recipe: str, default: dict) -> int:
     inv = obs["you"]["inventory"]
     need = ((obs["board"].get("recipes") or {}).get(recipe) or {}).get("inputs") or default
     return min(inv.get(k, 0) // n for k, n in need.items())
+
+
+def muster(obs: dict) -> dict | None:
+    """A raid or beast to gather at: one here now (it has a strength), or a warned one due at a house within the
+    next three hours, so the defenders are there when it comes."""
+    t = obs["time"]
+    for x in obs.get("threats", []):
+        if x.get("strength") and x.get("where"):
+            return x
+        m = re.match(r"day (\d+) around (\d+):", x.get("expected", ""))
+        if m and x.get("where") and int(m[1]) == t["day"] and int(m[2]) - 3 <= t["hour"] <= int(m[2]):
+            return x
+    return None
 
 
 def decision(name: str, args: dict | None = None, thought: str = "", say: str | None = None) -> dict:
@@ -234,8 +249,16 @@ class WorkerBot(Bot):
         def go(dest: str, why: str) -> dict:
             return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
 
-        # Tend the garden bed at home: take the ripe grain, sow again
+        # Bandits or a beast: fight them where they are, together, before chores (a starving bot eats first)
         acts = obs["available_actions"]
+        if me["satiety"] >= 15:
+            if "defend" in acts and me["health"] >= 30:
+                return decision("defend", None, "drive them off")
+            foe = muster(obs)
+            if foe and me["health"] >= 50:
+                return go(foe["where"], "drive off the " + foe["what"])
+
+        # Tend the garden bed at home: take the ripe grain, sow again
         if loc == me["home"] and "collect" in acts:
             return decision("collect", None, "harvest my garden")
         if loc == me["home"] and "plant" in acts and inv.get("grain", 0) >= 1:
@@ -289,7 +312,7 @@ class WorkerBot(Bot):
             return decision("sleep") if loc == me["home"] else go(me["home"], "go home")
 
         # Defend the house we stand in; nurse the sick; feed a traveler from a full pocket
-        if "defend" in acts and me["health"] >= 40:
+        if "defend" in acts and me["health"] >= 30:
             return decision("defend", None, "drive them off")
         if "care" in acts:
             cure = next((c for c in ("honey", "milk", "fish_soup") if inv.get(c)), None)
@@ -300,8 +323,8 @@ class WorkerBot(Bot):
             food = next((f for f in FOODS if inv.get(f, 0) >= 3), None)
             if food:
                 return decision("help_stranger", {"item": food}, "feed the traveler")
-        foe = next((x for x in obs.get("threats", []) if x.get("strength") and x.get("where")), None)
-        if foe and me["health"] >= 60:
+        foe = muster(obs)
+        if foe and me["health"] >= 50:
             return go(foe["where"], "drive off the " + foe["what"])
 
         # Help with fires
@@ -772,7 +795,7 @@ class BuilderBot(WorkerBot):
                 dest = place
             return decision("move", {"to": dest}, why) if loc != dest else decision("wait", None, why)
 
-        if obs["fires"] or "defend" in acts:
+        if obs["fires"] or "defend" in acts or (muster(obs) and me["health"] >= 50):
             return super().decide(obs)
         spare = me["satiety"] + self._food_left(inv) - 2 * (end - hour) - 110  # food points beyond my need
         for o in obs["offers_to_you"]:
@@ -786,6 +809,12 @@ class BuilderBot(WorkerBot):
             return d
         if loc == me["home"] and inv.get("fish", 0) >= 2 and inv.get("wood", 0) >= 1:
             return decision("craft", {"recipe": "fish_soup", "times": min(5, inv["fish"] // 2, inv["wood"])}, "cook")
+        if any(x.get("what") in ("bandits", "a beast") for x in obs.get("threats", [])):
+            self.alarmed = True  # once danger has shown itself, keep a club at hand
+        recipes = obs["board"].get("recipes") or {}
+        if getattr(self, "alarmed", False) and loc == me["home"] and "club" in recipes and inv.get("wood", 0) >= 4 \
+                and not any(inv.get(w) for w in ("club", "spear", "sword", "bow")):
+            return decision("craft", {"recipe": "club"}, "a club against bandits")
         warm = obs.get("warmth") or {}
         burn = warm.get("wood_a_fire_burns_tonight", 0)
         if warm and loc == me["home"]:

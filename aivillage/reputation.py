@@ -8,6 +8,12 @@ Rumors are claims, not facts. `gossip` tells people here something about a third
 it may be true or false and the engine never judges it. Hearers store it in `rumors` with
 who said it, and decide for themselves whether to believe it. Rumors never change a score.
 
+With `reputation.record` on (the «С нуля» mode) there is no score at all: each agent keeps a book of
+deeds instead (`_record`), what it saw each person do, good and bad in separate lists, plus a count per
+kind of deed. Help never pushes a harm out, and nothing nets them into a balance. Work for the
+village and trades are only counted. Debt deeds stay between the two sides, so the book never makes a
+private debt public.
+
 State lives on the agent (`Agent.reputation`, `Agent.rumors`), so old logs load unchanged.
 The engine reaches this module only through `ops.EVENT_HOOKS` and `observe()`.
 """
@@ -81,21 +87,76 @@ def on_event(ctx: Ctx, ev: Event, recipients: list[str]) -> None:
     if delta is None:
         return
     for name in recipients:
-        note(w, name, _subject(w, ev, name), delta, f"day {ev.day}: {ev.text}")
+        if cfg.get("record") and ev.kind in DEBT_KINDS and name not in _debt_sides(w, ev):
+            continue  # a bystander at a loan learns nothing for the book: debts are private
+        note(w, name, _subject(w, ev, name), delta, f"day {ev.day}: {ev.text}", kind=ev.kind)
 
 
-def note(w, name: str, subject: str | None, delta: int, text: str) -> None:
-    """`name` saw `subject` do something: move their own score by delta and keep the note."""
+def note(w, name: str, subject: str | None, delta: int, text: str, kind: str = "") -> None:
+    """`name` saw `subject` do something: move their own score by delta and keep the note
+    (with `record` on: write it in their book of deeds instead)."""
     if not w.config.get("reputation", {}).get("enabled"):
         return
     cfg = _cfg(w)
     a = w.agents.get(name)
     if a is None or subject is None or subject == name or subject not in w.agents:
         return
+    if cfg.get("record"):
+        _record(w, a, subject, delta, kind, text)
+        return
     rec = a.reputation.setdefault(subject, {"score": 0, "seen": []})
     rec["score"] = max(-cfg["score_cap"], min(cfg["score_cap"], rec["score"] + delta))
     rec["seen"].append(text)
     del rec["seen"][: -cfg["notes_per_person"]]
+
+
+# ---- the book of deeds (`record`) ----
+
+DEBT_KINDS = ("lend", "repay", "default")
+# Only counted, never listed: frequent deeds that would fill the lists (an hour on a building site, a trade).
+COUNTED_ONLY = ("trade", "contribute", "build_work", "construct", "site_supplied")
+# How a count reads in the observation; unknown kinds show as they are.
+COUNT_LABELS = {
+    "witness": "thefts you saw", "steal_attempt": "caught stealing from you", "theft_report": "reported for a crime",
+    "embezzlement_found": "took treasury coins (books)", "fight": "attacks seen", "arson_seen": "arson seen",
+    "default": "debts to you not repaid on time", "repay": "debts repaid to you on time", "lend": "loans to you",
+    "give": "gifts seen", "trade": "trades with you", "fire_out": "fires put out", "extinguish": "fires fought",
+    "contribute": "gave to village projects", "build_work": "hours on village projects",
+    "construct": "hours on building sites", "site_supplied": "materials brought to building sites",
+}
+
+
+def _debt_sides(w, ev: Event) -> tuple[str, ...]:
+    d = w.debts.get(ev.data.get("debt", ""))
+    return (d.lender, d.borrower) if d else ()
+
+
+def _record(w, a: Agent, subject: str, delta: int, kind: str, text: str) -> None:
+    cfg = _cfg(w)
+    rec = a.reputation.setdefault(subject, {"harms": [], "help": [], "counts": {}})
+    rec["counts"][kind] = rec["counts"].get(kind, 0) + 1
+    rec["last"] = w.day
+    if kind in COUNTED_ONLY:
+        return
+    lst = rec["harms" if delta < 0 else "help"]
+    lst.append(text)
+    del lst[: -cfg.get("record_keep", 5)]
+
+
+def record_view(world, name: str) -> dict:
+    """The agent's book of deeds as it reads in the prompt: people dealt with in the last `record_days`
+    days, and anyone with a harm on record whenever it was. Never a score or a balance."""
+    cfg = _cfg(world)
+    since = world.day - cfg.get("record_days", 14)
+    by = ops.name_key(world)
+    out = {}
+    for who, r in sorted(world.agents[name].reputation.items(), key=lambda x: by(x[0])):
+        if not r.get("harms") and r.get("last", 0) < since:
+            continue
+        e = {k: list(r[k]) for k in ("harms", "help") if r.get(k)}
+        e["counts"] = {COUNT_LABELS.get(k, k): n for k, n in sorted(r["counts"].items())}
+        out[who] = e
+    return out
 
 
 def _store_rumor(w, ev: Event, recipients: list[str]) -> None:
@@ -187,7 +248,9 @@ def observe(world, name: str) -> dict:
         return {}
     a = world.agents[name]
     out: dict = {}
-    if a.reputation:
+    if _cfg(world).get("record"):
+        out["record"] = record_view(world, name)  # llm.py moves it into the cached memory at dawn
+    elif a.reputation:
         by = ops.name_key(world)
         out["reputation"] = {k: dict(v, seen=list(v["seen"])) for k, v in sorted(a.reputation.items(), key=lambda x: by(x[0]))}
     if a.rumors:
@@ -201,9 +264,18 @@ def fact(cfg: dict) -> str | None:
     """One neutral line for the LLM rules cheat sheet."""
     if not cfg.get("reputation", {}).get("enabled"):
         return None
-    line = ("- \"reputation\" is what YOU saw others do (score: your own tally; it falls after thefts, violence and "
-            "unpaid debts you saw, rises after help, gifts, trades and repaid debts). "
-            "\"rumors\" are what others told you with gossip: they may be true or false, nobody checks.")
+    if cfg["reputation"].get("record"):
+        line = ("- \"what_you_saw_people_do\" in your memory is a plain record of deeds you saw or lived through, "
+                "as of this morning: \"harms\" lists the latest thefts, attacks, arson and unpaid debts, \"help\" the "
+                "latest gifts, loans, repaid debts and help with fires (one never erases the other), and \"counts\" "
+                "counts every kind of deed. It shows people you dealt with in the last "
+                f"{cfg['reputation'].get('record_days', 14)} days and anyone with something under \"harms\". Debts in it "
+                "are only your own. "
+                "\"rumors\" are what others told you with gossip: they may be true or false, nobody checks.")
+    else:
+        line = ("- \"reputation\" is what YOU saw others do (score: your own tally; it falls after thefts, violence and "
+                "unpaid debts you saw, rises after help, gifts, trades and repaid debts). "
+                "\"rumors\" are what others told you with gossip: they may be true or false, nobody checks.")
     if "origin_hops" in cfg["reputation"]:
         line += (" Pass one on with gossip(rumor=id). Words change from mouth to mouth: a retold rumor may lose "
                  "who started it, and a hearer may catch a detail wrong. A whisper or gossip to one person "
