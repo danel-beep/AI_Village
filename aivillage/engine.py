@@ -192,13 +192,15 @@ def observe(world: World, name: str, consume_inbox: bool = True) -> dict:
 
 
 def seen_hunger(cfg: dict, o) -> dict:
-    """What others see of `o`'s hunger: {"starving": True} at 0 satiety, {"hungry": True} below the line."""
+    """What others see of `o`'s hunger: {"starving": True} at 0 satiety, {"hungry": True} below the line; and
+    {"wounded": True} below `wounded_seen_below` health (0 = never shown)."""
     below = cfg.get("hungry_seen_below", 0)
+    hurt = {"wounded": True} if o.health < int(cfg.get("wounded_seen_below", 0)) else {}
     if not below:
-        return {}
+        return hurt
     if o.satiety <= 0:
-        return {"starving": True}
-    return {"hungry": True} if o.satiety < below else {}
+        return {"starving": True, **hurt}
+    return {"hungry": True, **hurt} if o.satiety < below else hurt
 
 
 def plant_info(world: World, loc) -> dict:
@@ -521,8 +523,12 @@ def night(ctx: Ctx) -> None:
         a.busy_until = w.tick + wake_offset(w, a.name)
         if a.status == "hospital" and w.day >= a.status_until_day:
             a.status, a.location = "active", a.home
-            a.health, a.satiety = 60, 60
-            ctx.emit("discharged", f"{a.name} is back from the hospital.", visibility="public")
+            back = cfg.get("hospital_discharge") or {}
+            a.health, a.satiety = int(back.get("health", 60)), int(back.get("satiety", 60))
+            last = graves.lives_left(cfg, a).get("hospital_stays_left") == 0
+            ctx.emit("discharged", f"{a.name} is back from the hospital" + (
+                ", with no hospital stays left: the next collapse is death." if last else "."), visibility="public",
+                **({"no_stays_left": True} if last else {}))
 
     # Weekly tax
     if (w.day - 1) % cfg["tax_every_days"] == 0:
