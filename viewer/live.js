@@ -73,14 +73,14 @@
   // The backlog arrives in one burst; hand it to the viewer as a single log once it settles.
   setInterval(() => {
     if (!loaded && buffer.length > 1) {
-      const atEnd = buffer.length - 2;
       load(buffer.join('\n'));
       loaded = true;
       const drop = document.getElementById('drop');  // the "open a log file" dialog is not needed live
       if (drop) drop.style.display = 'none';
       // Start at the newest ticks: replaying the backlog would make pause look broken (the server stops,
       // the screen keeps playing old hours). The scrubber still reaches the past.
-      if (typeof i !== 'undefined') { i = Math.max(0, atEnd); frac = 1; }
+      // (the newest tick by the ticks themselves: night diaries in the backlog are not ticks)
+      if (typeof i !== 'undefined') { i = Math.max(0, ticks.length - 1); frac = 1; }
     }
   }, 300);
 

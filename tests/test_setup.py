@@ -314,3 +314,41 @@ def test_villains_per_model_from_the_start_screen(tmp_path, monkeypatch):
         assert ag.character == (llm.VILLAIN_CHARACTER if n in bad else "")
     w.config["villains"] = 0
     assert villains_meta(type("Decide", (), {"agents": llm_agents(w, got["models"])})()) == {}  # header unchanged
+
+
+def test_each_villager_gets_own_model_and_character_from_the_start_screen(tmp_path, monkeypatch):
+    from aivillage import engine, llm, remote
+    from aivillage.run import llm_agents
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    ch = knobs.characters()
+    assert ch["villain"]["text"] == llm.VILLAIN_CHARACTER and ch["villain"]["group"] == "evil"
+    assert ch["kind"]["group"] == "good" and ch["honest"]["group"] == "mild"
+    assert not set(llm.STRONG_CHARACTERS) & set(llm.CHARACTERS)  # «Случайный у каждого» draws only mild ones
+    haiku = "anthropic/claude-haiku-5.5"
+    rows = [{"name": "Boris", "profession": "farmer", "character": "villain", "model": haiku},
+            {"name": "Вера", "profession": "fisher", "character": "kind"},
+            {"name": "Ян", "profession": "smith", "character": "You hum songs all day."},
+            {"name": "Ада", "profession": "miner", "character": "default"}]
+    run = knobs.to_run({"villagers": 4, "roster": rows})  # characters «off» by default: hand-set ones still count
+    assert run["override"]["characters"] == "default"
+    assert [a.get("model") for a in run["override"]["agents"]] == [haiku, None, None, None]
+    assert knobs.to_run({"villagers": 2, "roster": rows[3:]})["override"]["characters"] == "off"
+    with pytest.raises(ValueError):
+        knobs.clean_roster([{**rows[0], "model": "evil/model"}], 1)
+    assert knobs.roster(5, 1, rows)[0]["model"] == haiku  # a longer village keeps the picks
+
+    w = engine.new_world({**run["override"], "seed": 3})
+    models = remote.models_for(w.config, knobs.MODEL_MIXES["luna_haiku"])
+    rest = [m for n, m in models.items() if n != "Boris"]
+    assert models["Boris"] == haiku and len(rest) == 3 and set(rest) == set(knobs.MODEL_MIXES["luna_haiku"])
+    agents = llm_agents(w, {n: "stub" for n in models})
+    assert agents["Boris"].character == llm.VILLAIN_CHARACTER
+    assert agents["Вера"].character == llm.STRONG_CHARACTERS["kind"]
+    assert agents["Ян"].character == "You hum songs all day." and agents["Ада"].character == ""
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    c = TestClient(create_app(host=Host(None, str(tmp_path / "runs"), setup=True)))
+    r = c.post("/api/start", json={"brains": "llm", "villagers": 4, "roster": rows})
+    assert r.status_code == 400 and "OpenRouter" in r.json()["detail"]  # Haiku picked for one villager
+    assert c.get("/api/setup").json()["villager_models"][0][0] == ""

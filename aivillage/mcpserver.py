@@ -70,6 +70,9 @@ def _next(seat: remote.Seat, prefix: str = "") -> dict:
         return _text(prefix + seat.render(req))
     if hub.closed:
         return _text(prefix + hub.closed_text())
+    if hub.phase == "lobby":
+        return _text(prefix + "The game has not started yet: the host starts it when the players are ready. "
+                              "Call next_turn again.")
     return _text(prefix + f"Not your turn yet: {seat.name} is busy or the others are still deciding. "
                           "Call next_turn again.")
 
@@ -164,24 +167,41 @@ def mount(app: FastAPI, hub: remote.Hub | None = None) -> None:
 
     @app.get("/mcp/join/{lobby}/state")
     def lobby_state(lobby: str, claim: str = "") -> dict:
+        """The public table, plus `mine`: the places of the claims this browser holds (comma separated)."""
         h = lobby_or_404(lobby)
         out = h.lobby_status()
-        seat = h.by_claim(claim)
-        if seat is not None:
-            out["mine"] = {"name": seat.name, "path": f"/mcp/{seat.code}", "state": seat.state()}
+        mine = [s for s in (h.by_claim(c) for c in claim.split(",")[:remote.PER_PLAYER * 2]) if s is not None]
+        out["mine"] = [{"claim": s.claim, "name": s.name, "ai": s.ai, "look": s.look, "path": f"/mcp/{s.code}",
+                        "state": s.state()} for s in mine]
         return out
 
     @app.post("/mcp/join/{lobby}/take")
     def lobby_take(lobby: str, body: dict = Body(...)) -> dict:
         h = lobby_or_404(lobby)
-        old = h.by_claim(str(body.get("claim") or ""))
-        if old is not None:  # the same browser again: keep its villager
-            return {"claim": old.claim, "name": old.name, "path": f"/mcp/{old.code}"}
         try:
-            seat = h.take(str(body.get("player") or ""), str(body.get("ai") or ""))
+            seat = h.take(str(body.get("player") or ""), str(body.get("ai") or ""), body.get("look"))
         except ValueError as e:
             return JSONResponse({"detail": str(e)}, 409)
         return {"claim": seat.claim, "name": seat.name, "path": f"/mcp/{seat.code}"}
+
+    @app.post("/mcp/join/{lobby}/look")
+    def lobby_look(lobby: str, body: dict = Body(...)) -> dict:
+        """Change how your villager looks, until the game starts."""
+        h = lobby_or_404(lobby)
+        seat = h.by_claim(str(body.get("claim") or ""))
+        if seat is None or h.phase != "lobby":
+            return JSONResponse({"detail": "Внешность меняется только до начала игры."}, 409)
+        seat.look = remote.clean_look(body.get("look"))
+        return {"ok": True, "look": seat.look}
+
+    ASSETS = {"sprites.js": "sprites.js", "sprites_data.js": "sprites_data.js"}  # the looks, for the lobby page
+
+    @app.get("/mcp/assets/{name}")
+    def lobby_asset(name: str) -> Response:
+        if name not in ASSETS:
+            return Response(status_code=404)
+        return Response((PAGE.parent / ASSETS[name]).read_bytes(), media_type="text/javascript",
+                        headers={"Cache-Control": "public, max-age=3600"})
 
     @app.post("/mcp/join/{lobby}/leave")
     def lobby_leave(lobby: str, body: dict = Body(...)) -> dict:
@@ -207,7 +227,8 @@ def mount(app: FastAPI, hub: remote.Hub | None = None) -> None:
     def mcp_get(code: str, request: Request) -> Response:  # no server-initiated stream
         seat = seat_or_404(code) if wants_page(request) else None
         if seat is not None:  # the link opened in a browser: how to add it to your AI
-            return page({"mode": "seat", "name": seat.name, "session": seat.hub.session, "player": seat.player})
+            return page({"mode": "seat", "name": seat.name, "session": seat.hub.session, "player": seat.player,
+                         "look": seat.look})
         return Response(status_code=405, headers={"Allow": "POST"})
 
     @app.delete("/mcp/{code}")
@@ -215,9 +236,13 @@ def mount(app: FastAPI, hub: remote.Hub | None = None) -> None:
         return Response(status_code=200 if seat_or_404(code) else 404)
 
 
+TUNNEL_HOSTS = (".trycloudflare.com",)
+
+
 class OutsideOnlyMcp:
-    """ASGI middleware: requests that came through the internet tunnel (Cloudflare adds `cf-connecting-ip` /
-    `cf-ray`) may reach `/mcp/...` (and `/.well-known/...`, which 404s) only, never the host's viewer, god panel, settings or keys."""
+    """ASGI middleware: requests that came through the internet tunnel (a `*.trycloudflare.com` name in `Host`) may
+    reach `/mcp/...` (and `/.well-known/...`, which 404s) only, never the host's viewer, god panel, settings or keys.
+    A server that is public on purpose (its own domain, maybe behind Cloudflare) is not affected."""
 
     def __init__(self, app):
         self.app = app
@@ -226,8 +251,8 @@ class OutsideOnlyMcp:
         path = scope.get("path", "")
         # /.well-known stays reachable so clients' OAuth discovery gets a plain 404 (no login needed)
         if scope["type"] in ("http", "websocket") and not path.startswith(("/mcp/", "/.well-known/")):
-            names = {k.lower() for k, _ in scope.get("headers") or []}
-            if b"cf-connecting-ip" in names or b"cf-ray" in names:
+            host = next((v for k, v in scope.get("headers") or [] if k.lower() == b"host"), b"").decode("latin-1")
+            if host.split(":")[0].lower().endswith(TUNNEL_HOSTS):
                 if scope["type"] == "websocket":
                     await send({"type": "websocket.close", "code": 1008})
                     return

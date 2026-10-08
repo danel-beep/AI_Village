@@ -203,3 +203,19 @@ def test_shell_rolls_back_a_new_version_that_does_not_start(tmp_path, monkeypatc
 def test_splash_escapes_the_log():
     html = app.splash("Игра не запустилась.", "</script><b>x</b>")
     assert "</script><b>" not in html and "Игра не запустилась." in html
+
+
+def test_background_updater_ends_as_soon_as_the_window_closes(tmp_path):
+    """It slept for half an hour between checks, and the app waited for it after the window closed:
+    the closed app hung (Danel, 2026-10-08)."""
+    import threading
+    import time
+    shell = app.Shell(app.Home(tmp_path), RecordingUI())
+    t = threading.Thread(target=shell.background, args=(None,))
+    t.start()
+    time.sleep(0.2)
+    started = time.monotonic()
+    shell.stop()
+    t.join(5)
+    assert not t.is_alive() and time.monotonic() - started < 2
+
