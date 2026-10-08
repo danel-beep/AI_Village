@@ -461,3 +461,4 @@ const Clip = (() => {
   if (document.body) document.body.append(box); else window.addEventListener('DOMContentLoaded', () => document.body.append(box));
   return { make, record, button, supported, busy: () => !!job, canvas: out, plan, ramp };
 })();
+window.Clip = Clip;   // index.html's loop() and efir.js check window.Clip.busy()

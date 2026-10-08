@@ -23,7 +23,7 @@
     const now = Math.min(i, ticks.length - 1), day = dayOf(now), seen = new Map();
     for (let k = now; k >= 0 && dayOf(k) >= day; k--) {
       for (const e of ticks[k].events || []) {
-        const sc = Camera.score(e.kind); if (sc < MIN || (e.day != null && e.day !== day)) continue;
+        const sc = Camera.score(e.kind, e.data); if (sc < MIN || (e.day != null && e.day !== day)) continue;
         const d = e.data || {}, who = e.actor || d.victim || (e.to || [])[0] || '';
         const group = GROUP.has(e.kind), id = group ? e.kind : (THEFT.test(e.kind) ? 'theft' : e.kind) + '|' + who;
         const it = seen.get(id);

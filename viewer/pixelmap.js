@@ -802,7 +802,7 @@ const PixelMap = (() => {
     const k = Math.max(1, Math.min(1.7, Math.pow(cam.z, .45))), hk = heads.map(h => ({ n: h.n, sx: h.sx / k, sy: h.sy / k }));
     ctx.save(); ctx.scale(k, k);
     Actors.badges(ctx, hk, t);
-    Actors.bubbles(ctx, hk, selected, tr || String, W * S / k);
+    Actors.bubbles(ctx, hk, selected, tr || String, W * S / k, Camera.focus && Camera.focus());
     ctx.restore();
     if (built) BuildLayer.banner(ctx, t, time);   // «Новая стадия» banner (village_stage)
   }

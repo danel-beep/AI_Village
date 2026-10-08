@@ -53,7 +53,7 @@ const Camera = (() => {
     });
     box = document.createElement('div'); const parent = canvas.parentElement;
     if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
-    box.style.cssText = 'position:absolute;left:8px;display:flex;gap:4px;z-index:5';   // bottom-left of the map, kept there in update()
+    box.id = 'cam-tools'; box.style.cssText = 'position:absolute;left:8px;display:flex;gap:4px;z-index:5';   // bottom-left of the map, kept there in update()
     for (const [t, title, fn] of [['+', 'приблизить (колесо мыши, щипок)', () => zoomAt(1.6)], ['−', 'отдалить', () => zoomAt(1 / 1.6)],
                                   ['⤢', 'вся деревня (клавиша 0)', reset], ['🎬', 'авто-камера: сама едет туда, где что-то происходит (клавиша D)', () => setDirector(!director.on)]]) {
       const bt = document.createElement('button'); bt.textContent = t; bt.title = title; bt.onclick = fn;
@@ -78,7 +78,12 @@ const Camera = (() => {
     gossip: 3, praise: 4, title_given: 7, say: 1, offer: 2, set_fire: 9, arson_seen: 9, land_bought: 5, land_sold: 5, land_offer: 2,
     // threats from outside (aivillage/threats.py)
     threat_arrived: 10, beast_attack: 9, plundered: 9, defend: 9, threat_defeated: 9, threat_moves: 6,
-    threat_left: 5, threat_warning: 5, help_stranger: 4, chase_stranger: 5 };
+    threat_left: 5, threat_warning: 5, help_stranger: 4, chase_stranger: 5,
+    // a polity (aivillage/polity.py): coups, elections, laws, the treasury; and what else happens to people
+    polity_founded: 7, polity_form: 7, polity_leaders: 7, polity_law_passed: 6, polity_law_failed: 6, polity_law_proposed: 4,
+    polity_petition: 5, polity_embezzle: 9, polity_embezzlement_found: 8, polity_audit: 5, polity_tax_set: 4,
+    theft_report: 6, overheard: 5, crisis: 5, sick: 4, place_lost: 4, project_done: 5, village_stage: 6, law_failed: 6,
+    discharged: 4, stranger_thanks: 4 };
   const LABEL = { fire: '🔥 Пожар', fire_grows: '🔥 Пожар разгорается', burned_down: '🔥 Дом сгорел', extinguish: '💧 Тушат пожар',
     fire_out: '💧 Пожар потушен', pour_water: '💧 Тушат пожар', death: '✝ Смерть', steal: '🕵 Кража', theft: '🕵 Кража',
     steal_attempt: '🕵 Кража', robbed: '🕵 Кража', caught: '🚨 Вора поймали', witness: '👀 Свидетель', eviction: '🏚 Выселение',
@@ -89,16 +94,31 @@ const Camera = (() => {
     set_fire: '🔥 Поджог', arson_seen: '🔥 Поджог', land_bought: '🏡 Купил землю', land_sold: '🏡 Продал землю', land_offer: '🏡 Продаёт землю',
     threat_arrived: '⚠ Беда пришла', beast_attack: '🐺 Зверь нападает', plundered: '🗡 Грабят', defend: '⚔ Отбиваются',
     threat_defeated: '🏆 Отбились', threat_moves: '👣 Идёт к следующему дому', threat_left: '🌲 Ушёл',
-    threat_warning: '⚠ Предупреждение', help_stranger: '🍞 Кормят путника', chase_stranger: '🚪 Прогнали путника' };
+    threat_warning: '⚠ Предупреждение', help_stranger: '🍞 Кормят путника', chase_stranger: '🚪 Прогнали путника',
+    polity_founded: '🏛 Основано общество', polity_form: '🏛 Форма правления', polity_leaders: '🏛 Казначей',
+    polity_law_passed: '📜 Закон принят', polity_law_failed: '📜 Закон не прошёл', polity_law_proposed: '📜 Предлагают закон',
+    polity_petition: '✍ Петиция', polity_embezzle: '💰 Казну тайно обокрали', polity_embezzlement_found: '🚨 Растрата раскрыта',
+    polity_audit: '🔍 Ревизия казны', polity_tax_set: '💰 Налог', theft_report: '📢 Донос о краже', overheard: '👂 Подслушал',
+    crisis: '⚠ Беда в деревне', sick: '🤒 Заболел', place_lost: '🪓 Остался без работы', project_done: '🏗 Стройка готова',
+    village_stage: '🏘 Деревня растёт', law_failed: '📜 Закон не прошёл', discharged: '🏥 Вернулся из больницы',
+    stranger_thanks: '🎒 Путник благодарит' };
   const THREAT = { beast: '🐺 Зверь', raid: '🗡 Бандиты', traveler: '🎒 Путник' };
-  const score = k => DRAMA[k] || (/fight|attack|duel|brawl|hit/.test(k) ? 9 : 0);
+  // d (the event's data, optional) refines a few kinds: a traveler is milder than a beast, an election result is news
+  // but the "vote until ..." notice is not.
+  const score = (k, d) => {
+    if (d && k === 'threat_arrived' && d.threat_kind === 'traveler') return 6;
+    if (d && k === 'polity_leaders') return d.keeper || (d.rulers || []).length ? 8 : 4;
+    return DRAMA[k] || (/fight|attack|duel|brawl|hit/.test(k) ? 9 : 0);
+  };
   const label = k => LABEL[k] || (/fight|attack|duel|brawl|hit/.test(k) ? '⚔ Драка' : '👀');
   // On by default: only an explicit "off" from the viewer (stored under a new key) keeps it off.
-  const director = { on: false, shot: null, age: 0, hold: 0, seen: null, btn: null };
+  // ahead: a shot of something about to happen, set every frame by the «Эфир» replay (viewer/efir.js) so the camera is
+  // there before it happens; it carries no caption (the countdown plaque speaks instead).
+  const director = { on: false, shot: null, age: 0, hold: 0, seen: null, btn: null, ahead: null };
   let caption = null;
   // persist: the viewer pressed the button (clip.js toggles it while recording and must not change the choice).
   function setDirector(on, persist = true) {
-    director.on = on; director.shot = null; director.hold = 0;
+    director.on = on; director.shot = null; director.hold = 0; director.ahead = null;
     if (director.btn) { director.btn.style.background = on ? '#f2c14e' : ''; director.btn.style.color = on ? '#1b1b24' : '';
       director.btn.setAttribute('aria-pressed', on); director.btn.textContent = on ? '🎬 Авто' : '🎬 Авто: выкл'; }
     if (caption) caption.style.opacity = 0;
@@ -119,11 +139,18 @@ const Camera = (() => {
       director.age += dt; if (director.hold > 0) { director.hold -= dt; return; }   // the viewer just dragged: let them look
       if (lastSel) return;                                                           // a picked villager is followed instead
     }
-    if (!pinned && director.seen !== t.tick) {
+    const ah = !pinned && director.ahead;
+    if (ah) {   // the «Эфир» replay knows what comes next: go there now
+      const cur = director.shot;
+      if (!cur || !cur.ahead || cur.loc !== ah.loc || cur.who !== ah.who) { director.shot = { ...ah, ahead: true }; director.age = 0; }
+      director.seen = null;
+    } else if (!pinned && director.seen !== t.tick) {
       director.seen = t.tick;
+      const was = director.shot;   // a look-ahead shot: it is happening now, so label it (one with no kind just ends)
+      if (was && was.ahead) { if (was.kind) was.ahead = false; else director.shot = null; }
       let best = null;
       for (const e of t.events || []) {
-        const sc = score(e.kind); if (!sc) continue;
+        const sc = score(e.kind, e.data); if (!sc) continue;
         const d = e.data || {}, who = e.actor && pos(e.actor) ? e.actor : null,
           th = d.threat && (t.view.threats || []).find(x => x.id === d.threat && x.state === 'here'),   // where the beast is now
           loc = (th && th.location) || e.location || d.house || d.location || d.target;
@@ -135,7 +162,7 @@ const Camera = (() => {
         best = { sc: 8, who: null, loc: th.location, kind: 'threat_here', what: THREAT[th.kind] };
       const fire = (t.view.fires || []).find(at);   // a house still burning stays worth watching
       if (fire && (!best || best.sc < 7)) best = { sc: 7, who: null, loc: fire, kind: 'fire' };
-      const cur = director.shot, same = cur && best && cur.loc === best.loc && cur.who === best.who;
+      const cur = director.shot, same = cur && best && (cur.loc || null) === (best.loc || null) && cur.who === best.who;
       if (best && same) { Object.assign(cur, best, { sc: Math.max(cur.sc, best.sc) }); }    // same spot: keep the shot going
       else if (best && best.sc < 3 && cur && director.age < CHAT_HOLD) {}                  // chatter never cuts a shot
       else if (best && (!cur || director.age > MIN_HOLD || best.sc >= cur.sc + 3)) { director.shot = best; director.age = 0; }
@@ -144,8 +171,8 @@ const Camera = (() => {
     const s = pinned ? pinned.shot : director.shot;
     if (caption && flashT > 0) { flashT -= dt; caption.style.opacity = 1; caption.textContent = flashText; caption.style.top = (cv.offsetTop + 8) + 'px'; }
     else if (caption) {
-      caption.style.opacity = s ? 1 : 0;
-      if (s) caption.textContent = (s.kind === 'threat_here' ? s.what : label(s.kind) + (s.what ? ' · ' + s.what : '')) +
+      caption.style.opacity = s && !s.ahead ? 1 : 0;
+      if (s && !s.ahead) caption.textContent = (s.kind === 'threat_here' ? s.what : label(s.kind) + (s.what ? ' · ' + s.what : '')) +
         (s.who ? ': ' + s.who : '') + (s.loc && t.view.locations[s.loc] ? ' · ' + tr(t.view.locations[s.loc]) : '');
       caption.style.top = (cv.offsetTop + 8) + 'px';
     }
@@ -161,7 +188,15 @@ const Camera = (() => {
     const d = ev.data || {}, th = d.threat && ((t && t.view.threats) || []).find(x => x.id === d.threat && x.state === 'here');
     director.pin = { left: sec, shot: { sc: score(ev.kind) || 6, who: ev.actor || null, kind: ev.kind,
       loc: (th && th.location) || ev.location || d.house || d.location || d.target, what: d.threat_kind && THREAT[d.threat_kind] } };
-    director.shot = null; director.age = 0; director.hold = 0; follow = null;
+    director.shot = null; director.age = 0; director.hold = 0; director.ahead = null; follow = null;
+  }
+  // «Эфир» (viewer/efir.js): shot = {who, loc, sc} of what is about to happen, or null. Kept until changed.
+  function ahead(shot) { director.ahead = shot && director.on ? shot : null; }
+  // The villager the picture is about: the one picked, else the director's current shot.
+  function focus() {
+    if (lastSel) return lastSel;
+    const s = director.pin ? director.pin.shot : director.on ? director.shot : null;
+    return s && s.who || null;
   }
   let flashT = 0, flashText = '';
   function flash(text, sec = 2.5) { flashText = text; flashT = sec; if (caption) { caption.textContent = text; caption.style.top = (cv.offsetTop + 8) + 'px'; } }
@@ -180,5 +215,5 @@ const Camera = (() => {
     if (box) box.style.top = (cv.offsetTop + cv.offsetHeight - 38) + 'px';
   }
 
-  return { attach, update, direct, view, toWorld, toScreen, setDirector, directorOn, score, label, pin, flash, toolbar };
+  return { attach, update, direct, view, toWorld, toScreen, setDirector, directorOn, score, label, pin, flash, toolbar, ahead, focus, captionEl: () => caption };
 })();
