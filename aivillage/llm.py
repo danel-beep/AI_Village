@@ -79,6 +79,16 @@ Answer with ONE JSON object and nothing else:
   "today": "what you mean to do today, one or two sentences"}}
 No other villager reads this."""
 
+# Book of deeds (reputation.record): good and bad stay in the engine's record, and each night the villager itself
+# picks what to carry for long, in its own words (Danel 2026-10-08). The question names no kind of memory.
+REFLECT_KEEP = (
+    '\nAlso put in the same object "remember": a list of at most {n} things from today you want to remember for a '
+    'long time, each one sentence in your own words ([] if nothing), and "forget": the numbers of things you chose to '
+    'remember before that you no longer need ([] to keep them all).')
+KEEP_PER_NIGHT = 2
+KEEP_MAX = 20  # past it the oldest goes
+KEEP_CHARS = 200
+
 REFLECT_GOALS = (
     '\nAlso put in the same object "wants": what you want from your life here now, in your own words (keep, change '
     'or drop what you wrote before; "" if nothing in particular), and "tomorrow": what you mean to do tomorrow, '
@@ -749,6 +759,7 @@ def compact_obs(obs: dict) -> dict:
     o = json.loads(json.dumps(obs))
     o["board"].pop("recipes", None)
     o.pop("locked_actions", None)  # progress.py: goes into the handbook instead
+    o.pop("record", None)  # reputation.record: in the long memory, taken at dawn
     o["board"]["trader_prices"] = {k: f"{v['buy']}/{v['sell']}" for k, v in o["board"]["trader_prices"].items()}
     for k in ("fires", "offers_to_you", "your_offers"):
         if not o[k]:
@@ -784,6 +795,9 @@ class LLMAgent:
     introduced: bool = False
     memory: str = DEFAULT_MEMORY  # MEMORY_MODES
     turns: list[dict] = field(default_factory=list)  # "day" mode: today's turns as chat messages
+    record: dict | None = None  # reputation.record: the book of deeds as of the day's first turn (None: no book)
+    record_day: int | None = None
+    kept: list[dict] = field(default_factory=list)  # [{"day", "text"}]: what it chose at night to remember for long
 
     def __post_init__(self):
         if getattr(self.client, "cache_key", None) is None:
@@ -803,11 +817,25 @@ class LLMAgent:
                       "your_plan_for_today": self.plan or "(none)"}
         if self.people:
             memory["people"] = self.people
+        if self.kept:
+            memory["you_chose_to_remember"] = self.kept_lines()
+        if self.record is not None:
+            memory["what_you_saw_people_do"] = self.record or "nothing yet"
         if self.diary and self.memory == "day":  # cached all day, so a few more days cost next to nothing
             memory["your_diary"] = {f"day {e['day']}": e["text"] for e in self.diary[-DAY_DIARIES:]}
         elif self.diary:
             memory["last_diary"] = self.diary[-1]["text"]
         return memory
+
+    def kept_lines(self) -> list[str]:
+        return [f"{i}. day {k['day']}: {k['text']}" for i, k in enumerate(self.kept, 1)]
+
+    def take_record(self, obs: dict) -> None:
+        """Once a day, at the first turn: the book of deeds goes into the long memory, so the cached part of the
+        prompt stays the same all day. What happens today is in the day's own turns."""
+        day = obs.get("time", {}).get("day")
+        if "record" in obs and day != self.record_day:
+            self.record, self.record_day = obs["record"], day
 
     def messages(self, obs: dict) -> list[dict]:
         if self.memory == "day":
@@ -913,6 +941,7 @@ class LLMAgent:
         self.day_log = [l for i, l in enumerate(self.day_log) if i not in drop]
 
     def decide(self, obs: dict) -> dict:
+        self.take_record(obs)
         intro = self.introduce(obs) if self.own_goals and not self.introduced else None
         dec = self._decide(obs)
         if intro:  # logged with the first decision: the viewer, the scorecard and replays read it there
@@ -958,18 +987,30 @@ class LLMAgent:
             system += REFLECT_GOALS
             user += (f"What you wanted before today: {json.dumps(self.wants or 'nothing written')}\n"
                      f"What you meant to do today: {json.dumps(self.plan or 'nothing written')}\n")
+        if self.record is not None:
+            system += REFLECT_KEEP.format(n=KEEP_PER_NIGHT)
+            met = {who: r for who, r in self.record.items() if any(who in l for l in log)}
+            user += (f"What you chose to remember before: {json.dumps(self.kept_lines() or 'nothing yet')}\n"
+                     f"What you saw the people you met today do before today: {json.dumps(met or 'nothing')}\n")
         user += "Today:\n" + "\n".join(log)
-        try:
-            text, usage = self.client.complete([{"role": "system", "content": system},
-                                                {"role": "user", "content": user}])
-        except Exception:
-            self.usage.failures += 1
-            return None
-        self.usage.add(usage)
-        d = parse_json_object(text, "diary")
-        if not d or not isinstance(d.get("diary"), str):
+        d = None
+        for _ in range(2):  # one retry: a lost night would lose the diary and what to remember
+            try:
+                text, usage = self.client.complete([{"role": "system", "content": system},
+                                                    {"role": "user", "content": user}])
+            except Exception:
+                self.usage.failures += 1
+                continue
+            self.usage.add(usage)
+            d = parse_json_object(text, "diary")
+            if d and isinstance(d.get("diary"), str):
+                break
+            d = None
+        if d is None:
             return None
         entry = {"day": day, "text": " ".join(d["diary"].split()[:DIARY_WORDS])}
+        if self.record is not None:
+            entry |= self.keep(day, d.get("remember"), d.get("forget"))
         if self.own_goals:
             self.set_goals(d.get("wants"), d.get("tomorrow"))
             entry |= {"wants": self.wants, "plan": self.plan}
@@ -979,6 +1020,25 @@ class LLMAgent:
                 if who in self.villagers and isinstance(note, str) and note.strip():
                     self.people[who] = note.strip()[:PERSON_NOTE_CHARS]
         return {**entry, "people": dict(self.people)}
+
+    def keep(self, day: int, remember, forget) -> dict:
+        """Apply the night's choice: drop what it asked to forget, add up to KEEP_PER_NIGHT new things.
+        Returns what changed, for the log."""
+        out = {}
+        if isinstance(forget, list):
+            drop = {n for n in forget if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= len(self.kept)}
+            if drop:
+                out["forgot"] = [self.kept[n - 1]["text"] for n in sorted(drop)]
+                self.kept = [k for i, k in enumerate(self.kept, 1) if i not in drop]
+        if isinstance(remember, str):
+            remember = [remember]
+        if isinstance(remember, list):
+            new = [" ".join(t.split())[:KEEP_CHARS] for t in remember if isinstance(t, str) and t.strip()][:KEEP_PER_NIGHT]
+            if new:
+                self.kept += [{"day": day, "text": t} for t in new]
+                del self.kept[:-KEEP_MAX]
+                out["remember"] = new
+        return out
 
 
 def reflect_all(agents: dict[str, LLMAgent], day: int) -> dict[str, dict]:

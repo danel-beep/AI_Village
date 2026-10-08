@@ -228,6 +228,10 @@ MODES["survival"] = {
                                               # "I owe you later" in kind: the hungry can borrow food
                                               # against a promise (debts.py, plan item 5)
                                               "debts": {"in_kind": True},
+                                              # a book of deeds instead of a reputation score: good deeds never
+                                              # erase bad ones; each night the villager picks what to keep for
+                                              # long (reputation.py, llm.py; Danel 2026-10-08)
+                                              "reputation": {"record": True},
                                               "land": {"claim": "first"},
                                               "seasons": {"night_hunger": {"winter": 10}},
                                               "hire": {"enabled": True},
