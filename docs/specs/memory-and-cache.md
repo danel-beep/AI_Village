@@ -34,6 +34,16 @@ notes, last 3 actions, people, last diary) and the observation.
   (the uncached part). `openai_cost` bills writes at the input price; OpenAI says GPT-5.6+ writes have their own
   price, so check the real bill once.
 - The reuse window is about 30 minutes; a villager's turns are seconds to minutes apart.
+- The system message is sent in two parts (`CACHE_SPLIT`, 2026-10-08): the world text before "You are <name>"
+  (handbook and world facts, ~9k tokens, the same for every villager) gets its own breakpoint. Without it the first
+  turn after the intro and every morning (new memory at the end of the system message) paid for the whole prompt
+  again. OpenAI shares that part only between calls with the same `prompt_cache_key`, i.e. one villager's mornings;
+  Claude shares it between all villagers within its 5 minutes.
+- An explicit breakpoint on a system content part works the same as on a user message (measured).
+- Claude (`anthropic/*` via OpenRouter) caches nothing without `cache_control`: the client marks the same points.
+  Writes cost 1.25x the input price, reads 0.1x; Claude's 5-minute window is long enough for one village day.
+- OpenAI's `service_tier: "flex"` (default, settings field `openai_tier`): half price, ~10 s a call instead of ~3 s,
+  about one call in five answered "busy" (429) and sent again at once at the normal price. Same model, same answers.
 
 ## Where the money goes (5 villagers x 2 days, Luna, before this change)
 
