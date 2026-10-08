@@ -44,6 +44,8 @@ CLIP_MAX_BYTES = 300 * 1024 * 1024  # highlight clips; a week's reel is a few MB
 VIEW_LAG_MINUTES = 30  # two quarter-hour ticks of buffer: smooth, and a god click lands half an hour later
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
 BACKLOG_DIARIES = 200  # and at most this many nightly diaries (one per night)
+BUDGET_WARMUP_TICKS = 8  # the first ticks after a start or a load are never budget-paced: the village visibly wakes up
+BUDGET_COST_WINDOW = 8  # pace from the average cost of the last ticks, so one expensive tick is not a long stall
 CLIENT_QUEUE = 4000  # records waiting for one slow viewer; past this it is dropped and reconnects for a fresh backlog
 
 
@@ -107,10 +109,12 @@ class LiveSim:
         self._spent_seen: float | None = None  # model cost already counted toward the daily cap
         self._own_today: tuple[str, float] = ("", 0.0)  # this village's share today (if spend.json is unwritable)
         self._count_lock = threading.Lock()  # recaps and highlights finish on their own threads
-        # Budget pacing: the least real seconds the next tick takes so today's money lasts the whole day
-        # (budget.pace_seconds); the watch pace (`pace`) still applies when it is slower.
+        # Budget pacing: the least real seconds the next tick takes so today's money lasts at least
+        # budget.PACE_HOURS more (budget.pace_horizon); the watch pace (`pace`) still applies when it is slower.
         self.budget_pace = 0.0
         self._last_checkpoint: float | None = None
+        self._tick_costs: deque[float] = deque(maxlen=BUDGET_COST_WINDOW)
+        self._budget_warmup = BUDGET_WARMUP_TICKS
         self.log_meta = meta  # extra log header fields (a scenario run: its starting world, aivillage/scenario.py)
         # Saves (aivillage/saves.py): `<log>.save.json`, taken between ticks on request, every game hour,
         # when the village is stopped and when it ends. `resume_header`: this sim continues a loaded save.
@@ -283,11 +287,17 @@ class LiveSim:
             self.budget_pace = 0.0
             return
         if self._spent_today() < self.daily_budget:
-            pace = budget.pace_seconds(cost, self.daily_budget, self._spent_today(), budget.seconds_left_today())
+            self._tick_costs.append(cost)
+            if self._budget_warmup > 0:
+                self._budget_warmup -= 1
+                pace = 0.0
+            else:
+                avg = sum(self._tick_costs) / len(self._tick_costs)
+                pace = budget.pace_seconds(avg, self.daily_budget, self._spent_today(), budget.pace_horizon())
             slow = pace > self.pace / clock.per_hour(self.world.config)
             if slow != (self.budget_pace > self.pace / clock.per_hour(self.world.config)):
                 self._publish({"type": "budget_pace", "tick": self.world.tick, "slow": slow,
-                               "seconds": round(pace, 1), "text": "Темп по бюджету: деньги растянуты до конца суток."
+                               "seconds": round(pace, 1), "text": "Темп по бюджету: деньги тратятся быстро, игра идёт медленнее."
                                if slow else "Темп обычный."})
             self.budget_pace = pace
             return

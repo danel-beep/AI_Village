@@ -272,7 +272,7 @@ class Game:
             else:
                 _kill_group(self.proc.pid, signal.SIGTERM)
                 try:
-                    self.proc.wait(8)
+                    self.proc.wait(5)
                 except subprocess.TimeoutExpired:
                     _kill_group(self.proc.pid, signal.SIGKILL)
         try:
@@ -365,6 +365,7 @@ class Shell:
         self.home, self.ui = home, ui
         self.game: Game | None = None
         self.closing = False
+        self.closed = threading.Event()  # wakes the background updater so the app can exit at once
         self.lock = threading.Lock()
         home.logs.mkdir(parents=True, exist_ok=True)
         log = home.logs / "app.log"
@@ -439,12 +440,14 @@ class Shell:
 
     def stop(self) -> None:
         self.closing = True
+        self.closed.set()
         if self.game:
             self.game.stop()
 
     def background(self, bundle: Path | None) -> None:
         """While the game is open: fetch a newer app release once and a newer `stable` every half hour."""
-        time.sleep(60)
+        if self.closed.wait(60):
+            return
         if bundle:
             try:
                 if fetch_app_update(bundle, int(build_info().get("version", 0))):
@@ -457,7 +460,8 @@ class Shell:
                     self.log(f"game {version_of(self.home.next)} downloaded; it is used from the next start")
             except Exception as e:
                 self.log(f"background download failed: {e!r}")
-            time.sleep(PREFETCH_EVERY)
+            if self.closed.wait(PREFETCH_EVERY):
+                return
 
 
 # ---- the window -------------------------------------------------------------------------------
@@ -574,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
 
     def boot() -> None:
         run()
-        shell.background(bundle)
+        threading.Thread(target=shell.background, args=(bundle,), daemon=True).start()
 
     api._shell, api._run = shell, run
     def loaded() -> None:  # in the log, so a problem with the window itself can be told apart
@@ -594,7 +598,10 @@ def main(argv: list[str] | None = None) -> int:
                 shell.log("app updated")
         except OSError as e:
             shell.log(f"app update failed: {e!r}")
-    return 0
+    shell.log("closed")
+    # Leave now: Python would otherwise wait for every thread still running (a download, a stuck call),
+    # and an app without a window that does not quit looks frozen.
+    os._exit(0)
 
 
 if __name__ == "__main__":

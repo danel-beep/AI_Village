@@ -188,6 +188,7 @@ def test_budget_pace_spreads_money_over_the_day(tmp_path, monkeypatch):
     assert budget.pace_seconds(0.01, 5.0, 5.0, 1000.0) == 0.0  # cap reached: the hard pause takes over
     assert 1.0 <= budget.seconds_left_today() <= 86400.0
     pytest.importorskip("fastapi")
+    from aivillage import server
     from aivillage.server import LiveSim
     monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
     monkeypatch.setattr(budget, "today", lambda: "2026-10-08")
@@ -204,13 +205,15 @@ def test_budget_pace_spreads_money_over_the_day(tmp_path, monkeypatch):
     sim = LiveSim(engine.new_world({"seed": 1}), decide, 1, daily_budget=5.0, pace=0.0)
     published = []
     monkeypatch.setattr(sim, "_publish", published.append)
+    sim._budget_warmup = 0  # the warm-up is checked below
     sim._check_budget()
     assert sim.budget_pace == 0.0 and not published
-    Ag.usage.cost_usd = 0.5  # $4.5 left for an hour: this $0.5 tick must take 400 s
+    Ag.usage.cost_usd = 0.5  # $4.5 left for an hour; ticks so far cost $0 and $0.5: $0.25 a tick takes 200 s
     sim._check_budget()
-    assert sim.budget_pace == pytest.approx(400.0)
+    assert sim.budget_pace == pytest.approx(200.0)
     assert [(r["type"], r["slow"]) for r in published] == [("budget_pace", True)]
-    sim._check_budget()  # nothing spent since: full speed again
+    for _ in range(server.BUDGET_COST_WINDOW):  # nothing spent since: full speed again once the window forgets it
+        sim._check_budget()
     assert sim.budget_pace == 0.0 and published[-1]["slow"] is False
     clock_ = {"t": 100.0}
     monkeypatch.setattr("aivillage.server.time.monotonic", lambda: clock_["t"])
@@ -218,3 +221,34 @@ def test_budget_pace_spreads_money_over_the_day(tmp_path, monkeypatch):
     sim.budget_pace, sim._last_checkpoint = 30.0, 90.0  # the tick's thinking already took 10 s of it
     sim._wait()
     assert clock_["t"] == pytest.approx(120.0) and sim._last_checkpoint == pytest.approx(120.0)
+
+
+def test_budget_pace_starts_fast_and_looks_at_most_six_hours_ahead(tmp_path, monkeypatch):
+    """A village started at night ran 3x slower because $5 were spread to midnight, and its first
+    expensive ticks stalled it for half a minute each (Danel, 2026-10-08)."""
+    pytest.importorskip("fastapi")
+    from aivillage import server
+    from aivillage.server import LiveSim
+    monkeypatch.setenv("AIVILLAGE_HOME", str(tmp_path))
+    monkeypatch.setattr(budget, "today", lambda: "2026-10-09")
+    monkeypatch.setattr(budget, "seconds_left_today", lambda: 22 * 3600.0)  # 02:00
+    assert budget.pace_horizon() == 6 * 3600.0
+
+    class Usage:
+        cost_usd = 0.0
+
+    class Ag:
+        usage = Usage()
+
+    decide = lambda name, obs: {"action": {"name": "wait"}}
+    decide.agents = {"Anna": Ag()}
+    sim = LiveSim(engine.new_world({"seed": 1}), decide, 1, daily_budget=5.0, pace=0.0)
+    monkeypatch.setattr(sim, "_publish", lambda rec: None)
+    for _ in range(server.BUDGET_WARMUP_TICKS):
+        Ag.usage.cost_usd += 0.01  # expensive first hours
+        sim._check_budget()
+        assert sim.budget_pace == 0.0
+    Ag.usage.cost_usd += 0.01
+    sim._check_budget()  # warm-up over: about $0.01 a tick with ~$4.9 left over 6 h (to midnight it would be ~160 s)
+    assert 40 < sim.budget_pace < 45
+
