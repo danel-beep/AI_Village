@@ -13,7 +13,13 @@ Off, nothing changes: `cfg["recipes"]` and the one generic `tool` work as in eve
 - tools (`crafting.tools`): the carried tool with the highest multiplier that fits a resource is used for an
   hour of work and wears out after its `hours`; `needs_tool` resources cannot be gathered by hand;
 - the owner of a workshop with a trade (`workshops`: smithy -> smith ...) takes that trade if they have none
-  (labor.workshop_trades, checked every hour).
+  (labor.workshop_trades, checked every hour);
+- a recipe made at a workshop needs no profession: whoever may use the workshop makes it (a carpenter who owns
+  the only smithy can make locks). Danel 2026-10-08: trades should come from who has time for what, not from a
+  ban; dropping professions everywhere else is a separate backlog item;
+- the owner of a private workshop opens it to others with `set_workshop_fee` (Danel 2026-10-08): coins per item
+  made there, paid to the owner when the item is made; 0 = free; closed again with no fee. The fee is kept on the
+  building (`fee`; absent = only the owner's household). Without a fee set nothing changes.
 
 Workshops are found in private yards (`Plot.buildings`, owner = plot owner), in fixed map locations whose id
 is a workshop kind (today's `smithy`, owner None; not with `map_workshops` off: an empty «С нуля» start), in
@@ -119,12 +125,14 @@ def workshops_at(world: World, location: str) -> list[dict]:
         users = plots.household(world, plot)
         for b in plot.buildings:
             if b["kind"] in kinds:
-                out.append({"kind": b["kind"], "owner": plot.owner, "level": int(b.get("level", 1)), "users": users})
+                out.append({"kind": b["kind"], "owner": plot.owner, "level": int(b.get("level", 1)), "users": users,
+                            **({"fee": b["fee"]} if "fee" in b else {})})
     for b in _constructed(world):  # construction.py (task 3): finished buildings with a place and an owner
         if b.get("location") == location and b.get("kind") in kinds:
             owner = b.get("owner")
             out.append({"kind": b["kind"], "owner": owner, "level": int(b.get("level", 1)),
-                        "users": _household(world, owner) if owner else None})
+                        "users": _household(world, owner) if owner else None,
+                        **({"fee": b["fee"]} if "fee" in b else {})})
     for fn in WORKSHOP_SOURCES:
         out.extend(fn(world, location))
     return out
@@ -153,8 +161,46 @@ def owned_workshops(world: World) -> list[tuple[str, str]]:
     return out
 
 
-def _may_use(w: dict, name: str) -> bool:
+def _free(w: dict, name: str) -> bool:
+    """`name` uses this workshop for nothing: the village's, or their household's."""
     return w.get("users") is None or name in w["users"]
+
+
+def _may_use(w: dict, name: str) -> bool:
+    return _free(w, name) or w.get("fee") is not None
+
+
+def _owned_buildings(world: World, owner: str, kind: str) -> list[dict]:
+    """The building dicts (where `fee` lives) of `owner`'s private workshops of `kind`."""
+    out = [b for home in sorted(world.plots) if world.plots[home].owner == owner
+           for b in world.plots[home].buildings if b["kind"] == kind]
+    return out + [b for b in _constructed(world) if b.get("owner") == owner and b.get("kind") == kind]
+
+
+def profession_ok(world: World, a: Agent, r: dict) -> bool:
+    """Workshop recipes are made by whoever may use the workshop (where_error checks that), whatever their trade."""
+    return not r.get("profession") or a.profession == r["profession"] or bool(r.get("building"))
+
+
+def rent(world: World, a: Agent, r: dict) -> tuple[int, dict | None]:
+    """(fee per item, workshop) when `a` makes `r` here only thanks to a workshop rented out to them;
+    (0, None) when their own, their household's or the village's workshop serves (or none is needed)."""
+    here = [w for w in workshops_at(world, a.location) if _may_use(w, a.name)]
+    free = {w["kind"] for w in here if _free(w, a.name)}
+    usable = {w["kind"] for w in here}
+    need = None
+    if r.get("building"):
+        need = r["building"]
+    elif r["where"] == "home":
+        kinds = set(_c(world.config).get("home_also_at", []))
+        if a.location != a.home and not free & kinds and usable & kinds:
+            need = sorted(usable & kinds)[0]
+    elif _output(r, usable) > _output(r, free):
+        need = max((k for k in r.get("more_at", {}) if k in usable), key=lambda k: (r["more_at"][k], k))
+    if need is None or need in free:
+        return 0, None
+    shop = min((w for w in here if w["kind"] == need), key=lambda w: (w["fee"], w["owner"]))
+    return int(shop["fee"]), shop
 
 
 def usable_kinds(world: World, a: Agent) -> set[str]:
@@ -186,7 +232,8 @@ def where_error(world: World, a: Agent, rid: str, r: dict) -> str | None:
         if not here:
             return f"{rid} is made at a {kind}; there is no {kind} here"
         if not any(_may_use(w, a.name) for w in here):
-            return f"the {kind} here belongs to {here[0]['owner']}; only their household uses it"
+            return (f"the {kind} here belongs to {here[0]['owner']}; only their household uses it "
+                    "(the owner can open it to others with set_workshop_fee)")
         return None
     if r["where"] not in ("anywhere", "") and a.location != r["where"]:
         return f"{rid} can only be made at the {r['where']}"
@@ -210,12 +257,23 @@ def craft(ctx: Ctx, a: Agent, rid: str, times: int) -> None:
         discovering = True
     if why := where_error(w, a, rid, r):
         raise ActionError(why)
-    if r["profession"] and a.profession != r["profession"]:
+    if not profession_ok(w, a, r):
         raise ActionError(f"only a {r['profession']} can make {rid}")
     need = {k: v * times for k, v in r["inputs"].items()}
     missing = {k: v - ops.count(a.inventory, k) for k, v in need.items() if ops.count(a.inventory, k) < v}
     if missing:
         raise ActionError(f"{rid} x{times} needs {ops.fmt_items(need)}; you lack {ops.fmt_items(missing)}")
+    fee, shop = rent(w, a, r)
+    owner = w.agents.get(shop["owner"]) if shop else None
+    fee = fee * times if owner is not None and owner.status != "dead" else 0
+    if fee > a.coins:
+        raise ActionError(f"the {shop['kind']} of {shop['owner']} costs {shop['fee']} coins per item made; "
+                          f"{rid} x{times} costs {fee}, you have {a.coins}")
+    if fee:
+        ops.move_coins(a, owner, fee)
+        ctx.emit("workshop_fee", f"{a.name} paid {owner.name} {fee} coins to use their {shop['kind']}.",
+                 actor=a.name, location=a.location, visibility="location", to=[owner.name], owner=owner.name,
+                 workshop=shop["kind"], coins=fee)
     for k, v in need.items():
         ops.burn(w, a.inventory, k, v)
     out = _output(r, usable_kinds(w, a)) * times
@@ -237,6 +295,41 @@ def continue_task(ctx: Ctx, a: Agent) -> None:
     a.task["hours_left"] -= 1
     if a.task["hours_left"] <= 0:
         a.task = None
+
+
+class FeeArgs(BaseModel):
+    workshop: str = Field(description="the kind of your workshop, e.g. smithy")
+    fee: int | None = Field(None, ge=0, le=1000, description="coins per item others make there; 0 = free; "
+                            "leave out to close it to everyone outside your household")
+
+
+def _owns_workshop(world: World, name: str) -> bool:
+    return any(owner == name for owner, _ in owned_workshops(world))
+
+
+@ACTIONS.action("set_workshop_fee", "Owner only: open your workshop to everyone for a fee per item they make there "
+                "(paid to you at once; 0 = free), or close it again (no fee). Your household always uses it free.",
+                FeeArgs, available=lambda c, a: enabled(c.cfg) and _owns_workshop(c.world, a.name))
+def set_workshop_fee(ctx: Ctx, a: Agent, args: FeeArgs) -> None:
+    mine = _owned_buildings(ctx.world, a.name, args.workshop)
+    if not mine:
+        kinds = sorted({k for o, k in owned_workshops(ctx.world) if o == a.name})
+        raise ActionError(f"you own no {args.workshop}" + (f"; your workshops: {', '.join(kinds)}" if kinds else ""))
+    for b in mine:
+        if args.fee is None:
+            b.pop("fee", None)
+        else:
+            b["fee"] = args.fee
+    what = (f"closes the {args.workshop} to everyone outside the household" if args.fee is None else
+            f"opens the {args.workshop} to everyone for free" if args.fee == 0 else
+            f"opens the {args.workshop} to everyone for {args.fee} coins per item made")
+    ctx.emit("workshop_fee_set", f"{a.name} {what}.", actor=a.name, location=a.location, visibility="public",
+             workshop=args.workshop, fee=args.fee)
+
+
+def hidden_actions(cfg: dict) -> frozenset[str]:
+    """Kept out of the handbook while crafting is off (run.llm_agents)."""
+    return frozenset() if enabled(cfg) else frozenset({"set_workshop_fee"})
 
 
 # ---------- tools ----------
@@ -315,7 +408,9 @@ def observe(world: World, name: str) -> dict:
     here = workshops_at(world, a.location)
     if here:
         out["workshops_here"] = [{"kind": w["kind"], "owner": w["owner"] or "village",
-                                  "you_may_use": _may_use(w, name)} for w in here]
+                                  "you_may_use": _may_use(w, name),
+                                  **({"fee_per_item": w["fee"]} if w.get("fee") and not _free(w, name) else {})}
+                                 for w in here]
         kinds = usable_kinds(world, a)
         crafts = {}
         for rid, r in cfg["recipes"].items():
@@ -331,7 +426,7 @@ def facts(cfg: dict) -> list[str]:
     """Prompt cheat-sheet lines (llm.world_facts) with crafting on: recipes, workshops, tools."""
     hand, shop = [], []
     for rid, r in cfg["recipes"].items():
-        who = f", only a {r['profession']}" if r["profession"] else ""
+        who = f", only a {r['profession']}" if r["profession"] and not r.get("building") else ""
         more = "".join(f", {n} at a {k}" for k, n in r.get("more_at", {}).items())
         hrs = f", {r['hours']} h each" if (r.get("hours") or 0) > 1 else ""
         line = f"{rid}: {_ins(r)} -> {r['output']}{more}{who}{hrs}"
@@ -342,8 +437,9 @@ def facts(cfg: dict) -> list[str]:
     c = _c(cfg)
     lines = [f"- Craft by hand: {'; '.join(hand)}."]
     if shop:
-        lines.append(f"- Craft at a workshop (a workshop in a private yard serves its owner's household): "
-                     f"{'; '.join(shop)}.")
+        lines.append(f"- Craft at a workshop (a workshop in a private yard serves its owner's household; its "
+                     "owner may open it to others for a fee per item, or for free, with set_workshop_fee; anyone allowed "
+                     f"in makes its recipes, whatever their trade): {'; '.join(shop)}.")
     if c.get("home_also_at"):
         lines.append(f"- Recipes made at home can also be made by a {' or a '.join(c['home_also_at'])}.")
     trades = ", ".join(f"{k} -> {p}" for k, p in c.get("workshops", {}).items() if p)

@@ -144,7 +144,7 @@ def build(log: str | Path, *, ended_by: str = "closed", days_planned: int | None
     extra_cost = sum(float(s.get("cost_usd") or 0) for s in recaps) + \
         sum(float(h.get("cost_usd") or 0) for h in highlights.values())
     last = ticks[-1]["view"] if ticks else {}
-    mode = cfg.get("economy_mode") or modes.DEFAULT_MODE
+    mode = cfg.get("economy_mode") or "crafts"  # logs from before the survival default
     started = started_at(log)
     ended = ended or datetime.now()
     return {
@@ -225,7 +225,7 @@ def brief(log: str | Path) -> dict:
             cfg = json.loads(f.readline()).get("config") or {}
     except (OSError, ValueError):
         cfg = {}
-    mode = cfg.get("economy_mode") or modes.DEFAULT_MODE
+    mode = cfg.get("economy_mode") or "crafts"  # logs from before the survival default
     started = started_at(log)
     return {"name": log.stem, "summary": False, "started": started.isoformat(timespec="seconds") if started else None,
             "villagers": len(cfg.get("agents") or []), "mode": modes.MODES.get(mode, {}).get("title", mode)}

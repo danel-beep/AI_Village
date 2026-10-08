@@ -56,7 +56,7 @@ def _cfg(cfg: dict) -> dict:
 
 
 def collection_on(cfg: dict) -> bool:
-    return (bool(_cfg(cfg).get("collection", True)) and governance.enabled(cfg)
+    return (bool(_cfg(cfg).get("collection", True)) and governance.enabled(cfg) and not governance.polity_on(cfg)
             and "demand_debt" not in cfg.get("disabled_actions", []))
 
 

@@ -373,10 +373,11 @@ def observe(world: World, name: str) -> dict:
 
 
 def facts(cfg: dict) -> str:
-    from .governance import opens_note  # governance -> actions -> works: import here
+    from .governance import opens_note, polity_on  # governance -> actions -> works: import here
+    fund = "" if polity_on(cfg) else "; the mayor can fund_project from the treasury"
     return (f"- Village structures{opens_note(cfg, WORKS)}: the mayor (anyone while there is no mayor) can propose_build a well, bridge, "
             "watchtower or wall, or upgrade one (levels 1-3). Each needs items, coins and labor: contribute items "
-            "and coins and build_work (one hour) at the square; the mayor can fund_project from the treasury. "
+            f"and coins and build_work (one hour) at the square{fund}. "
             "Everyone sees who helped and who did not. Finished levels stay: well = water at the square, slower "
             "fires; bridge = the trader pays more; watchtower = thefts noticed more often; wall = defense against "
             "raids.")
