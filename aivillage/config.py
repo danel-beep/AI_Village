@@ -61,6 +61,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "starving_health_loss_night": 20,
     # here.people marks a villager "hungry" below this satiety and "starving" at 0, like "sick" (0 = not shown)
     "hungry_seen_below": 30,
+    "wounded_seen_below": 0,  # others see "wounded" below this health (0 = off; «С нуля»: 40)
     # addressed.py: letters, whispers and words said to a villager by name stay in "said_to_you" until the end of
     # the next day (keep_days) or until the two have since given, lent or traded to each other; at most `max`
     "said_to_you": {"keep_days": 1, "max": 5},
@@ -70,6 +71,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # What happens at health 0: "hospital" (lose half the inventory, back in N days) or "death".
     "death_mode": "hospital",
     "hospital_days": 2,
+    "hospital_discharge": {"health": 60, "satiety": 60},  # where a villager comes back from the hospital
     # With death_mode "hospital": the collapse number `lives` is death (lives 2 = one hospital stay, then death).
     # 0 = never die, the hospital every time. Runs get 2 from modes.RUN_DEFAULTS.
     "lives": 0,
@@ -615,15 +617,28 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "warn_chance": 0.5,
         "warn_days": 2,
         "arrive_hour": 11,       # warned threats come around this hour
+        # finished old-style projects (world.projects) that weaken threats, {project id: factor}: a "wall" project
+        # if a config defines one; the built village wall is works.py's (wall_factor_per_level below)
         "defense_projects": {"wall": 0.6},
         "wall_factor_per_level": 0.75,  # each level of the village wall (works.py) x0.75 to strength and loot
+        # Bandits or a beast at a random moment, but never more than `max_gap_days` calm days in a row (0 = off:
+        # only the kinds' own per_day dice, as before); `min_gap_days` calm after each; their own `max_active`
+        # slot, apart from travelers (threats.py).
+        "hostile": {"max_gap_days": 0, "min_gap_days": 2, "max_active": 1},
+        # Raids and beasts grow with the village (off here, on in «С нуля»): +`hp_per_stage` of their hp for each
+        # stage above the hamlet, +`hp_per_armed` hp for each villager carrying a weapon (not a work tool), and
+        # bandits come with `gear_share` of the best weapon and armor in the village (their armor takes off
+        # each blow, at least 1 lands; their weapons hit more often and harder).
+        "arms": {"enabled": False, "hp_per_stage": 0.25, "hp_per_armed": 10, "gear_share": 0.5},
         "kinds": {
             # Bandits: start at the target's house; every hour nobody fights them they carry off `loot_share`
             # of each chest there, and after `stay_hours` such hours move to the next of `houses` (nearest
             # first); after `hours` they leave and set fire to the house they are at if nobody fought them that
             # hour. Driven off, they drop the loot.
             "raid": {"per_day": 0.0, "name": "bandits", "hp": 60, "attack": 2, "damage_die": 6,
-                     "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20},
+                     "hours": 6, "stay_hours": 2, "houses": 3, "loot_share": 0.4, "burn": True, "bounty": 20,
+                     "yard_share": 0.0,  # also this share of what lies ready in the yard (eggs, crops...)
+                     "hall_share": 0.0},  # >0: after the first house they go for the fullest town hall treasury
             # A beast: every hour unopposed it eats `eat_share` of the food in the chests of the house it is at
             # and mauls someone there (d`damage_die` + `maul`); after `stay_hours` it prowls to another house;
             # leaves after `hours`.
@@ -706,7 +721,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             {"id": "village", "requires": {"buildings": {"market_square": 1, "smithy": 1}}},
             {"id": "town", "requires": {"buildings": {"town_hall": 1, "house@2": 3}}},
         ],
-        "unlocks": {},
+        "unlocks": {"feature:raids": {"stage": "town"}},  # = progress.DEFAULT_UNLOCKS; the knob moves it
     },
     # Empty start of the «С нуля» mode (modes.bare_start). On, and with progress starting below `until_stage`:
     # no houses (level 0), no coins, empty pockets, no buildings in the yards, everyone a laborer who may
