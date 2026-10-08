@@ -52,7 +52,11 @@ WS_COOKIE, AUTH_COOKIE = "aiv_ws", "aiv_auth"
 COOKIE_DAYS = 365
 PUBLIC_PREFIXES = ("/mcp/", "/.well-known/")  # what a workspace serves at /p/<id>/... without the password
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
-       "transfer-encoding", "upgrade", "host", "cookie", "content-length"}
+       "transfer-encoding", "upgrade", "host", "cookie", "content-length", "origin",
+       # the game server trusts proxy headers from 127.0.0.1 (uvicorn): a visitor's address there would lock
+       # them out of their own settings (server.local_only)
+       "forwarded", "x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-forwarded-port", "x-real-ip"}
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 # never handed to a game server: the hosting's own model keys and the site's password and secret
 HIDDEN_ENV = (*keys.ENV.values(), "AIVILLAGE_SITE_PASSWORD", "AIVILLAGE_SITE_SECRET")
 
@@ -218,6 +222,15 @@ def base_url(request) -> str:
     return f"{proto}://{host}"
 
 
+def same_site(conn) -> bool:
+    """A browser request from another website (its `Origin`) may not use a logged-in player's cookies. The game
+    server behind gets no `Origin` at all: it sees the site as this computer (its own guard, server.py)."""
+    origin = conn.headers.get("origin")
+    if origin is None:
+        return True
+    return origin.rstrip("/").lower() == base_url(conn).lower()
+
+
 def create_app(site: Site) -> FastAPI:
     async def reaper() -> None:
         while True:
@@ -303,6 +316,8 @@ def create_app(site: Site) -> FastAPI:
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
     async def private(path: str, request: Request) -> Response:
         ws = request.cookies.get(WS_COOKIE, "")
+        if request.method not in SAFE_METHODS and not same_site(request):
+            return JSONResponse({"detail": "Запрос с чужого сайта."}, status_code=403)
         if not site.logged_in(request.cookies) or not ws:
             if request.method == "GET" and not path.startswith("api/"):
                 target = "/" + path + (f"?{request.url.query}" if request.url.query else "")
@@ -317,7 +332,7 @@ def create_app(site: Site) -> FastAPI:
     @app.websocket("/{path:path}")
     async def socket_(path: str, websocket: WebSocket) -> None:
         ws = websocket.cookies.get(WS_COOKIE, "")
-        if not site.logged_in(websocket.cookies) or not ws:
+        if not site.logged_in(websocket.cookies) or not ws or not same_site(websocket):
             await websocket.close(code=1008)
             return
         try:

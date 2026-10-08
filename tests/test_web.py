@@ -53,10 +53,12 @@ def test_password_required(site, c):
 def test_each_browser_own_game_keys_in_memory(site, c, tmp_path):
     assert login(c).status_code == 303
     assert "/setup.js" in c.get("/").text  # the start screen, served by this browser's own game server
-    s = c.get("/api/settings").json()
+    s = c.get("/api/settings", headers={"X-Forwarded-For": "203.0.113.9"}).json()  # behind the hosting's proxy
     assert s["hosted"] and not s["openrouter_key"]["set"]  # the hosting's key is not handed to players
     assert c.post("/api/settings", json={"openrouter_key": OR}).json()["openrouter_key"]["set"]
     assert c.get("/api/setup").json()["has_key"]
+    assert c.post("/api/settings", json={}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert c.post("/api/settings", json={}, headers={"Origin": "http://testserver"}).status_code == 200
     for f in tmp_path.rglob("*"):
         assert not f.is_file() or OR.encode() not in f.read_bytes()  # never written to disk
     remote = c.get("/api/remote").json()
