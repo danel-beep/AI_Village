@@ -12,7 +12,6 @@
 
 ## В работе
 
-Волна 1 плана после аудита (`/mnt/project-files/reports/audit-prompt/sravnenie-i-plan.md`), зоны не пересекаются:
 
 Другие треды:
 - Дизайн и анимации по листам GPT Image от Danel: `viewer/`.
