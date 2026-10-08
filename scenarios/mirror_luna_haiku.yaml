@@ -1,0 +1,26 @@
+# Опыт: Luna против Haiku 5.5 в одной деревне, 3 на 3, с зеркальной рассадкой (аудит честности: места на карте
+# сами дают разницу больше 20%, поэтому модели меняются местами между повторами). Нейтральные жители, честная карта.
+title: "Опыт: Luna и Haiku, 3 на 3"
+about: >-
+  Шесть обычных жителей «С нуля», три на Luna и три на Haiku 5.5. Во втором повторе те же места, но модели
+  поменялись местами; дальше новый сид и снова пара. Сравниваем модели по подсчитанному поведению.
+config:
+  mode: survival
+  seed: 11
+  villagers: 6
+  characters: "off"
+  world:
+    map: {procedural: true, unfairness: 0}
+play:
+  days: 3
+  ai: all
+  bots: builder
+  max_cost: 0.6
+  replicates: 2
+  reseed: true
+  seating:
+    models: [openai/gpt-6-luna, anthropic/claude-haiku-5.5]
+watch:
+  - {title: подарки, kind: give, ai: true}
+  - {title: сделки, kind: trade}
+  - {title: кражи, kind: steal}

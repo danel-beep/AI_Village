@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import budget, clock, engine, keys, knobs, llm, mapgen, mcpserver, modes, remote, reports, saves, scenario, session, threats
+from . import budget, clock, engine, keys, knobs, lab, llm, mapgen, mcpserver, modes, remote, reports, saves, scenario, session, threats
 from .tunnel import TUNNEL
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
@@ -527,6 +527,41 @@ def make_sim(world: World, *, models: list[str] | None, bots: list[str], seed: i
                    view_lag_minutes, daily_budget=daily_budget)
 
 
+class LabJob:
+    """An experiment (aivillage/lab.py) played in the background from the start screen («🔬 Опыт»): no live
+    view, its runs go one after another as fast as the models answer. The app's daily cap counts its spending and
+    stops it between runs once reached."""
+
+    def __init__(self, name: str, out: Path, *, llm: bool, save: Path | None, daily_budget: float):
+        self.name, self.out, self.llm, self.save, self.daily_budget = name, out, llm, save, daily_budget
+        self.stopping = False
+        self.status = {"name": name, "state": "running", "index": 0, "of": 0, "arm": None, "replicate": None,
+                       "spent": 0.0, "out": str(out), "llm": llm, "save": save.stem if save else None}
+        self.thread = threading.Thread(target=self._run, daemon=True, name=f"lab-{name}")
+
+    def _progress(self, info: dict) -> None:
+        if info["state"] == "done":
+            budget.add(info["cost"])
+        self.status.update(index=info["index"], of=info["of"], arm=info["arm"], replicate=info["replicate"],
+                           spent=round(info["spent"], 4))
+        if info["state"] == "start":
+            if self.stopping:
+                raise lab.LabStopped("остановлено")
+            if self.llm and self.daily_budget and budget.spent_today() >= self.daily_budget:
+                raise lab.LabStopped(f"дневной бюджет ${self.daily_budget:g} исчерпан")
+
+    def _run(self) -> None:
+        try:
+            rep = lab.run_lab(self.name, out=self.out, ai=None if self.llm else [],
+                              from_save=str(self.save) if self.save else None, on_progress=self._progress)
+            self.status.update(state="done", report=lab.markdown(rep), stopped=rep.get("stopped"))
+        except Exception as e:  # shown on the start screen; the logs written so far stay
+            self.status.update(state="error", error=str(e))
+
+    def view(self) -> dict:
+        return dict(self.status)
+
+
 class Host:
     """The app's current village. With `setup` (the launcher), there is none until the start screen's
     "Play" (`POST /api/start`), and "New village" (`POST /api/stop`) goes back to the start screen."""
@@ -538,6 +573,7 @@ class Host:
         self.reports_dir = reports_dir
         self.reveal_reports = reveal_reports
         self.last: dict | None = None  # start-screen answers of the current run, to prefill the next one
+        self.lab: LabJob | None = None  # the experiment playing in the background (start screen, «🔬 Опыт»)
         self._lock = threading.Lock()
 
     def start(self, opts: dict) -> LiveSim:
@@ -643,6 +679,27 @@ class Host:
             sim.start()
             print(f"Scenario {name}: {log}")
             return sim
+
+    def start_lab(self, name: str, llm: bool, save: str | None = None) -> LabJob:
+        """Play an experiment (a scenario with arms, replicates or seating) in the background. `save`: the name of
+        a saved village (start screen «Продолжить») to fork from instead of the scenario's own start."""
+        if self.lab and self.lab.status["state"] == "running":
+            raise ValueError("Опыт уже идёт: дождитесь конца или остановите его.")
+        scn = scenario.load(name)  # ScenarioError (a ValueError) on a bad name or file
+        if not scn.is_lab:
+            raise ValueError("Это обычный сценарий, не опыт.")
+        path = None
+        if save:
+            if not save.replace("-", "").replace("_", "").isalnum():
+                raise ValueError("Нет такого сохранения.")
+            path = saves.path_for(self.runs_dir / f"{save}.jsonl")
+            if not path.is_file():
+                raise ValueError("Нет такого сохранения.")
+        out = self.runs_dir / "labs" / f"{datetime.now():%Y-%m-%d_%H-%M-%S}_{name}"
+        cap = float((self.last or {}).get("daily_budget") or budget.DEFAULT_USD)
+        self.lab = LabJob(name, out, llm=llm, save=path, daily_budget=cap)
+        self.lab.thread.start()
+        return self.lab
 
     def runs(self) -> list[Path]:
         return sorted(self.runs_dir.glob("*.jsonl"), reverse=True) if self.runs_dir.is_dir() else []
@@ -903,6 +960,35 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         except (ValueError, TypeError) as e:
             raise HTTPException(400, str(e)) from None
         return {"ok": True, **sim.status()}
+
+    # --- experiments (aivillage/lab.py, viewer/scenarios.js «🔬 Опыт») ---
+    @app.get("/api/lab")
+    def lab_status(request: Request) -> dict:
+        local_only(request)
+        return {"job": host.lab.view() if host.lab else None}
+
+    @app.post("/api/lab")
+    def start_lab(body: dict, request: Request) -> dict:
+        local_only(request)
+        if not host.setup:
+            raise HTTPException(400, "this server runs one village (started without --setup)")
+        body = body or {}
+        llm_on = body.get("brains", "llm") == "llm"
+        if llm_on and not keys.has_any_key():
+            raise HTTPException(400, "Для ИИ-жителей нужен ключ: «⚙️ Настройки» вверху слева. "
+                                     "Или выберите ботов, они бесплатные.")
+        try:
+            job = host.start_lab(str(body.get("name") or ""), llm_on, body.get("save") or None)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True, "job": job.view()}
+
+    @app.post("/api/lab/stop")
+    def stop_lab(request: Request) -> dict:
+        local_only(request)
+        if host.lab:
+            host.lab.stopping = True
+        return {"ok": True}
 
     @app.get("/api/runs")
     def past_runs(request: Request) -> dict:
