@@ -281,7 +281,8 @@ def _pay_debts(ctx: Ctx, a: Agent, own) -> None:
     w = ctx.world
     gone = set(_cfg(w)["estate_statuses"])
     for d in sorted(w.debts.values(), key=lambda d: (d.due_day, d.id)):
-        if (d.borrower != a.name or d.status == "repaid" or d.lender not in w.agents  # treasury bills
+        if (d.borrower != a.name or d.status not in ("open", "defaulted") or d.coins_owed <= 0
+                or d.lender not in w.agents  # treasury bills
                 or w.agents[d.lender].status in gone):
             continue
         paid = 0
@@ -292,7 +293,7 @@ def _pay_debts(ctx: Ctx, a: Agent, own) -> None:
         if not paid:
             continue
         d.coins_owed -= paid
-        if d.coins_owed == 0:
+        if d.coins_owed == 0 and not d.items_owed:
             d.status = "repaid"
         ctx.emit("estate_debt", f"{d.lender} got {paid} coins back from {a.name}'s estate"
                  f"{'' if d.coins_owed == 0 else f' ({d.coins_owed} still unpaid)'}.", to=[d.lender],

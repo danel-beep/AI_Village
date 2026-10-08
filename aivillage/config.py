@@ -372,6 +372,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # `seize_pct`% of any coins they receive until it is paid.
         "auto_collect": True,
         "seize_pct": 50,
+        # «Долги вещами»: an offer can carry i_owe + due_day ("this now, I owe you that later"); on accept it is a
+        # private debt owed in kind, paid off by giving the items (on in «С нуля»)
+        "in_kind": False,
     },
     # How laws are enforced (aivillage/governance.py `voluntary`): "auto" takes the tax (eviction if short) and the
     # theft fine; "voluntary" writes them as bills owed to the treasury in the debt book, paid with pay_bill or not.
@@ -499,7 +502,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "deltas": {
             "witness": -3,        # saw someone steal
             "steal_attempt": -4,  # caught someone stealing from you
-            "default": -3,        # debt not repaid on time (public)
+            "default": -3,        # debt not repaid on time (the lender only: debts are private)
             "repay": 2,           # debt fully repaid on time (public)
             "fire_out": 3,        # put out a fire (public)
             "extinguish": 1,      # helped with a fire (seen there)

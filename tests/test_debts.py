@@ -48,7 +48,8 @@ def test_promise_with_pledge_is_held_and_returned_on_repay(w):
     d = only_debt(w)
     assert (d.lender, d.borrower, d.kind, d.pledge) == ("Anna", "Boris", "iou", {"wood": 2})
     assert w.agents["Boris"].inventory.get("wood") == 1
-    board = engine.observe(w, "Clara")["board"]["debts"]
+    assert engine.observe(w, "Clara")["board"]["debts"] == []  # private: only the two sides see it
+    board = engine.observe(w, "Anna")["board"]["debts"]
     assert board[0]["pledge"] == {"wood": 2} and board[0]["note"] == "bread on credit"
     coins = w.agents["Anna"].coins
     ev = act(w, "Boris", "repay", debt_id=d.id, coins=4)

@@ -96,6 +96,10 @@ class Offer:
     give: dict[str, int]
     want: dict[str, int]
     expires_tick: int
+    # "I owe you later" part (debts.py, «Долги вещами»): on accept the sender owes these by due_day.
+    # Left out of the dict when empty, so old saves, logs and hashes stay the same.
+    i_owe: dict[str, int] = field(default_factory=dict)
+    due_day: int = 0
 
 
 @dataclass
@@ -112,6 +116,7 @@ class Debt:
     claim: dict | None = None  # the lender asked the mayor to collect: {"tick", "day"}
     claim_day: int = 0  # day the mayor last ruled on it
     day: int = 0  # day it was written
+    items_owed: dict[str, int] = field(default_factory=dict)  # owed in kind (an offer's i_owe); dropped when empty
 
 
 @dataclass
@@ -348,6 +353,12 @@ class World:
             del d["addressed"]
         if not d["merchant"]:  # merchant off or not come yet: same dict and hash as before the field existed
             del d["merchant"]
+        for o in d["offers"].values():  # plain offers and coin debts: same dict and hash as before
+            if not o["i_owe"]:
+                del o["i_owe"], o["due_day"]
+        for x in d["debts"].values():
+            if not x["items_owed"]:
+                del x["items_owed"]
         return d
 
     @classmethod

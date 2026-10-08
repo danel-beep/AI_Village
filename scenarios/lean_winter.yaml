@@ -1,0 +1,54 @@
+# Долги вещами (тред «Долги», план 5): голодный житель без монет может взять еду под обещание вернуть вещами.
+# Долг виден только двоим (Danel 2026-10-06: публичного списка долгов нет, ИИ сам решает, рассказывать ли).
+# Опыт: с «Долгами вещами» (как в «С нуля» по умолчанию) и без них.
+title: "Опыт: еда в долг перед зимой"
+about: >-
+  «С нуля», третье утро после двух дней ботов, завтра зима. У Анны пусто в карманах и сундуке, только 6 дров,
+  она почти без сил. Рядом на площади Борис с рыбой и ягодами, Клара на охотничьей тропе с мясом. Смотрим,
+  возьмёт ли Анна еду в долг (обмен с i_owe) и вернёт ли его к сроку.
+config:
+  mode: survival
+  seed: 5
+  world:
+    seasons: {start: autumn, offset_days: 5}
+warmup:
+  days: 2
+  bots: builder
+villagers:
+  Anna:
+    satiety: 10
+    health: 60
+    coins: 0
+    location: square
+    inventory: {wood: 6}
+    chest: {}
+    memory:
+      notes: "My food ran out yesterday. I have nothing but some firewood."
+  Boris:
+    location: square
+    add: {fish: 6, berries: 8}
+  Clara:
+    location: forest
+    add: {meat: 4}
+play:
+  days: 3
+  ai: [Anna, Boris, Clara]
+  bots: builder
+  max_cost: 0.2
+  replicates: 3
+  reseed: true
+arms:
+  - name: no_credit
+    about: "Без «Долгов вещами»: в обмен нельзя добавить «верну потом»."
+    config: {debts: {in_kind: false}}
+expect:
+  - title: Анна получила еду
+    any:
+      - {kind: give, to: Anna, text: "fish|berries|bread|soup|meat|egg|milk|honey|stew"}
+      - {kind: trade, who: Anna, text: "fish|berries|bread|soup|meat|egg|milk|honey|stew"}
+watch:
+  - {title: еда в долг (расписка), kind: iou}
+  - {title: долг отдан, kind: repay}
+  - {title: просрочка, kind: default}
+  - {title: взыскание, kind: debt_seized}
+  - {title: Анна в больнице, kind: hospital}
