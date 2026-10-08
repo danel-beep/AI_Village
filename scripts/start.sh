@@ -12,6 +12,12 @@ export UV_PROJECT_ENVIRONMENT="$HOME_DIR/.venv"
 mkdir -p "$HOME_DIR"
 cd "$HOME_DIR" || exit 1
 
+# macOS: the "AI Village" app (own window, updates itself) replaces this script. The first start
+# after the update installs it, removes this icon and opens the app; offline, the old way goes on.
+if [ "$(uname)" = Darwin ]; then
+  curl -fsSL "https://raw.githubusercontent.com/$REPO/stable/scripts/install.sh" | AIV_FROM_START=1 sh && exit 0
+fi
+
 pause() { printf '\nНажмите Enter, чтобы закрыть окно.'; read -r _; }
 
 if ! command -v uv >/dev/null 2>&1; then
