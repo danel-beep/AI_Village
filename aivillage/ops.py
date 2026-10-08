@@ -68,7 +68,7 @@ def recipients(world: World, ev: Event) -> list[str]:
 
 def deliver(world: World, ev: Event) -> list[str]:
     limit = world.config["inbox_size"]
-    stamp = f"[day {ev.day} {ev.hour:02d}:00] "
+    stamp = f"[day {ev.day} {ev.hour:02d}:{ev.minute or 0:02d}] "
     names = recipients(world, ev)
     for name in names:
         a = world.agents.get(name)

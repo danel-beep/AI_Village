@@ -38,7 +38,8 @@ TAX_RATES = ("sales_tax", "wealth_tax")  # percents; only with config taxes.enab
 LAWS = NUMBER_LAWS + ("exile", "revoke_place", "payout", "grant", "title")
 ELECTIONS = "feature:elections"  # progress.DEFAULT_UNLOCKS: a town_hall
 # The village-wide government's actions; with polities on each polity governs itself instead (polity.py).
-REPLACED = ("run_for_mayor", "vote", "propose_law", "vote_law", "embezzle", "audit_treasury", "treasury_order")
+REPLACED = ("run_for_mayor", "vote", "propose_law", "vote_law", "embezzle", "audit_treasury", "treasury_order",
+            "fund_project", "demand_debt", "rule_debt")
 
 
 def opens_when(cfg: dict, key: str) -> str:
@@ -202,7 +203,7 @@ def facts(cfg: dict) -> str:
     if polity_on(cfg):
         from . import polity  # polity imports this module
         return (polity.facts(cfg) + "\n- Witnesses and victims of a theft, attack or arson can report_theft"
-                + opens_note(cfg, ELECTIONS) + ": everyone learns who did it.")
+                + opens_note(cfg, ELECTIONS) + ": everyone learns who did it. There is no fine for it and nothing is given back.")
     return (f"- Government{opens_note(cfg, ELECTIONS)}: every {g['election_every_days']} days from day {g['first_election_day']} villagers elect a "
             "mayor (run_for_mayor any time, vote on election day; ballots are secret). The mayor proposes laws "
             "(tax, theft_fine, mayor_salary, " + ("sales_tax, wealth_tax, " if _rates_on(cfg) else "")
@@ -356,8 +357,9 @@ class ReportArgs(BaseModel):
     person: str = Field(description="the thief you saw")
 
 
-@ACTIONS.action("report_theft", "Report a theft, attack or arson you witnessed or suffered awake; everyone learns about it and "
-                "the culprit owes the theft_fine to the treasury (World facts say how it is paid).", ReportArgs,
+@ACTIONS.action("report_theft", "Report a theft, attack or arson you witnessed or suffered awake; everyone learns who did it. "
+                "With a village mayor the culprit also owes the theft_fine to the treasury; in a village of "
+                "polities there is no fine (World facts say which applies).", ReportArgs,
                 available=lambda c, a: enabled(c.cfg) and any(a.name in x["known_by"] for x in c.world.governance.crimes))
 def report_theft(ctx: Ctx, a: Agent, args: ReportArgs) -> None:
     _require(ctx)

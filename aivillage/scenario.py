@@ -58,7 +58,7 @@ class Memory(Strict):
     plan: str | None = None
     notes: str | None = None
     people: dict[str, str] = Field(default_factory=dict)
-    diary: list[str] = Field(default_factory=list)  # oldest first; the last one is shown in every prompt
+    diary: list[str] = Field(default_factory=list)  # oldest first; prompts show the last one (llm.DAY_DIARIES in "day" memory)
     recent: list[str] = Field(default_factory=list)
 
 
