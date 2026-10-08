@@ -744,6 +744,8 @@ const PixelMap = (() => {
     const dt = lastTime === null ? 0 : Math.min(.1, Math.max(0, (time - lastTime) / 1000)); lastTime = time;
     const acts = t._acts || Actors.activities(t), prevPos = lastPos, shown = [], CB = window.Combat;
     if (CB) CB.frame(t, layout, sec, hourSec, id => window.ThreatLayer && ThreatLayer.spot((t.view.threats || []).find(x => x.id === id), layout));
+    const GS = window.Gestures;   // gifts, loans, trades, sales flying between people, festival props (viewer/gestures.js)
+    if (GS) GS.frame(t, sec);
     names.forEach((n, idx) => {
       const v = t.view.agents[n]; if (v.status !== 'active') return;
       const r = agentAt(prev, t, n, e, hourSec), info = v.asleep ? { act: 'sleep', text: '' } : acts[n] || { act: 'idle', text: '' };
@@ -771,12 +773,12 @@ const PixelMap = (() => {
     for (const a of shown) lastPos[a.n] = [Math.round(a.x), Math.round(a.y) - 8];
     const one = a => { Actors.paint(b, sheets[a.n], a, sec, a.n === selected);
       if (built) BuildLayer.gear(b, a, t.view.agents[a.n].inventory); };   // «С нуля»: weapon and armor carried
+    if (GS) GS.props(b, n => lastPos[n], loc => layout.anchors[loc]);   // a wedding arch, the podium, a feast table
     if (window.AnimalLayer) AnimalLayer.draw(b, t, layout, sec);   // hares, ducks, deer, boars, elk (animals.py)
     if (window.Depth) Depth.paint(b, shown, one); else shown.forEach(one);   // trees and houses in front cover them
     if (window.ThreatLayer) ThreatLayer.draw(b, t, layout, sec);   // bandits, beast, traveler, warned targets
     if (CB) CB.draw(b, n => lastPos[n]);   // blows land: stars, flashes, dust, a stolen item flying
-    const GS = window.Gestures;   // gifts, loans, trades, sales flying between people (viewer/gestures.js)
-    if (GS) { GS.frame(t, sec); GS.draw(b, n => lastPos[n], loc => layout.anchors[loc]); }
+    if (GS) GS.draw(b, n => lastPos[n], loc => layout.anchors[loc]);
     if (window.Fog) Fog.draw(b, t, layout, sec);   // places nobody has explored yet (viewer/fog.js)
     if (window.Omens) Omens.draw(b, t, layout, n => lastPos[n] && [lastPos[n][0], lastPos[n][1] + 8], sec);   // god actions on their way
     if (SL) SL.weather(b, hdr, t.view.day, sec, W, H);   // snowflakes, falling leaves

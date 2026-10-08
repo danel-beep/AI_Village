@@ -218,6 +218,7 @@ const PlotLayer = (() => {
   // A mound of earth and a grey headstone with a cross; flowers once a day has passed.
   function grave(g, x, y, gr, day) {
     const { R } = K;
+    if (window.Sprites && Sprites.draw(g, gr.day != null && day <= gr.day ? 'grave_mound' : 'gravestone', x + 6, y + 19)) return;
     R(g, x - 2, y + 14, 16, 5, '#4e3c28'); R(g, x - 1, y + 13, 14, 2, '#6e5838');  // mound
     R(g, x + 1, y + 1, 10, 14, '#2e2e34'); R(g, x + 3, y - 1, 6, 2, '#2e2e34');     // outline, rounded top
     R(g, x + 2, y + 1, 8, 13, '#a2a2ac'); R(g, x + 4, y, 4, 1, '#a2a2ac');          // stone

@@ -159,36 +159,44 @@ const Combat = (() => {
     return null;
   }
 
-  // How a threat's sprite moves now: {dx, flash} (hit: flashes white and shakes; striking: lunges at its target).
+  // How a threat's sprite moves now: {dx, flash, face, act}. dx: lunge or recoil; flash: a blow just landed on it
+  // (white); face: -1 left / 1 right, towards whoever it fights; act: 'strike' while it hits, 'hit' while it reels.
   function threat(id) {
-    const me = T(id);
+    const me = T(id), s = threatSpot(id);
     for (const f of live) {
       if (f.type === 'raid' && f.threat === id) {
+        const xs = f.fighters.map(n => spots[n] && spots[n].x).filter(x => x != null);
+        const side = s && xs.length ? Math.sign(xs.reduce((a, x) => a + x, 0) / xs.length - s.x) || -1 : -1;
         const ph = phase(f, me);
-        if (ph.done || ph.wait || !ph.me) return { dx: 0, flash: false };
-        const target = ph.me === 'by' ? spots[ph.b.on] : spots[ph.b.by], s = threatSpot(id);
-        const face = target && s ? Math.sign(target.x - s.x) || 1 : -1, m = motion(ph, face);
-        return { dx: m.dx * (ph.me === 'by' ? 1.6 : 1), flash: ph.me === 'on' && ph.b.hit && ph.u > .45 && ph.u < .6 };
+        if (ph.done || ph.wait || !ph.me) return { dx: 0, flash: false, face: side, act: null, busy: true };
+        const target = ph.me === 'by' ? spots[ph.b.on] : spots[ph.b.by];
+        const face = target && s ? Math.sign(target.x - s.x) || side : side, m = motion(ph, face);
+        const hit = ph.me === 'on' && ph.b.hit && ph.u > .45;
+        return { dx: m.dx * (ph.me === 'by' ? 1.6 : 1), flash: hit && ph.u < .6, face, target: target ? target.x : null, busy: true,
+          act: ph.me === 'by' && ph.u > .25 && ph.u < .75 ? 'strike' : hit && ph.u < .85 ? 'hit' : null };
       }
-      if (f.type === 'strike' && f.threat === id) {
-        const u = ((now - f.born) / .8) % 1; return { dx: motion({ u, b: { hit: true }, me: 'by' }, -1).dx * 1.6, flash: false };
+      if (f.type === 'strike' && f.threat === id) {   // at the house, which is on its left
+        const u = ((now - f.born) / .8) % 1;
+        return { dx: motion({ u, b: { hit: true }, me: 'by' }, -1).dx * 1.6, flash: false, face: -1, act: u > .25 && u < .75 ? 'strike' : null };
       }
     }
-    return { dx: 0, flash: false };
+    return { dx: 0, flash: false, face: -1, act: null };
   }
 
   // ---------- drawing into the low-res map buffer (after villagers and threats) ----------
   const STAR = [[0, -3], [0, -2], [0, 2], [0, 3], [-3, 0], [-2, 0], [2, 0], [3, 0], [-2, -2], [2, -2], [-2, 2], [2, 2], [0, 0], [1, 0], [0, 1], [-1, 0], [0, -1]];
   function star(b, x, y, k) {
-    if (window.Sprites && Sprites.draw(b, 'hit_star', x, y + 6, { s: .55 + k * .25 })) return;
+    if (window.Sprites && (Sprites.draw(b, 'fx_star', x, y + 4, { s: .7 + k * .5, alpha: 1 - k * .5 }) || Sprites.draw(b, 'hit_star', x, y + 6, { s: .55 + k * .25 }))) return;
     b.fillStyle = '#fff6b0'; STAR.forEach(([dx, dy]) => b.fillRect(Math.round(x + dx * (1 + k)), Math.round(y + dy * (1 + k)), 1, 1));
   }
   function dust(b, x, y, p) {
+    if (window.Sprites && Sprites.draw(b, 'fx_dust', x, y + 2, { s: .6 + p * .6, alpha: .8 * (1 - p) })) return;
     b.globalAlpha = .55 * (1 - p); b.fillStyle = '#d8ccb4';
     for (let i = 0; i < 5; i++) b.fillRect(Math.round(x + (i - 2) * (2 + p * 4)), Math.round(y - p * 3 - (i % 2)), 2, 1);
     b.globalAlpha = 1;
   }
   function dizzy(b, x, y) {
+    if (window.Sprites && Sprites.draw(b, 'fx_dizzy', x, y + 3, { s: .8 + Math.sin(now * 6) * .08, flip: Math.floor(now * 3) % 2 === 1 })) return;
     for (let i = 0; i < 3; i++) { const a = now * 4 + i * 2.1;
       b.fillStyle = i % 2 ? '#ffd23f' : '#fff6b0'; b.fillRect(Math.round(x + Math.cos(a) * 5), Math.round(y + Math.sin(a) * 2), 2, 2); }
   }
@@ -201,10 +209,18 @@ const Combat = (() => {
     const ph = phase(f, null); if (ph.done || ph.wait) return;
     const { b: bl, u } = ph, by = at(bl.by, posOf), on = at(bl.on, posOf);
     if (by && u > .3 && u < .7) dust(b, by.x, by.y + 15, (u - .3) / .4);
+    if (by && on && u > .3 && u < .45 && f.weapons && f.weapons[bl.by] === 'bow' && window.Sprites) {   // the arrow in flight
+      const q = (u - .3) / .15;
+      Sprites.draw(b, 'fx_arrow', by.x + (on.x - by.x) * q, by.y + 2 + (on.y - by.y) * q, { s: .8, flip: on.x < by.x });
+    }
     if (!on || u < .45) return;
     const p = (u - .45) / .55;
+    const S = window.Sprites, side = by ? Math.sign(by.x - on.x) || 1 : 1;
+    if (bl.hit && p < .45 && S && (bl.by.startsWith('T:') || f.weapons && f.weapons[bl.by]))   // a slash across the one hit
+      S.draw(b, bl.by.startsWith('T:') ? 'fx_slash_red' : 'fx_slash', on.x - side * 2, on.y + 6, { s: .8, flip: side > 0, alpha: 1 - p / .45 });
+    if (!bl.hit && p < .5 && S) S.draw(b, 'fx_puff', on.x - side * 6, on.y + 10, { s: .7, flip: side > 0, alpha: 1 - p / .5 });
     if (bl.hit && p < .45) {
-      star(b, on.x + (by ? Math.sign(by.x - on.x) * 3 : 0), on.y - 1, p / .45);
+      star(b, on.x + side * 3, on.y - 1, p / .45);
       if (p < .2) { b.globalAlpha = .7; b.fillStyle = '#ffffff'; b.fillRect(Math.round(on.x) - 4, Math.round(on.y) - 4, 9, 9); b.globalAlpha = 1; }
     }
   }
@@ -219,7 +235,7 @@ const Combat = (() => {
   function draw(b, posOf) {
     for (const f of live) {
       if (f.type === 'duel' || f.type === 'raid') blowsFx(b, f, posOf);
-      if (f.type === 'duel' && phase(f, null).done) { const p = posOf(f.loser); if (p) dizzy(b, p[0], p[1] + 8); }
+      if (f.type === 'duel' && phase(f, null).done) { const p = posOf(f.loser); if (p) dizzy(b, p[0], p[1] + 6); }
       if (f.type === 'strike') {   // the beast or bandits hit the house: a star on its wall every lunge
         const sp = threatSpot(f.threat), a = anchor(f.loc), u = ((now - f.born) / .8) % 1;
         if (sp && u > .45 && u < .7) star(b, sp.x - sp.half - 4, sp.y - sp.h / 2, (u - .45) / .25);
