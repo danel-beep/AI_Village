@@ -2,4 +2,3 @@ __pycache__/
 *.pyc
 /runs/
 .pytest_cache/
-uv.lock

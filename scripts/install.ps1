@@ -5,7 +5,7 @@ $HomeDir = Join-Path $env:USERPROFILE "AIVillage"
 New-Item -ItemType Directory -Force $HomeDir | Out-Null
 $Start = Join-Path $HomeDir "start.ps1"
 $ProgressPreference = "SilentlyContinue"
-Invoke-WebRequest "https://raw.githubusercontent.com/danel-beep/ai_village/main/scripts/start.ps1" -OutFile $Start -UseBasicParsing
+Invoke-WebRequest "https://raw.githubusercontent.com/danel-beep/ai_village/stable/scripts/start.ps1" -OutFile $Start -UseBasicParsing
 $Desk = [Environment]::GetFolderPath("Desktop")
 $Link = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desk "AI Village.lnk"))
 $Link.TargetPath = "powershell.exe"
