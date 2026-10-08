@@ -577,6 +577,13 @@ def main(argv: list[str] | None = None) -> int:
         shell.background(bundle)
 
     api._shell, api._run = shell, run
+    def loaded() -> None:  # in the log, so a problem with the window itself can be told apart
+        try:
+            shell.log(f"window shows {window.get_current_url()} «{window.evaluate_js('document.title')}»")
+        except Exception as e:
+            shell.log(f"window loaded ({e!r})")
+
+    window.events.loaded += loaded
     window.events.closed += shell.stop
     webview.settings["ALLOW_DOWNLOADS"] = True  # clips and logs saved from the game
     webview.start(boot, private_mode=False, storage_path=str(home.root / "webview"))
