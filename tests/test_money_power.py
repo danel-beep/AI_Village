@@ -105,7 +105,7 @@ def test_prompt_says_when_each_opens():
     assert "Polities (once a town_hall stands in the village):" in facts
     assert "Government (once a town_hall stands in the village):" in world_facts(world(polity={"enabled": False}).config)
     assert "The trader (once a market_square stands in the village)" in facts
-    assert "bandits (once the village is a town)" in facts
+    assert "bandits (once the village is a hamlet)" in facts  # «С нуля»: raids from the hamlet
     plain = world_facts(world(mode="crafts").config)
     assert "(once " not in plain
 
