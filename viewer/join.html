@@ -226,7 +226,7 @@
   }
   function mineCard(m, opts = {}) {
     const root = $('mine-tpl').content.firstElementChild.cloneNode(true);
-    const link = location.origin + PREFIX + m.path, pick = { ai: m.ai && STEPS[m.ai] ? m.ai : 'claude' };
+    const link = (AIV.public || location.origin + PREFIX) + m.path, pick = { ai: m.ai && STEPS[m.ai] ? m.ai : 'claude' };
     root.querySelector('.t-link').value = link;
     root.querySelector('.t-link-copy').onclick = e => copy(link, e.target);
     root.querySelector('.t-prompt').value = PROMPT;
@@ -261,7 +261,7 @@
   if (!AIV) return;
   if (AIV.mode === 'code') {  // /mcp/join without a code: type it
     $('by-code').hidden = false;
-    const go = () => { const c = $('code').value.replace(/[^0-9a-z]/gi, '').toUpperCase(); if (c) location.href = '/mcp/join/' + c; };
+    const go = () => { const c = $('code').value.replace(/[^0-9a-z]/gi, '').toUpperCase(); if (c) location.href = PREFIX + '/mcp/join/' + c; };
     $('code-go').onclick = go;
     $('code').onkeydown = e => { if (e.key === 'Enter') go(); };
     return;
