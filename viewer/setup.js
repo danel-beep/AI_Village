@@ -544,15 +544,21 @@
     function keyLine() {
       const el = $('su-model-txt');
       model.style.display = values.brains === 'llm' ? '' : 'none';
-      el.className = 'hint keyline' + (hasKey ? '' : ' bad');
       $('su-model-btn').textContent = hasKey ? '⚙️ Поменять' : '🔑 Вставить ключ';
-      el.textContent = hasKey ? `Жители думают через ${info.model}. Модель и ключ меняются кнопкой справа.`
-        : 'Для ИИ-жителей нужен ключ OpenAI или OpenRouter: нажмите кнопку справа и вставьте его.';
+      const mix = values.models === 'luna_haiku';
+      const bad = !hasKey || (mix && !info.has_openrouter);
+      el.className = 'hint keyline' + (bad ? ' bad' : '');
+      el.textContent = !hasKey ? 'Для ИИ-жителей нужен ключ OpenAI или OpenRouter: нажмите кнопку справа и вставьте его.'
+        : !mix ? `Жители думают через ${info.model}. Модель и ключ меняются кнопкой справа.`
+        : info.has_openrouter ? 'Половина жителей на openai/gpt-6-luna, половина на anthropic/claude-haiku-5.5. Ключи меняются кнопкой справа.'
+        : 'Для Haiku нужен ключ OpenRouter: нажмите кнопку справа и вставьте его.';
     }
     // The settings panel saves keys on its own; notice a new key without a reload.
     setInterval(() => fetch('/api/setup').then(r => r.json()).then(i => {
       if (i.running) return location.reload();  // started from another tab
-      if (i.has_key !== hasKey || i.model !== info.model) { hasKey = i.has_key; info.model = i.model; keyLine(); }
+      if (i.has_key !== hasKey || i.model !== info.model || i.has_openrouter !== info.has_openrouter) {
+        hasKey = i.has_key; info.model = i.model; info.has_openrouter = i.has_openrouter; keyLine();
+      }
     }).catch(() => {}), 3000);
 
     // --- villagers one by one (knobs.roster / clean_roster on the server) ---

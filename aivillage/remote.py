@@ -44,12 +44,16 @@ def seat_names(config: dict) -> list[str]:
     return [a["name"] for a in config.get("agents", [])][:max(0, n)]
 
 
-def models_for(config: dict, model: str = "default") -> list[str] | dict[str, str]:
-    """`run.llm_agents` models for a village: own-AI seats get "mcp", everyone else `model`."""
+def models_for(config: dict, model: str | list[str] = "default") -> list[str] | dict[str, str]:
+    """`run.llm_agents` models for a village: own-AI seats get "mcp", everyone else `model` (a list: handed out in
+    seeded seat order, an equal share each)."""
+    models = [model] if isinstance(model, str) else list(model)
     seats = set(seat_names(config))
     if not seats:
-        return [model]
-    return {a["name"]: ("mcp" if a["name"] in seats else model) for a in config["agents"]}
+        return models
+    from .run import seat_order
+    others = seat_order([a["name"] for a in config["agents"] if a["name"] not in seats], config["seed"])
+    return {**{n: "mcp" for n in seats}, **{n: models[i % len(models)] for i, n in enumerate(others)}}
 
 
 def request_kind(messages: list[dict]) -> str:
