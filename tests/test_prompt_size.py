@@ -69,6 +69,14 @@ def test_build_errors_say_what_to_do():
     assert "go to home_Anna first" in errors(act(w, "Anna", "build", kind="workbench"))[0]
 
 
+def test_build_before_settling_points_to_settle():
+    w, ag, _ = survival()
+    a = w.agents[ag.name]
+    a.busy_until, a.task, a.asleep = w.tick, None, False
+    events = engine.step(w, {ag.name: {"action": {"name": "build", "args": {"kind": "shelter"}}}})
+    assert "settle takes a free house site" in errors(events)[0]
+
+
 def test_models_see_one_build_verb():
     w = world()
     agents = llm_agents(w, ["stub"])
