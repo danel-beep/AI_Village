@@ -14,6 +14,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
+from . import logio
+
 # Event kinds that are a direct interaction between the actor and the people in `to`.
 DIRECT_KINDS = {"whisper", "letter", "give", "lend", "offer", "trade", "decline", "share", "unshare"}
 
@@ -34,7 +36,7 @@ def gini(values: Iterable[float]) -> float:
 
 def read_log(path: str | Path) -> list[dict]:
     with open(path, encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+        return list(logio.parse(f))
 
 
 def _counterparts(ev: dict) -> list[str]:

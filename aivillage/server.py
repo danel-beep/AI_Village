@@ -34,6 +34,7 @@ from .tunnel import TUNNEL
 from .highlights import Highlighter, sidecar_path as highlights_path, write_sidecar as write_highlights
 from .summary import Summarizer, by_day, make_client, sidecar_path as summary_path, when as day_of, write_sidecar
 from .registry import GOD, ActionError
+from .logio import ViewDeltas
 from .run import bots_decider, llm_agents, night_reflection, run, with_tick_minutes
 from .state import World
 
@@ -42,10 +43,26 @@ VIEWER = ROOT / "viewer"
 CLIP_MAX_BYTES = 300 * 1024 * 1024  # highlight clips; a week's reel is a few MB
 VIEW_LAG_MINUTES = 30  # two quarter-hour ticks of buffer: smooth, and a god click lands half an hour later
 BACKLOG_TICKS = 5000  # late joiners get the header plus this many recent ticks
+BACKLOG_DIARIES = 200  # and at most this many nightly diaries (one per night)
+CLIENT_QUEUE = 4000  # records waiting for one slow viewer; past this it is dropped and reconnects for a fresh backlog
 
 
 class _Stop(Exception):
     pass
+
+
+def _offer(q: asyncio.Queue, msg: str) -> None:
+    """Queue a record for one viewer (on its event loop). A viewer that stopped reading is not allowed to grow
+    the queue without end: it is emptied and closed, since a gap would break its chain of view deltas."""
+    if getattr(q, "dropped", False):
+        return
+    try:
+        q.put_nowait(msg)
+    except asyncio.QueueFull:
+        while not q.empty():
+            q.get_nowait()
+        q.put_nowait(None)
+        q.dropped = True
 
 
 class GodQueue:
@@ -124,7 +141,8 @@ class LiveSim:
         self.god = GodQueue()
         self.header: dict | None = None
         self.ticks: deque[dict] = deque(maxlen=BACKLOG_TICKS)
-        self.diaries: list[tuple[int, dict]] = []  # (tick it followed, diary record): reloads get them too
+        self.diaries: deque[tuple[int, dict]] = deque(maxlen=BACKLOG_DIARIES)  # (tick it followed, record): reloads get them too
+        self._deltas = ViewDeltas()  # live ticks go out as view deltas (aivillage/logio.py); viewers rebuild them
         self.running = threading.Event()
         self.running.set()
         self.finished = False
@@ -472,24 +490,32 @@ class LiveSim:
 
     # --- fan-out ---
     def _publish(self, rec: dict) -> None:
+        if rec.get("type") == "tick":  # ticks come from the sim thread only, in order
+            rec = self._deltas.compact(rec)
         msg = json.dumps(rec, ensure_ascii=False)
         with self._lock:
             subs = list(self._subs)
         for loop, q in subs:
-            loop.call_soon_threadsafe(q.put_nowait, msg)
+            loop.call_soon_threadsafe(_offer, q, msg)
 
     def subscribe(self) -> tuple[asyncio.Queue, list[str]]:
-        """New client: a queue for future records and the backlog to send first."""
-        q: asyncio.Queue = asyncio.Queue()
+        """New client: a queue for future records and the backlog to send first (its ticks as view deltas,
+        the first one whole). A `None` in the queue means the client fell too far behind: close it."""
+        q: asyncio.Queue = asyncio.Queue(maxsize=CLIENT_QUEUE)
         with self._lock:
+            ticks = list(self.ticks)  # one copy: the sim thread keeps appending
             backlog = [self.header] if self.header else []
-            first = self.ticks[0]["tick"] if self.ticks else 0
+            first = ticks[0]["tick"] if ticks else 0
             backlog += [d for after, d in self.diaries if after < first]  # older than the tick backlog
-            for t in self.ticks:
+            after_tick: dict[int, list[dict]] = {}
+            for after, d in self.diaries:
+                after_tick.setdefault(after, []).append(d)
+            for t in ticks:
                 backlog.append(t)
-                backlog += [d for after, d in self.diaries if after == t["tick"]]
+                backlog += after_tick.get(t["tick"], [])
             self._subs.add((asyncio.get_running_loop(), q))
-        return q, [json.dumps(r, ensure_ascii=False) for r in backlog]
+        deltas = ViewDeltas()
+        return q, [json.dumps(deltas.compact(r), ensure_ascii=False) for r in backlog]
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         with self._lock:
@@ -1196,8 +1222,9 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         try:
             for msg in backlog:
                 await socket.send_text(msg)
-            while True:
-                await socket.send_text(await q.get())
+            while (msg := await q.get()) is not None:
+                await socket.send_text(msg)
+            await socket.close()  # fell behind: viewer/live.js reconnects and gets a fresh backlog
         except WebSocketDisconnect:
             pass
         finally:

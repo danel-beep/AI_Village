@@ -167,7 +167,8 @@ def check_log(log_path: str | Path, snap: dict) -> list[dict]:
     if not head.endswith(b"\n"):
         raise ValueError(f"the save does not end on a record of the log {p.name}")
     try:
-        recs = [json.loads(line) for line in head.decode("utf-8").splitlines() if line.strip()]
+        from .logio import parse
+        recs = list(parse(head.decode("utf-8").splitlines()))
     except ValueError as e:
         raise ValueError(f"the log {p.name} is damaged before the save: {e}") from None
     if not recs or recs[0].get("type") != "header":

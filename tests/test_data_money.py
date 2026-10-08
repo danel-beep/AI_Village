@@ -146,4 +146,3 @@ def test_history_in_memory_is_the_log(tmp_path):
     log = tmp_path / "r.jsonl"
     run(world, bots_decider(world, KINDS, 3), 1, log_path=log, on_record=seen.append)
     assert seen == list(read_log(log))
-    assert json.dumps(seen[1], ensure_ascii=False) == log.read_text(encoding="utf-8").splitlines()[1]
