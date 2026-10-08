@@ -64,6 +64,8 @@ def test_each_browser_own_game_keys_in_memory(site, c, tmp_path):
     remote = c.get("/api/remote").json()
     assert remote["tunnel"]["state"] == "on" and remote["tunnel"]["url"].startswith("https://village.example/p/")
     assert not c.get("/api/busy").json()["busy"]
+    assert c.post("/api/start", json={"brains": "mcp", "days": 1, "villagers": 2}).status_code == 200
+    assert c.get("/api/busy").json()["busy"]  # a tournament lobby gathering players keeps the game awake
     rid = next(iter(site.games))
 
     login(c)  # another browser: another workspace, no key

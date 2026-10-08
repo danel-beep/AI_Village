@@ -1365,8 +1365,9 @@ def create_app(sim: LiveSim | None = None, host: Host | None = None) -> FastAPI:
         local_only(request)
         sim, lab_ = host.sim, host.lab
         playing = sim is not None and not sim.finished
-        lobby = host.lobby_opts is not None  # an MCP tournament gathering its players
-        return {"busy": playing or lobby or bool(lab_ and lab_.status.get("state") == "running")}
+        # MCP tournaments gathering players or playing (Host.tournaments)
+        tournament = any(t["running"] or t["phase"] == "lobby" for t in host.tournament_list())
+        return {"busy": playing or tournament or bool(lab_ and lab_.status.get("state") == "running")}
 
     @app.get("/api/status")
     def status() -> dict:
