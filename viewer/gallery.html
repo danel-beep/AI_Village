@@ -24,12 +24,15 @@
 <body>
 <main>
   <h1>Галерея зданий и предметов</h1>
-  <p class="note">Режим «С нуля». Всё нарисовано кодом (viewer/buildart.js, viewer/icons.js). Уровень 1: ветки, плетень, солома, шкуры. Уровень 2: брёвна и доски, дранка, ставни. Уровень 3: камень, кирпич, черепица, стекло.</p>
+  <p class="note">Режим «С нуля». Картинки из листов ChatGPT (viewer/art/dwell, workshops, farmyard, civic), остальное нарисовано кодом (viewer/buildart.js, viewer/icons.js). Уровень 1: ветки, плетень, солома, шкуры. Уровень 2: брёвна и доски, дранка, ставни. Уровень 3: камень, кирпич, черепица, стекло.</p>
   <div id="out"></div>
 </main>
+<script src="sprites_data.js"></script>
+<script src="sprites.js"></script>
 <script src="buildart.js"></script>
 <script src="icons.js"></script>
 <script>
+function render() {
   const out = document.getElementById('out'), SCALE = 3;
   const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt) e.textContent = txt; return e; };
   const LV = ['', 'ур. 1', 'ур. 2', 'ур. 3'];
@@ -64,6 +67,9 @@
     }
     out.append(grid);
   }
+}
+// drawn art (GPT Image sheets) replaces the code drawing where the atlas has it
+if (window.Sprites) Sprites.onReady(render); else render();
 </script>
 </body>
 </html>

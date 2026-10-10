@@ -193,11 +193,13 @@ const GenMap = (() => {
   }
 
   // Camp start (pixelmap.js campAnchors): a ring of stones with a fire, bedrolls of those without a house site.
-  // A bedroll: a hide mat under a rolled-out blanket with a pillow (not a flat bar). The fire is the painted
-  // `campfire` sprite when the atlas has it.
+  // Bedrolls and the fire are drawn art from the atlas (`camp_tent`, `ba_campfire1`) when it has them, else a
+  // hide mat under a blanket with a pillow and a ring of stones.
   function camp(g, L, K) {
     const { C, R, P, blob, SP } = K;
+    const art = n => SP && window.Sprites && Sprites.has(n);
     for (const [x, y] of L.bedrolls || []) {
+      if (art('camp_tent')) { SP(g, 'camp_tent', x, y + 4, { s: .6 }); continue; }   // a small hide tent reads as a bed at map scale
       blob(g, x, y + 2, 12, 5, ['#d2b07a', '#b08a55', '#7a5a34'], '#5a3f22');          // hide mat
       const o = '#2a2018';
       R(g, x - 5, y - 3, 12, 1, o); R(g, x - 5, y + 3, 12, 1, o); R(g, x - 6, y - 2, 1, 5, o); R(g, x + 7, y - 2, 1, 5, o);
@@ -209,7 +211,7 @@ const GenMap = (() => {
     }
     if (!L.campfire) return;
     const [cx, cy] = L.campfire;
-    if (SP && window.Sprites && Sprites.has('campfire')) { SP(g, 'campfire', cx, cy + 5, { s: 1.5 }); return; }
+    for (const n of ['ba_campfire1', 'campfire']) if (art(n)) { SP(g, n, cx, cy + 5, { s: n === 'campfire' ? 1.5 : .6 }); return; }
     for (let i = 0; i < 8; i++) { const a = Math.PI * 2 * i / 8; blob(g, cx + Math.cos(a) * 7, cy + Math.sin(a) * 4, 2, 2, [C.stoneL, C.stone, C.stoneD], null); }
     R(g, cx - 4, cy - 1, 8, 2, C.woodD); R(g, cx - 2, cy - 4, 4, 4, '#e4572e'); P(g, cx, cy - 6, '#f2c14e'); P(g, cx - 1, cy - 5, '#f2c14e');
   }
