@@ -193,13 +193,23 @@ const GenMap = (() => {
   }
 
   // Camp start (pixelmap.js campAnchors): a ring of stones with a fire, bedrolls of those without a house site.
+  // A bedroll: a hide mat under a rolled-out blanket with a pillow (not a flat bar). The fire is the painted
+  // `campfire` sprite when the atlas has it.
   function camp(g, L, K) {
-    const { C, R, P, blob } = K;
+    const { C, R, P, blob, SP } = K;
     for (const [x, y] of L.bedrolls || []) {
-      R(g, x - 7, y - 2, 14, 6, C.k); R(g, x - 6, y - 1, 12, 4, '#8a5a3a'); R(g, x - 6, y - 1, 4, 4, '#c8b48a');
+      blob(g, x, y + 2, 12, 5, ['#d2b07a', '#b08a55', '#7a5a34'], '#5a3f22');          // hide mat
+      const o = '#2a2018';
+      R(g, x - 5, y - 3, 12, 1, o); R(g, x - 5, y + 3, 12, 1, o); R(g, x - 6, y - 2, 1, 5, o); R(g, x + 7, y - 2, 1, 5, o);
+      R(g, x - 5, y - 2, 12, 5, '#4a6fa5'); R(g, x - 5, y - 2, 12, 1, '#7a9ccf');      // blanket, lit top edge
+      for (let i = -3; i < 7; i += 3) R(g, x + i, y - 1, 1, 4, '#2f4d7a');
+      R(g, x - 5, y - 2, 3, 5, '#d8cfb4');                                              // folded-back sheet
+      R(g, x - 10, y - 2, 1, 4, o); R(g, x - 9, y - 3, 3, 1, o); R(g, x - 9, y + 2, 3, 1, o);
+      R(g, x - 9, y - 2, 3, 4, '#f3ead2');                                              // pillow
     }
     if (!L.campfire) return;
     const [cx, cy] = L.campfire;
+    if (SP && window.Sprites && Sprites.has('campfire')) { SP(g, 'campfire', cx, cy + 5, { s: 1.5 }); return; }
     for (let i = 0; i < 8; i++) { const a = Math.PI * 2 * i / 8; blob(g, cx + Math.cos(a) * 7, cy + Math.sin(a) * 4, 2, 2, [C.stoneL, C.stone, C.stoneD], null); }
     R(g, cx - 4, cy - 1, 8, 2, C.woodD); R(g, cx - 2, cy - 4, 4, 4, '#e4572e'); P(g, cx, cy - 6, '#f2c14e'); P(g, cx - 1, cy - 5, '#f2c14e');
   }

@@ -535,7 +535,7 @@ const PixelMap = (() => {
     const sm = at('smithy', smithy); if (layout.forge) { layout.forge = move(layout.forge, sm); layout.smithyChimney = move(layout.smithyChimney, sm); }
     at('mine', mine); decor(g);
     groundCopy(); if (!built) layout.houses.forEach(h => house(g, h)); at('forest', forest);
-    if (campLay) GenMap.camp(g, layout, { C, R, P, blob });
+    if (campLay) GenMap.camp(g, layout, { C, R, P, blob, SP });
   }
 
   // ---------- characters ----------
