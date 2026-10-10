@@ -2,7 +2,7 @@
 
 All names in the atlas (`viewer/sprites_data.js`, built by `python scripts/build_sprites.py` from the sheets here).
 Draw any of them with `Sprites.draw(g, name, x, y, {s, flip, alpha})` (bottom-centre at x, y, map pixels; 16 px
-tiles, a villager is 22 px tall). Sizes are set in `SIZE` in the build script. All art: SpriteCook, gpt-image-2; bandits, beast, combatfx, emotes, festival: GPT Image sheets by Danel (white background keyed by `scripts/key_white.py`).
+tiles, a villager is 22 px tall). Sizes are set in `SIZE` in the build script. All art: SpriteCook, gpt-image-2; bandits, beast, combatfx, emotes, festival, dwell, workshops, farmyard, civic: GPT Image sheets by Danel (white background keyed by `scripts/key_white.py`, `--holes 60` for the background seen through frames).
 
 ## In use
 
@@ -20,6 +20,7 @@ tiles, a villager is 22 px tall). Sizes are set in `SIZE` in the build script. A
 | `beast.png` | `beast_stand`, `beast_walk1..3`, `beast_roar`, `beast_bite`, `beast_swipe`, `beast_flinch`, `beast_limp`, ... `beast_flee` (side view facing left; used: walk, roar, bite, swipe, flinch, limp) |
 | `combatfx.png` | `fx_star`, `fx_dust`, `fx_dizzy`, `fx_slash`, `fx_slash_red`, `fx_puff`, `fx_arrow`, `fx_torch` (used in `viewer/combat.js`, `ThreatLayer`) (also: `fx_potion`, `fx_bandage`, `fx_rock` and the rest of the sheet) |
 | `emotes.png` | `em_heart`, `em_hearts`, `em_heart_broken`, `em_ring`, `em_angry`, `em_exclaim`, `em_handshake` (bubbles in `viewer/gestures.js`) (also: the other `em_*`) |
+| `dwell.png`, `workshops.png`, `farmyard.png`, `civic.png` | «С нуля» buildings by level, GPT Image by Danel 2026-10-10: `ba_<BuildArt kind><level>` (e.g. `ba_house2`, `ba_forge1`, `ba_council3`) replace the code drawing in `BuildArt.canvas` (viewer/buildart.js), fitted into the kind's box; `ba_site1..3` building sites; `ba_campfire1` and `camp_tent` at the camp start (viewer/mapgen.js) (also: `camp_bedroll`, `camp_fire_out`, `camp_bench`, `camp_woodpile`, `camp_rack`, `camp_basket`, `yard_gate`, `signpost2`). Levels without art (level 3 of the workshops, wall, bridge, mine, generic workshop) keep the code drawing |
 | `festival.png` | `wedding_arch`, `confetti`, `feast_table`, `bonfire`, `podium`, `ballot_box`, `bunting`, `gravestone`, `grave_mound` (also: `banner`, `lanterns`, `wedding_cake`, `gift_box`, `bouquet`, `wreath`, `bell`) |
 
 ## Ready for later (not drawn yet)

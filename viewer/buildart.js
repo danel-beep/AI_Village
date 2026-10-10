@@ -624,6 +624,7 @@ const BuildArt = (() => {
 
   // The building site: stage 1 stakes and string with materials, 2 a timber frame, 3 half-built walls in scaffolding.
   function site(g, w, h, stage, x = 0, y = 0) {
+    if (art(g, 'ba_site' + stage, x, y, w, h)) return;
     g.save(); g.translate(x, y);
     const b = h - 4, fx = 4, fw = w - 8;
     R(g, fx, b - 6, fw, 8, '#a88a5a'); for (let i = 0; i < fw; i += 3) P(g, fx + i, b - 3 + (i % 2), '#8a6a40');   // dug ground
@@ -660,8 +661,18 @@ const BuildArt = (() => {
   function canvas(kind, level, scale = 1, doc = document) {
     const [w, h] = K[kind].size, c = doc.createElement('canvas');
     c.width = w * scale; c.height = (h + 8) * scale;
-    const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.scale(scale, scale); draw(g, kind, level, 0, 8);
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.scale(scale, scale);
+    if (!art(g, 'ba_' + kind + level, 0, 8, w, h)) draw(g, kind, level, 0, 8);
     return c;
+  }
+  // Drawn art from the sprite atlas (GPT Image sheets, scripts/build_sprites.py `ba_*`), when it has this kind and
+  // level: fitted into the w x h box at (x, y), bottom-centred. Levels without art keep the code drawing above.
+  function art(g, name, x, y, w, h) {
+    const c = typeof Sprites !== 'undefined' && Sprites.has(name) && Sprites.canvas(name);
+    if (!c) return false;
+    const f = Math.min(1, w / c.width, h / c.height), dw = Math.round(c.width * f), dh = Math.round(c.height * f);
+    g.drawImage(c, x + Math.round((w - dw) / 2), y + h - dh, dw, dh);
+    return true;
   }
   const LIST = Object.keys(K);
   const api = { KINDS: K, LIST, draw, site, canvas, GROUPS: { personal: 'Личные', craft: 'Ремесленные', shared: 'Общие' } };

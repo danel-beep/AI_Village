@@ -66,6 +66,20 @@ SHEETS = {
                       "em_question", "em_exclaim", "em_idea", "em_zzz", "em_music", "em_coin", "em_dizzy", "em_handshake"]),
     "festival": (4, 4, ["wedding_arch", "bunting", "ballot_box", "podium", "banner", "lanterns", "bonfire", "feast_table",
                         "wedding_cake", "gift_box", "bouquet", "gravestone", "grave_mound", "wreath", "bell", "confetti"]),
+    # «С нуля» buildings by level (Danel, GPT Image 2026-10-10): `ba_<BuildArt kind><level>` replaces the code drawing
+    # in viewer/buildart.js (BuildArt.canvas), `ba_site1..3` the building-site stages; the rest are camp props
+    "dwell": (4, 4, ["ba_shelter1", "camp_tent", "camp_bedroll", "ba_house1", "ba_house2", "ba_house3", "ba_site1",
+                     "ba_site2", "ba_site3", "camp_fire_out", "ba_campfire1", "ba_campfire2", "camp_bench", "camp_woodpile",
+                     "camp_rack", "camp_basket"]),
+    "workshops": (4, 4, ["ba_workbench1", "ba_workbench2", "ba_smokehouse1", "ba_smokehouse2", "ba_barn1", "ba_barn2",
+                         "ba_kiln1", "ba_kiln2", "ba_mill1", "ba_mill2", "ba_forge1", "ba_forge2", "ba_loom1", "ba_loom2",
+                         "ba_tannery1", "ba_tannery2"]),
+    "farmyard": (4, 4, ["ba_pen1", "ba_pen2", "ba_pen3", "ba_chicken_coop1", "ba_chicken_coop2", "ba_chicken_coop3",
+                        "ba_garden1", "ba_garden2", "ba_garden3", "ba_beehive1", "ba_beehive2", "ba_beehive3", "ba_well1",
+                        "ba_well2", "ba_well3", "yard_gate"]),
+    "civic": (4, 4, ["ba_council1", "ba_council2", "ba_council3", "ba_tavern1", "ba_tavern2", "ba_tavern3", "ba_market1",
+                     "ba_market2", "ba_market3", "ba_watchtower1", "ba_watchtower2", "ba_watchtower3", "ba_gate1", "ba_gate2",
+                     "ba_gate3", "signpost2"]),
 }
 # Sheets drawn at one scale for all their frames (so a creature keeps its size between poses): sheet -> (frame, axis, px)
 GROUP = {"beast": ("beast_stand", "w", 54)}
@@ -128,6 +142,21 @@ SIZE = {
     "bouquet": ("w", 10), "gravestone": ("w", 14), "grave_mound": ("w", 18), "wreath": ("w", 12), "bell": ("h", 22),
     "confetti": ("w", 24),
 }
+# «С нуля» buildings fit inside their BuildArt box (viewer/buildart.js def sizes), so the layout keeps working.
+BOX = {"shelter": (32, 28), "house": (56, 68), "smokehouse": (40, 54), "barn": (64, 62), "pen": (66, 44),
+       "garden": (52, 36), "chicken_coop": (42, 40), "beehive": (36, 32), "workbench": (40, 36), "kiln": (40, 50),
+       "mill": (56, 80), "forge": (56, 56), "loom": (48, 52), "tannery": (56, 44), "campfire": (44, 32),
+       "market": (88, 54), "council": (88, 74), "tavern": (72, 72), "gate": (64, 56), "well": (32, 40),
+       "watchtower": (40, 88)}
+for _sheet in ("dwell", "workshops", "farmyard", "civic"):
+    for _n in SHEETS[_sheet][2]:
+        if _n.startswith("ba_site"):
+            SIZE[_n] = ("fit", (56, 52))
+        elif _n.startswith("ba_"):
+            SIZE[_n] = ("fit", BOX[_n[3:-1]])
+SIZE.update({"camp_tent": ("w", 30), "camp_bedroll": ("w", 18), "camp_fire_out": ("w", 18), "camp_bench": ("w", 18),
+             "camp_woodpile": ("w", 18), "camp_rack": ("w", 22), "camp_basket": ("w", 10), "yard_gate": ("w", 20),
+             "signpost2": ("h", 20)})
 CHAR_H = 22                      # villager height in map pixels (the code-drawn ones are 16)
 ROOF_HUE = {"house1": 8, "house2": 222, "house3": 115,   # roof hue of each house as generated
             **{f"house{lv}{v}": 4 for lv in (1, 2, 3) for v in "abc"}}
@@ -329,7 +358,8 @@ def build():
             if spr is None or n is None:
                 continue
             axis, size = SIZE[n]
-            f = size / (spr.width if axis == "w" else spr.height)
+            f = min(size[0] / spr.width, size[1] / spr.height) if axis == "fit" else \
+                size / (spr.width if axis == "w" else spr.height)
             sprites[n] = shrink(spr, f)
     for n in ROOF_HUE:
         sprites.update(roof_variants(n, sprites[n]))
