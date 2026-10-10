@@ -103,6 +103,8 @@ const BuildLayer = (() => {
     return { house: [hs.x + 24, hs.y + 47, .82], spots: [[hs.x + 10, y0 + 20], [hs.x + 38, y0 + 20], [hs.x + 10, y0 + 42], [hs.x + 38, y0 + 42]] };
   }
 
+  // A shelter is drawn larger than its 32 px art and a little up the yard, so it reads as a hut, not a tent on the fence.
+  const SHELTER = 1.4, SHELTER_LIFT = 6;
   // Draw one house spot: the house at its level, a shelter at level 0 if one is built, else nothing.
   function house(g, hs, level, shelter, [bx, by, sc]) {
     hs.chimney = null; hs.windows = [];
@@ -110,7 +112,7 @@ const BuildLayer = (() => {
       const c = pic('house', Math.min(3, level)), r = put(g, c, bx, by, sc, 'house');
       if (level >= 2) hs.chimney = [r[0] + r[2] * .72, r[1] + 10];
       hs.windows = [[bx - 14 * sc / .82, by - 22 * sc / .82], [bx + 6 * sc / .82, by - 22 * sc / .82]];
-    } else if (shelter) put(g, pic('shelter', 1), bx, by, 1, 'b_shelter');
+    } else if (shelter) put(g, pic('shelter', 1), bx, by - SHELTER_LIFT, SHELTER, 'b_shelter');
   }
 
   function draw(g, t, e) {
@@ -136,9 +138,10 @@ const BuildLayer = (() => {
       if (hsite) {
         // a house going up (or its next level): the old one shows through scaffolding
         if (p.house >= 1) house(g, hs, p.house, shelter, at);
-        else if (shelter && hsite.kind === 'house') put(g, pic('shelter', 1), at[0], at[1], 1, 'b_shelter');
+        else if (shelter && hsite.kind === 'house') put(g, pic('shelter', 1), at[0], at[1] - SHELTER_LIFT, SHELTER, 'b_shelter');
         const [w, h] = BuildArt.KINDS[art(hsite.kind)].size;
-        const r = put(g, sitePic(w, h, stageOf(hsite.done)), at[0], at[1], hsite.kind === 'shelter' ? 1 : at[2], 'b_site');
+        const r = hsite.kind === 'shelter' ? put(g, sitePic(w, h, stageOf(hsite.done)), at[0], at[1] - SHELTER_LIFT, SHELTER, 'b_site')
+          : put(g, sitePic(w, h, stageOf(hsite.done)), at[0], at[1], at[2], 'b_site');
         bar(g, r[0] + 6, r[1] + r[3] + 2, r[2] - 12, hsite.done);
       } else house(g, hs, p.house || 0, shelter, at);
       own.forEach((b, k) => {
