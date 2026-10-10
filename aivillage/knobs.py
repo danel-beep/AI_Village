@@ -635,7 +635,7 @@ HINTS = {
 # RETIRED: kept in to_run() and in the config (old saved forms, the lab, scenarios), never on the screen: switches
 # back to an older, dearer or worse way that nobody should pick by hand (Danel 2026-10-08).
 SIMPLE = ["brains", "models", "villains", "bot_mix", "preset", "start_stage", "villagers", "days", "daily_budget", "chaos"]
-RETIRED = {"llm_memory", "llm_obs", "fixed_map"}
+RETIRED = {"llm_memory", "llm_obs", "fixed_map", "no_professions", "skill_bonus"}  # no professions: Danel 2026-10-08
 MAIN = ["brains", "models", "villains", "bot_mix", "preset", "start_stage", "food", "villagers", "days", "daily_budget"]
 SECTIONS: list[tuple[str, str, list[str]]] = [
     ("🧠 Жители и их ИИ", "Характеры, свои цели, разговоры и что жители видят друг о друге.",

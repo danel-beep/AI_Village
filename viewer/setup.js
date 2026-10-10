@@ -251,13 +251,13 @@
       #su .msg { font-size:13px; flex-basis:100%; min-height:18px; }
       #su .bad { color:#ff8a72; }
       #su .runs a { color:#e8efe9; display:inline-block; margin:3px 10px 3px 0; }
-      #su .vr { display:grid; grid-template-columns:48px 1fr 1fr 1.3fr; gap:6px; padding:8px 0; border-top:1px solid #2f3935; }
+      #su .vr { display:grid; grid-template-columns:48px 1fr 1.3fr; gap:6px; padding:8px 0; border-top:1px solid #2f3935; }
       #su .vr input, #su .vr select { width:100%; box-sizing:border-box; background:#1d2321; color:#e8efe9;
         border:1px solid #4a5650; border-radius:6px; padding:6px 8px; font:13px system-ui; }
       #su .vr .own { grid-column:2 / -1; min-height:54px; resize:vertical; font:inherit; font-size:12px; background:#1d2321;
         color:#e8efe9; border:1px solid #3a4540; border-radius:6px; padding:5px 7px; box-sizing:border-box; width:100%; }
       #su .vr select.ch { grid-column:2 / -1; }
-      #su .vr select.look { grid-column:2 / 4; }
+      #su .vr select.look { grid-column:2 / -1; }
       #su .vr .face { grid-row:1 / span 4; width:40px; height:52px; image-rendering:pixelated; align-self:start;
         background:#2c3632; border-radius:8px; padding:2px; }
       @media (max-width:560px) { #su .vr { grid-template-columns:44px 1fr 1fr; } #su .vr select.mdl { grid-column:2 / -1; } }
@@ -576,7 +576,6 @@
     }).catch(() => {}), 3000);
 
     // --- villagers one by one (knobs.roster / clean_roster on the server) ---
-    const PROF = { farmer: 'Фермер', fisher: 'Рыбак', woodcutter: 'Лесоруб', miner: 'Шахтёр', smith: 'Кузнец' };
     let roster = Array.isArray(start.roster) && start.roster.length ? start.roster : null;
     const n = () => values.villagers;
     const fetchRoster = (existing, seed) => post('/api/roster', { n: n(), existing, seed });
@@ -620,9 +619,6 @@
         const name = document.createElement('input');
         name.value = v.name; name.maxLength = 20; name.placeholder = 'Имя';
         name.oninput = () => { v.name = name.value; drawFaces(); remember(); };
-        const prof = document.createElement('select');
-        for (const p of info.professions) prof.add(new Option(PROF[p] || p, p, false, p === v.profession));
-        prof.onchange = () => { v.profession = prof.value; drawFaces(); remember(); };
         // Model: "" = as «Модели жителей» says; otherwise this villager's own (remote.models_for).
         const mdl = document.createElement('select');
         mdl.className = 'mdl'; mdl.title = 'Модель ИИ этого жителя';
@@ -662,7 +658,7 @@
           show(); remember();
         };
         show();
-        // Look (viewer/sprites.js): automatic = by the name's sex and the profession; or any of the drawn villagers.
+        // Look (viewer/sprites.js): automatic = by the name's sex; or any of the drawn villagers.
         const look = document.createElement('select');
         look.className = 'look'; look.title = 'Внешность';
         look.add(new Option('🎲 Внешность: сама подберётся', ''));
@@ -673,7 +669,7 @@
         face.className = 'face'; face.width = 20; face.height = 26; face.title = 'Так он будет выглядеть в игре';
         faces.push({ v, face });
         look.onchange = () => { if (look.value === '') delete v.look; else v.look = +look.value; drawFaces(); remember(); };
-        r.append(face, name, prof, mdl, ch, look, own);
+        r.append(face, name, mdl, ch, look, own);
         list.appendChild(r);
       });
       const S = window.Sprites;
