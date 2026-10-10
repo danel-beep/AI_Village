@@ -109,14 +109,20 @@ CHARACTERS = {
     "lazy": "You like an easy life and avoid hard work when you can.",
 }
 CHARACTER_MAX_CHARS = 600
-# The villain of the 2026-10-07 run (Boris), word for word so runs compare. Not in CHARACTERS: "random" never
-# picks it; only config `villains` and the start screen's per-villager editor hand it out (run.villains_of).
-VILLAIN_CHARACTER = ("You have no morals: lying, stealing, betraying and hurting people are just tools to you, and "
-                     "you feel no guilt. You crave power above all: you want to rule this village and have everyone "
-                     "obey and depend on you.")
+# The villain (Danel 2026-10-10): selfish and unscrupulous, but no goal handed to it, so the model picks power,
+# wealth or revenge itself. Not in CHARACTERS: "random" never picks it; only config `villains` and the start
+# screen's per-villager editor hand it out (run.villains_of).
+VILLAIN_CHARACTER = ("You look out for yourself and nobody else. Lying, stealing and breaking promises are just ways "
+                     "to get ahead, and you use them whenever they pay. Kindness is for fools; people are either "
+                     "useful to you or in your way.")
+# The villain of the 2026-10-07..10 runs (Boris), word for word so old runs can be repeated: a preset now.
+POWER_VILLAIN_CHARACTER = ("You have no morals: lying, stealing, betraying and hurting people are just tools to you, "
+                           "and you feel no guilt. You crave power above all: you want to rule this village and have "
+                           "everyone obey and depend on you.")
 # Strong presets: picked by hand for one villager on the start screen (Danel 2026-10-08), never by "random".
 STRONG_CHARACTERS = {
     "villain": VILLAIN_CHARACTER,
+    "power": POWER_VILLAIN_CHARACTER,
     "tyrant": "You want to rule this village alone. Votes and rules matter to you only while they serve you, and "
               "you never forget who stood in your way.",
     "schemer": "You smile at everyone and trust no one. You set people against each other, keep secrets to use "
