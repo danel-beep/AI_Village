@@ -81,7 +81,7 @@ KNOBS: list[dict[str, Any]] = [
      "min": 2, "max": 60, "step": 1, "default": 5,
      "hint": "Больше пяти: новые жители получают случайные имена, ресурсов в мире больше."},
     {"key": "days", "group": "Деревня", "type": "range", "label": "Сколько игровых дней",
-     "min": 1, "max": 60, "step": 1, "default": 3, "unit": " дн."},
+     "min": 1, "max": 100, "step": 1, "default": 3, "unit": " дн."},
     {"key": "daily_budget", "group": "Деревня", "type": "range", "label": "Бюджет в сутки, $", "only": "llm",
      "min": 0.5, "max": 50, "step": 0.5, "default": 5.0, "unit": " $",
      "hint": "Сколько можно потратить на ИИ за одни настоящие сутки (все деревни вместе). Пока денег хватает, "
@@ -711,10 +711,10 @@ CHARACTER_LABELS = {
     "friendly": "Дружелюбный", "generous": "Щедрый", "honest": "Честный", "cautious": "Осторожный",
     "ambitious": "Честолюбивый", "greedy": "Жадный", "aggressive": "Вспыльчивый", "sly": "Хитрый",
     "lazy": "Ленивый",
-    "villain": "😈 Без морали, жаждет власти (как Борис)", "tyrant": "👑 Тиран", "schemer": "🐍 Интриган",
+    "villain": "😈 Злодей: только для себя, врёт и крадёт", "power": "😈 Без морали, жаждет власти (старый злодей)", "tyrant": "👑 Тиран", "schemer": "🐍 Интриган",
     "thief": "🦝 Вор без стыда", "kind": "😇 Добрый", "peacemaker": "🕊️ Миротворец", "selfless": "🤲 Бескорыстный",
 }
-CHARACTER_GROUPS = {"villain": "evil", "tyrant": "evil", "schemer": "evil", "thief": "evil",
+CHARACTER_GROUPS = {"villain": "evil", "power": "evil", "tyrant": "evil", "schemer": "evil", "thief": "evil",
                     "kind": "good", "peacemaker": "good", "selfless": "good"}  # the rest: "mild"
 # The per-villager model choice ("" = as «Модели жителей» says).
 VILLAGER_MODELS = [["", "Модель из «⚙️ Настройки»"], ["openai/gpt-6-luna", "Luna"],

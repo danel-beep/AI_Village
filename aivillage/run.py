@@ -290,14 +290,16 @@ def seat_order(names, seed: int) -> list[str]:
     return order
 
 
-def villains_of(models: dict[str, str], per_model: int, seed: int) -> dict[str, str]:
+def villains_of(models: dict[str, str], per_model: int, seed: int, hand: frozenset = frozenset()) -> dict[str, str]:
     """{villager: model} of the villains: `per_model` villagers of every model (own AIs aside), drawn from the seed,
-    so each model gets the same number and no seat (Boris included) is fixed."""
+    so each model gets the same number and no seat (Boris included) is fixed. Villains set by hand in the start
+    screen's editor (`hand`) count toward their model's number, so 1 per model stays 1 (Danel 2026-10-10)."""
     out: dict[str, str] = {}
     for m in sorted(set(models.values()) - {"mcp"}):
-        names = sorted(n for n, mm in models.items() if mm == m)
+        names = sorted(n for n, mm in models.items() if mm == m and n not in hand)
         random.Random(f"{seed}:villains:{m}").shuffle(names)
-        out.update({n: m for n in names[:max(0, per_model)]})
+        mine = sum(1 for n in hand if models.get(n) == m)
+        out.update({n: m for n in names[:max(0, per_model - mine)]})
     return dict(sorted(out.items()))
 
 
@@ -457,7 +459,8 @@ def llm_agents(world: World, models: list[str] | dict[str, str], fallbacks: list
             hub.reset(wait_minutes=own.get("wait_minutes", 5), style=own.get("style", "owner"),
                       info={"villagers": len(world.agents)})
         hub.world = world  # the lobby's table: who is alive and how rich
-    villains = villains_of(models, int(world.config.get("villains") or 0), world.config["seed"])
+    hand = frozenset(n for n, c in chars.items() if c == "villain" or c == VILLAIN_CHARACTER)
+    villains = villains_of(models, int(world.config.get("villains") or 0), world.config["seed"], hand)
     out = {}
     for name, m in models.items():
         character = character_text(chars.get(name), mode=mode, seed=world.config["seed"], name=name)

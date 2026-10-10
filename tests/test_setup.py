@@ -352,3 +352,13 @@ def test_each_villager_gets_own_model_and_character_from_the_start_screen(tmp_pa
     r = c.post("/api/start", json={"brains": "llm", "villagers": 4, "roster": rows})
     assert r.status_code == 400 and "OpenRouter" in r.json()["detail"]  # Haiku picked for one villager
     assert c.get("/api/setup").json()["villager_models"][0][0] == ""
+
+
+def test_hand_set_villains_count_toward_the_per_model_number():
+    from aivillage.run import villains_of
+    models = {"Boris": "a", "Daisy": "a", "Lucas": "a", "Edgar": "b", "Frida": "b", "Milo": "b"}
+    # the 2026-10-10 run: Boris and Edgar set by hand plus «1 per model» made four villains
+    assert villains_of(models, 1, 626576, frozenset({"Boris", "Edgar"})) == {}
+    got = villains_of(models, 1, 626576, frozenset({"Boris"}))
+    assert list(got.values()) == ["b"]
+    assert sorted(villains_of(models, 1, 626576).values()) == ["a", "b"]
