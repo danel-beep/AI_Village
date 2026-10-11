@@ -14,8 +14,10 @@ and the browser keeps its own copy and sends it again after a restart (viewer/se
 hosting's environment are never passed to a game server, and request bodies are never logged.
 
 Without the password only these answer: /login, /healthz (how many villages play; the deploy gate
-.github/workflows/site-deploy.yml waits for 0) and a workspace's MCP connector /p/<id>/mcp/... (the MCP
-tournament's invite links; the game server itself also refuses anything else that comes from outside).
+.github/workflows/site-deploy.yml waits for 0), /export (the newest finished run sealed to the report writers'
+public key, aivillage/export.py: unreadable without the private key) and a workspace's MCP connector
+/p/<id>/mcp/... (the MCP tournament's invite links; the game server itself also refuses anything else that comes
+from outside).
 """
 
 from __future__ import annotations
@@ -43,13 +45,14 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import keys
+from . import export, keys
 
 IDLE_MINUTES = 30  # a workspace's game server stops this long after its last visit, unless a village plays
 MAX_GAMES = 8  # game servers at once (each ~100-200 MB)
 START_TIMEOUT = 60.0  # seconds a new game server may take to listen
 WS_COOKIE, AUTH_COOKIE = "aiv_ws", "aiv_auth"
 COOKIE_DAYS = 365
+EXPORT_EVERY = 60.0  # seconds between two /export packs
 PUBLIC_PREFIXES = ("/mcp/", "/.well-known/")  # what a workspace serves at /p/<id>/... without the password
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "cookie", "content-length", "origin",
@@ -265,6 +268,20 @@ def create_app(site: Site) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict:
         return {"ok": True, "playing": await site.playing(), "games": len(site.games)}
+
+    last_export = [-EXPORT_EVERY]
+    export_lock = asyncio.Lock()
+
+    @app.get("/export")
+    async def export_run(n: int = 0) -> Response:
+        """The nth newest run, sealed (aivillage/export.py). At most one a minute: packing is not free."""
+        async with export_lock:
+            if time.monotonic() - last_export[0] < EXPORT_EVERY:
+                return Response("Too many exports, try again in a minute.", status_code=429)
+            last_export[0] = time.monotonic()
+            box = await asyncio.to_thread(lambda: export.seal(export.pack(site.data, n), *export.public_key()))
+        return Response(box, media_type="application/octet-stream",
+                        headers={"Content-Disposition": 'attachment; filename="run.aivx"'})
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(next: str = "/") -> str:
